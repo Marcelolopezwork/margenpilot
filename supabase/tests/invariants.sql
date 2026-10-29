@@ -232,6 +232,37 @@ begin
 end $$;
 
 -- ---------------------------------------------------------------------------
+-- profiles · cada uno el suyo y nada más
+-- ---------------------------------------------------------------------------
+
+set request.jwt.claim.sub = '11111111-1111-1111-1111-111111111111';
+set role authenticated;
+
+do $$
+declare v_raised boolean := false;
+begin
+  insert into profiles (id, full_name, email)
+  values ('11111111-1111-1111-1111-111111111111', 'Marcelo', 'marcelo@test.local');
+
+  perform assert_true((select count(*) from profiles) = 1, 'cada uno ve su propio perfil');
+
+  begin
+    insert into profiles (id, full_name) values ('22222222-2222-2222-2222-222222222222', 'Ajeno');
+  exception when others then v_raised := true;
+  end;
+  perform assert_true(v_raised, 'nadie puede crear el perfil de otro');
+end $$;
+
+set request.jwt.claim.sub = '22222222-2222-2222-2222-222222222222';
+
+do $$
+begin
+  perform assert_true((select count(*) from profiles) = 0, 'nadie ve el perfil de otro');
+end $$;
+
+reset role;
+
+-- ---------------------------------------------------------------------------
 -- Techo de organizaciones por usuario
 --
 -- create_organization es un RPC abierto a cualquiera con sesión. Sin techo,
@@ -257,4 +288,4 @@ begin
     'la moneda de alta tiene que existir');
 end $$;
 
-select 'TODAS LAS PRUEBAS DE F1 PASARON' as resultado;
+select 'TODAS LAS PRUEBAS DE F1 PASARON · 27 aserciones' as resultado;

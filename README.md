@@ -10,10 +10,10 @@ Cotizador, dashboard financiero y pipeline comercial en un solo software, con **
 |---|---|
 | Fase | **F1 Fundaciones**, base de datos terminada |
 | Web | arranca, con acceso por enlace de correo |
-| Base de datos | cinco migraciones **aplicadas** al proyecto real |
+| Base de datos | seis migraciones **aplicadas** al proyecto real |
 | Supabase | `veocqvmywodeizuvnssn` · organización `margen pilot` · Postgres 17 |
 | Hosting | SiteGround, `public/.htaccess` ya preparado |
-| Verificado | 24 aserciones contra la base real · 16 pruebas de dinero · tipos, lint y build |
+| Verificado | 27 aserciones contra la base real · 16 pruebas de dinero · tipos, lint y build |
 | Pendiente | remoto de GitHub (sin él la CI no corre) · primer inicio de sesión para crear la organización |
 
 Las dos aplicaciones anteriores y sus proyectos de Supabase quedan **intactos**. No se migra ningún dato de 2026. Focus queda fuera.
@@ -47,12 +47,13 @@ Los pasos 1 y 2 ya están hechos sobre `veocqvmywodeizuvnssn`. Quedan documentad
    - `20261028120200_entitlements.sql` — límites de plan y alta de organización
    - `20261028120300_lockdown.sql` — **revoca los privilegios que Supabase concede solo** (ver ADR-25; sin esta migración `anon` puede borrar los planes)
    - `20261028120400_hardening.sql` — `search_path` fijo y techo de organizaciones por usuario
+   - `20261028120500_indices.sql` — `auth.uid()` fuera del bucle por fila e índices de clave ajena
 3. **Entrar una vez** en la app con tu correo, para que exista el usuario.
 4. **Ejecutar** `supabase/setup/margen-pilot-org.sql`, que crea la organización y las dos entidades con sus marcas y sus impuestos.
 
 ### Verificar
 
-`supabase/tests/invariants.sql` comprueba 24 invariantes: aislamiento entre organizaciones, límites de plan, los dos libros, un solo impuesto por defecto, y las tres guardas de privilegios —toda tabla con RLS, `authenticated` sin `DELETE` ni `TRUNCATE`, `anon` sin nada—.
+`supabase/tests/invariants.sql` comprueba 27 invariantes: aislamiento entre organizaciones, límites de plan, los dos libros, un solo impuesto por defecto, y las tres guardas de privilegios —toda tabla con RLS, `authenticated` sin `DELETE` ni `TRUNCATE`, `anon` sin nada—.
 
 En la CI corre contra un `postgres:16` con `supabase/stubs/auth.sql`, que suple el esquema `auth`. Contra el proyecto real se corre envuelto en `begin; … rollback;` para que no quede ni una fila de prueba. **Las dos cosas hacen falta:** un Postgres pelado no trae los `default privileges` de Supabase, y por eso la CI no vio sola el agujero de ADR-25.
 
