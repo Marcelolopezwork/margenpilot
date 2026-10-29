@@ -38,10 +38,10 @@ insert into auth.users (id, email) values
   ('11111111-1111-1111-1111-111111111111', 'marcelo@test.local'),
   ('22222222-2222-2222-2222-222222222222', 'otro@test.local');
 
-set app.current_user_id = '11111111-1111-1111-1111-111111111111';
+set request.jwt.claim.sub = '11111111-1111-1111-1111-111111111111';
 select create_organization('Org A', 'PEN');
 
-set app.current_user_id = '22222222-2222-2222-2222-222222222222';
+set request.jwt.claim.sub = '22222222-2222-2222-2222-222222222222';
 select create_organization('Org B', 'USD');
 
 do $$
@@ -62,7 +62,7 @@ end $$;
 -- D-2 · Aislamiento entre organizaciones
 -- ---------------------------------------------------------------------------
 
-set app.current_user_id = '11111111-1111-1111-1111-111111111111';
+set request.jwt.claim.sub = '11111111-1111-1111-1111-111111111111';
 set role authenticated;
 
 do $$
@@ -75,6 +75,8 @@ begin
     'el usuario A no ve membresías ajenas');
   perform assert_true((select count(*) from financial_categories) = 9,
     'el usuario A solo ve sus categorías');
+  perform assert_true((select count(*) from plans) = 2,
+    'el cliente ve los dos planes públicos y no el internal');
 end $$;
 
 reset role;
@@ -122,20 +124,33 @@ end $$;
 -- ---------------------------------------------------------------------------
 
 do $$
-declare v_org uuid; v_entity uuid; v_other_org uuid;
+declare v_org uuid; v_entity uuid; v_other_org uuid; v_other_entity uuid;
 begin
   select id into v_org from organizations where slug = 'org-a';
   select id into v_other_org from organizations where slug = 'org-b';
   select id into v_entity from legal_entities where organization_id = v_org and legal_name = 'Entidad Uno';
 
-  -- Moneda habilitada: pasa.
+  -- Org B nació en USD, así que su entidad opera en USD.
+  insert into legal_entities (organization_id, legal_name, country, default_currency_code)
+  values (v_other_org, 'Entidad de B', 'US', 'USD')
+  returning id into v_other_entity;
+
+  -- Moneda habilitada y entidad propia: pasa.
   insert into cash_accounts (organization_id, legal_entity_id, name, currency_code)
   values (v_org, v_entity, 'BCP Soles', 'PEN');
 
-  -- Moneda no habilitada: no pasa.
+  -- Primera rama del disparador: org B no tiene soles habilitados.
   perform assert_raises(
     format('insert into cash_accounts (organization_id, legal_entity_id, name, currency_code)
-            values (%L, %L, ''Cuenta rara'', ''PEN'')', v_other_org, v_entity),
+            values (%L, %L, ''Cuenta en soles'', ''PEN'')', v_other_org, v_other_entity),
+    'currency_not_enabled',
+    'una cuenta no puede estar en una moneda que su organización no habilitó');
+
+  -- Segunda rama: la moneda cuadra, pero la entidad es de otra organización.
+  -- Con PEN nunca se llegaba aquí, porque saltaba primero la rama de moneda.
+  perform assert_raises(
+    format('insert into cash_accounts (organization_id, legal_entity_id, name, currency_code)
+            values (%L, %L, ''Cuenta cruzada'', ''USD'')', v_other_org, v_entity),
     'entity_mismatch',
     'una cuenta no puede apuntar a una entidad de otra organización');
 
@@ -169,16 +184,39 @@ end $$;
 -- ---------------------------------------------------------------------------
 
 do $$
-declare v_count int;
+declare v_count int; v_list text;
 begin
-  select count(*) into v_count
+  -- INV-7 · nada financiero se borra ni se trunca.
+  select count(*), coalesce(string_agg(distinct table_name || ':' || privilege_type, ', '), '')
+    into v_count, v_list
   from information_schema.role_table_grants
   where grantee = 'authenticated'
-    and privilege_type = 'DELETE'
-    and table_schema = 'public';
+    and table_schema = 'public'
+    and privilege_type in ('DELETE', 'TRUNCATE', 'REFERENCES', 'TRIGGER');
 
   perform assert_true(v_count = 0,
-    format('el rol authenticated no debe tener DELETE en ninguna tabla, y lo tiene en %s', v_count));
+    format('authenticated solo puede leer, insertar y actualizar; sobra esto: %s', v_list));
+
+  -- Quien no ha iniciado sesión no tiene nada que hacer en public.
+  select count(*), coalesce(string_agg(distinct table_name || ':' || privilege_type, ', '), '')
+    into v_count, v_list
+  from information_schema.role_table_grants
+  where grantee = 'anon' and table_schema = 'public';
+
+  perform assert_true(v_count = 0,
+    format('anon no debe tener ningún privilegio en public, y tiene: %s', v_list));
+
+  -- Guarda genérica, y la más importante de las tres: toda tabla de public con
+  -- RLS encendida. Es la que caza una tabla nueva de F2, F3 o F4 que se olvide
+  -- de encenderla, y la que habría cazado que currencies, plans y
+  -- plan_entitlements estaban abiertas de par en par.
+  select count(*), coalesce(string_agg(c.relname, ', ' order by c.relname), '')
+    into v_count, v_list
+  from pg_class c join pg_namespace n on n.oid = c.relnamespace
+  where n.nspname = 'public' and c.relkind = 'r' and not c.relrowsecurity;
+
+  perform assert_true(v_count = 0,
+    format('toda tabla de public necesita row level security; sin ella: %s', v_list));
 end $$;
 
 -- ---------------------------------------------------------------------------
@@ -191,6 +229,32 @@ begin
     'select create_organization(''Intento'', ''PEN'', ''internal'')',
     'does not exist',
     'create_organization no acepta un plan por parámetro');
+end $$;
+
+-- ---------------------------------------------------------------------------
+-- Techo de organizaciones por usuario
+--
+-- create_organization es un RPC abierto a cualquiera con sesión. Sin techo,
+-- una llamada en bucle fabrica organizaciones sin fin.
+-- ---------------------------------------------------------------------------
+
+set request.jwt.claim.sub = '22222222-2222-2222-2222-222222222222';
+
+do $$
+begin
+  -- B ya es dueño de una; con dos más llega al tope.
+  perform create_organization('Org B2', 'USD');
+  perform create_organization('Org B3', 'USD');
+
+  perform assert_raises(
+    'select create_organization(''Org B4'', ''USD'')',
+    'too_many_organizations',
+    'un usuario no puede fabricar organizaciones sin fin');
+
+  perform assert_raises(
+    'select create_organization(''Org rara'', ''XXX'')',
+    'unknown_currency',
+    'la moneda de alta tiene que existir');
 end $$;
 
 select 'TODAS LAS PRUEBAS DE F1 PASARON' as resultado;

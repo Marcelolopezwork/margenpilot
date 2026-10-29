@@ -181,7 +181,7 @@ begin
       using errcode = 'check_violation';
   end if;
 
-  v_slug := btrim(both '-' from lower(regexp_replace(p_name, '[^a-zA-Z0-9]+', '-', 'g')));
+  v_slug := btrim(lower(regexp_replace(p_name, '[^a-zA-Z0-9]+', '-', 'g')), '-');
   if v_slug = '' then v_slug := 'org'; end if;
   if exists (select 1 from organizations where slug = v_slug) then
     v_slug := v_slug || '-' || substr(replace(gen_random_uuid()::text, '-', ''), 1, 6);

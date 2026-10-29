@@ -8,13 +8,13 @@ Cotizador, dashboard financiero y pipeline comercial en un solo software, con **
 
 | | |
 |---|---|
-| Fase | **F1 Fundaciones**, en curso |
+| Fase | **F1 Fundaciones**, base de datos terminada |
 | Web | arranca, con acceso por enlace de correo |
-| Base de datos | tres migraciones escritas · **no aplicadas todavía** |
-| Supabase | **pendiente de crear** (ver más abajo) |
+| Base de datos | cinco migraciones **aplicadas** al proyecto real |
+| Supabase | `veocqvmywodeizuvnssn` · organización `margen pilot` · Postgres 17 |
 | Hosting | SiteGround, `public/.htaccess` ya preparado |
-| Verificado en local | tipos, lint, build y 16 pruebas de dinero |
-| Sin verificar | las migraciones: faltan Docker o el proyecto de Supabase |
+| Verificado | 24 aserciones contra la base real · 16 pruebas de dinero · tipos, lint y build |
+| Pendiente | remoto de GitHub (sin él la CI no corre) · primer inicio de sesión para crear la organización |
 
 Las dos aplicaciones anteriores y sus proyectos de Supabase quedan **intactos**. No se migra ningún dato de 2026. Focus queda fuera.
 
@@ -38,15 +38,23 @@ Sin `.env` la app no falla: muestra una pantalla con los tres pasos que faltan.
 
 ## Poner en pie la base de datos
 
-1. **Crear el proyecto** en supabase.com. Región cercana a Perú.
-2. **Aplicar las migraciones**, en orden, desde el SQL Editor o con `supabase db push` tras `supabase link`:
-   - `supabase/migrations/20261028120000_foundations.sql`
-   - `supabase/migrations/20261028120100_rls.sql`
-   - `supabase/migrations/20261028120200_entitlements.sql`
+Los pasos 1 y 2 ya están hechos sobre `veocqvmywodeizuvnssn`. Quedan documentados para montar un proyecto nuevo desde cero.
+
+1. **Crear el proyecto** en supabase.com.
+2. **Aplicar las migraciones** en orden, desde el SQL Editor o con `supabase db push` tras `supabase link`:
+   - `20261028120000_foundations.sql` — esquema, tablas, disparadores
+   - `20261028120100_rls.sql` — aislamiento entre organizaciones
+   - `20261028120200_entitlements.sql` — límites de plan y alta de organización
+   - `20261028120300_lockdown.sql` — **revoca los privilegios que Supabase concede solo** (ver ADR-25; sin esta migración `anon` puede borrar los planes)
+   - `20261028120400_hardening.sql` — `search_path` fijo y techo de organizaciones por usuario
 3. **Entrar una vez** en la app con tu correo, para que exista el usuario.
 4. **Ejecutar** `supabase/setup/margen-pilot-org.sql`, que crea la organización y las dos entidades con sus marcas y sus impuestos.
 
-`supabase/stubs/auth.sql` y `supabase/tests/invariants.sql` son solo para la CI: suplen el esquema `auth` en un Postgres pelado y comprueban los invariantes. No se aplican al proyecto real.
+### Verificar
+
+`supabase/tests/invariants.sql` comprueba 24 invariantes: aislamiento entre organizaciones, límites de plan, los dos libros, un solo impuesto por defecto, y las tres guardas de privilegios —toda tabla con RLS, `authenticated` sin `DELETE` ni `TRUNCATE`, `anon` sin nada—.
+
+En la CI corre contra un `postgres:16` con `supabase/stubs/auth.sql`, que suple el esquema `auth`. Contra el proyecto real se corre envuelto en `begin; … rollback;` para que no quede ni una fila de prueba. **Las dos cosas hacen falta:** un Postgres pelado no trae los `default privileges` de Supabase, y por eso la CI no vio sola el agujero de ADR-25.
 
 ## Las reglas que no se negocian
 

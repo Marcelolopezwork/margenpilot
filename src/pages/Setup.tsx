@@ -38,7 +38,7 @@ export default function Setup() {
             <code className="text-text">npm run dev</code>.
           </p>
           <pre className="num mt-3 overflow-x-auto rounded-control bg-surface-2 p-3 text-xs text-muted">
-            {'VITE_SUPABASE_URL=https://xxxxx.supabase.co\nVITE_SUPABASE_ANON_KEY=eyJ...'}
+            {'VITE_SUPABASE_URL=https://xxxxx.supabase.co\nVITE_SUPABASE_PUBLISHABLE_KEY=sb_publishable_...'}
           </pre>
         </li>
       </ol>

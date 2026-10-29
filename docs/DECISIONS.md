@@ -112,6 +112,21 @@ Una organización con **dos entidades legales**, y de momento solo dos:
 ### D-4 · Plan para tu propia organización — **resuelta por omisión**
 Con dos entidades y dos monedas no cabes en Pro, así que tu organización va con plan `internal`: sin límites, no público, no facturable. Si prefieres otra cosa, se cambia en una fila de la tabla `subscriptions`.
 
+### ADR-25 · Los privilegios que Supabase concede solos se revocan a mano
+**28/10/2026.** Un proyecto de Supabase nace con `alter default privileges in schema public grant all on tables to anon, authenticated, service_role`. Consecuencia: cada tabla que creamos quedaba con `DELETE`, `TRUNCATE`, `INSERT`, `UPDATE`, `REFERENCES` y `TRIGGER` concedidos a `anon` y a `authenticated`, sin que nadie lo pidiera. Verificado el 28/10/2026 contra el proyecto real: 15 tablas con `DELETE` para cada uno de los dos roles. Y como `currencies`, `plans` y `plan_entitlements` no llevaban RLS, cualquiera con la clave pública y sin iniciar sesión podía `delete from plans` o subirse los límites con un `update plan_entitlements`.
+
+La migración `20261028120300_lockdown.sql` revoca los *default privileges* para el rol `postgres` (el que aplica nuestras migraciones), deja a cero lo ya concedido y vuelve a conceder solo lo necesario. **`anon` no recupera nada:** en este producto no hay ninguna pantalla sin sesión. Las tres tablas de referencia pasan a tener RLS con política de solo lectura, y el plan `internal` deja de ser visible para un cliente.
+
+Comprobado por HTTP con la clave pública real: las siete peticiones —leer planes, monedas, organizaciones y cuentas; borrar un plan; modificar un límite; llamar al RPC de alta— devuelven `401 permission denied`.
+
+**Lo que esto enseña, y es la lección que queda:** verificar contra un `postgres:16` pelado no es verificar contra Supabase. La CI seguirá usando Postgres a secas porque es rápido y gratis, pero **la invariante que cuenta es la genérica**: toda tabla de `public` con RLS encendida, `authenticated` sin `DELETE` ni `TRUNCATE`, `anon` sin nada. Están en `supabase/tests/invariants.sql` y cazan la tabla de F2, F3 o F4 que se olvide de encenderla.
+
+### ADR-26 · `create_organization` tiene techo
+**28/10/2026.** La función es `security definer` y ejecutable por cualquiera con sesión, porque es el único camino para crear una organización. Pero no tenía tope: una llamada en bucle fabricaba organizaciones sin fin, cada una con sus nueve categorías. Se le pone un techo de **3 organizaciones de las que un usuario sea `owner`**, con su lock por usuario para cerrar la misma carrera que cierra `app.assert_entitlement`. No es un límite de plan: cuando se llama no existe todavía organización de la que leer un plan. Si hace falta más, se sube ahí y se documenta aquí.
+
+### ADR-27 · El stub de `auth` de la CI es copia literal del real
+**28/10/2026.** El stub definía `auth.uid()` leyendo una variable de sesión propia (`app.current_user_id`), mientras Supabase la lee del JWT (`request.jwt.claim.sub`). Las pruebas se hacían pasar por un usuario de una forma que **solo existía en la CI**. Ahora el stub lleva la definición literal de Supabase, verificada contra el proyecto, y la suite suplanta al usuario igual en los dos sitios. Un camino que solo funciona en el entorno de pruebas no prueba nada.
+
 ### D-5 · Tasa del consolidado — **resuelta**
 **La última tasa disponible**, mostrada siempre con su fecha y su fuente. El consolidado es referencial y no se almacena.
 
@@ -127,11 +142,13 @@ Eso es el producto. Todo lo que no sirva a esas tres piezas no entra.
 
 ## 3. Lo que sigue abierto
 
+**Resuelto el 28/10/2026:** el proyecto de Supabase existe (`veocqvmywodeizuvnssn`, organización `margen pilot`, región `us-east-1`, Postgres 17). Las cinco migraciones de F1 están aplicadas y las 24 aserciones de la suite pasan contra esa base. La verificación local con Docker deja de ser necesaria: se verifica contra el proyecto real, dentro de una transacción que se deshace, de modo que no queda ni una fila de prueba.
+
 **Me bloquea trabajo ahora:**
 
-- **El repositorio de GitHub.** Dices que lo conectaste, pero esta carpeta no es un repositorio git y no tiene remoto. Necesito la URL (`https://github.com/<usuario>/<repo>`), o inicializo aquí y tú añades el remoto.
-- **El proyecto de Supabase.** Tengo que crearlo tú, no yo: no puedo entrar a tu cuenta. Hacen falta dos cosas en el panel de Supabase: crear el proyecto y darme su URL y su clave `anon` (van en `.env`, que no se sube a git). La clave `service_role` no me la pases por el chat.
-- **Docker, si quieres verificación local.** `supabase start` necesita Docker y no está instalado. Sin él, las migraciones no se pueden probar en local antes de subirlas, lo que choca con «lo más prolijo posible». Alternativa sin Docker: un segundo proyecto de Supabase que haga de entorno de pruebas.
+- **El repositorio de GitHub.** Esta carpeta es un repositorio git local sin remoto. Necesito la URL (`https://github.com/<usuario>/<repo>`), o la añades tú con `git remote add origin … && git push -u origin main`. Hasta entonces la CI no corre.
+- **Las dos grafías que se imprimen en las cotizaciones.** Escribiste «Tree Brothers MKT SAC» y lo tengo como **Three Brothers MKT SAC**; la marca de esa entidad la tengo como **Nlima**, no «Lima». Confirmar antes del primer PDF.
+- **Tu primer inicio de sesión.** `supabase/setup/margen-pilot-org.sql` busca al usuario por correo para crear tu organización con sus dos entidades. Hasta que entres una vez, `auth.users` está vacío y no hay a quién asignarla.
 
 **Puede esperar sin coste:** precio del plan Pro y límites finos · identidad visual y dominio · si alguna vez entra el cuadre manual (ADR-18) · alcance de acceso de agentes IA · apps en tiendas (ADR-12).
 

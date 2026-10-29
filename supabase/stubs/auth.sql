@@ -9,11 +9,17 @@ create table if not exists auth.users (
   email text
 );
 
--- En Supabase, auth.uid() sale del JWT. Aquí sale de una variable de sesión,
--- que es lo que permite a las pruebas hacerse pasar por un usuario.
+-- Copia literal de la definición que trae Supabase (verificada contra el
+-- proyecto real el 28/10/2026). Es importante que sea idéntica: así las
+-- pruebas se hacen pasar por un usuario de la misma forma en CI y en
+-- producción, y no existe un camino que solo funcione en uno de los dos.
 create or replace function auth.uid() returns uuid
 language sql stable as $$
-  select nullif(current_setting('app.current_user_id', true), '')::uuid
+  select
+  coalesce(
+    nullif(current_setting('request.jwt.claim.sub', true), ''),
+    (nullif(current_setting('request.jwt.claims', true), '')::jsonb ->> 'sub')
+  )::uuid
 $$;
 
 do $$
