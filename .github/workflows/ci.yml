@@ -14,8 +14,8 @@ jobs:
     name: Web · tipos, lint, pruebas y build
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
         with:
           node-version: 20
           cache: npm
@@ -30,7 +30,9 @@ jobs:
     runs-on: ubuntu-latest
     services:
       postgres:
-        image: postgres:16
+        # La misma versión mayor que el proyecto real (Supabase corre 17.11):
+        # verificar contra una menor es verificar contra algo que no corremos.
+        image: postgres:17
         env:
           POSTGRES_PASSWORD: postgres
         ports: ['5432:5432']
@@ -44,7 +46,7 @@ jobs:
       PGHOST: localhost
       PGUSER: postgres
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       # Supabase provee el esquema auth; un Postgres pelado no. El stub lo
       # suple para poder verificar las migraciones sin Docker ni cuenta.
