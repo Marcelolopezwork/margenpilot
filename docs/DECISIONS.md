@@ -119,13 +119,18 @@ La migración `20261028120300_lockdown.sql` revoca los *default privileges* para
 
 Comprobado por HTTP con la clave pública real: las siete peticiones —leer planes, monedas, organizaciones y cuentas; borrar un plan; modificar un límite; llamar al RPC de alta— devuelven `401 permission denied`.
 
-**Lo que esto enseña, y es la lección que queda:** verificar contra un `postgres:16` pelado no es verificar contra Supabase. La CI seguirá usando Postgres a secas porque es rápido y gratis, pero **la invariante que cuenta es la genérica**: toda tabla de `public` con RLS encendida, `authenticated` sin `DELETE` ni `TRUNCATE`, `anon` sin nada. Están en `supabase/tests/invariants.sql` y cazan la tabla de F2, F3 o F4 que se olvide de encenderla.
+**Lo que esto enseña, y es la lección que queda:** verificar contra un Postgres pelado no es verificar contra Supabase. La CI seguirá usando Postgres a secas porque es rápido y gratis —desde el 02/11/2026 en la misma versión mayor que el proyecto, 17—, pero **la invariante que cuenta es la genérica**: toda tabla de `public` con RLS encendida, `authenticated` sin `DELETE` ni `TRUNCATE`, `anon` sin nada. Están en `supabase/tests/invariants.sql` y cazan la tabla de F2, F3 o F4 que se olvide de encenderla.
 
 ### ADR-26 · `create_organization` tiene techo
 **28/10/2026.** La función es `security definer` y ejecutable por cualquiera con sesión, porque es el único camino para crear una organización. Pero no tenía tope: una llamada en bucle fabricaba organizaciones sin fin, cada una con sus nueve categorías. Se le pone un techo de **3 organizaciones de las que un usuario sea `owner`**, con su lock por usuario para cerrar la misma carrera que cierra `app.assert_entitlement`. No es un límite de plan: cuando se llama no existe todavía organización de la que leer un plan. Si hace falta más, se sube ahí y se documenta aquí.
 
 ### ADR-27 · El stub de `auth` de la CI es copia literal del real
 **28/10/2026.** El stub definía `auth.uid()` leyendo una variable de sesión propia (`app.current_user_id`), mientras Supabase la lee del JWT (`request.jwt.claim.sub`). Las pruebas se hacían pasar por un usuario de una forma que **solo existía en la CI**. Ahora el stub lleva la definición literal de Supabase, verificada contra el proyecto, y la suite suplanta al usuario igual en los dos sitios. Un camino que solo funciona en el entorno de pruebas no prueba nada.
+
+### ADR-28 · El repositorio es público
+**02/11/2026.** Marcelo decide mantener `Marcelolopezwork/margenpilot` público, sabiendo que `docs/00-REVISION-CRITICA.md` contiene el análisis de sus dos aplicaciones en producción, y que con el repositorio se publican también el esquema, las políticas de RLS y los límites de cada plan.
+
+Verificado **sobre lo que quedó publicado**, no sobre lo que se pretendía publicar: 42 archivos, sin `.env` y sin ninguna clave (`sb_publishable_`, `sb_secret_`, JWT). La referencia del proyecto de Supabase sí está, y no es un secreto: viaja en cada petición que hace el navegador. Lo que protege la base no es que el esquema sea secreto, es ADR-25.
 
 ### D-5 · Tasa del consolidado — **resuelta**
 **La última tasa disponible**, mostrada siempre con su fecha y su fuente. El consolidado es referencial y no se almacena.
@@ -142,11 +147,13 @@ Eso es el producto. Todo lo que no sirva a esas tres piezas no entra.
 
 ## 3. Lo que sigue abierto
 
+**Resuelto el 02/11/2026:** el código está en `Marcelolopezwork/margenpilot` y la CI corre en cada push, con los dos trabajos en verde —incluido el paso que tira el esquema y reaplica las seis migraciones sobre una base limpia, que es la única prueba de que sirven para montar el proyecto desde cero—.
+
 **Resuelto el 28/10/2026:** el proyecto de Supabase existe (`veocqvmywodeizuvnssn`, organización `margen pilot`, región `us-east-1`, Postgres 17). Las seis migraciones de F1 están aplicadas y las 27 aserciones de la suite pasan contra esa base. La verificación local con Docker deja de ser necesaria: se verifica contra el proyecto real, dentro de una transacción que se deshace, de modo que no queda ni una fila de prueba.
 
 **Me bloquea trabajo ahora:**
 
-- **El repositorio de GitHub.** Esta carpeta es un repositorio git local sin remoto. Necesito la URL (`https://github.com/<usuario>/<repo>`), o la añades tú con `git remote add origin … && git push -u origin main`. Hasta entonces la CI no corre.
+- **La URL de redirección en Supabase.** En *Authentication → URL Configuration* falta `http://localhost:5173/**`. Sin ella el enlace del correo rebota al destino por defecto y no se puede entrar en la app.
 - **Las dos grafías que se imprimen en las cotizaciones.** Escribiste «Tree Brothers MKT SAC» y lo tengo como **Three Brothers MKT SAC**; la marca de esa entidad la tengo como **Nlima**, no «Lima». Confirmar antes del primer PDF.
 - **Tu primer inicio de sesión.** `supabase/setup/margen-pilot-org.sql` busca al usuario por correo para crear tu organización con sus dos entidades. Hasta que entres una vez, `auth.users` está vacío y no hay a quién asignarla.
 

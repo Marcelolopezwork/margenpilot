@@ -12,9 +12,10 @@ Cotizador, dashboard financiero y pipeline comercial en un solo software, con **
 | Web | arranca, con acceso por enlace de correo |
 | Base de datos | seis migraciones **aplicadas** al proyecto real |
 | Supabase | `veocqvmywodeizuvnssn` · organización `margen pilot` · Postgres 17 |
+| Repositorio | [Marcelolopezwork/margenpilot](https://github.com/Marcelolopezwork/margenpilot), público · CI en cada push |
 | Hosting | SiteGround, `public/.htaccess` ya preparado |
-| Verificado | 27 aserciones contra la base real · 16 pruebas de dinero · tipos, lint y build |
-| Pendiente | remoto de GitHub (sin él la CI no corre) · primer inicio de sesión para crear la organización |
+| Verificado | 27 aserciones contra la base real · 16 pruebas de dinero · tipos, lint y build · CI en verde, con las migraciones reaplicadas desde cero |
+| Pendiente | `http://localhost:5173/**` en las URL de redirección de Supabase · primer inicio de sesión para crear la organización |
 
 Las dos aplicaciones anteriores y sus proyectos de Supabase quedan **intactos**. No se migra ningún dato de 2026. Focus queda fuera.
 
@@ -55,7 +56,7 @@ Los pasos 1 y 2 ya están hechos sobre `veocqvmywodeizuvnssn`. Quedan documentad
 
 `supabase/tests/invariants.sql` comprueba 27 invariantes: aislamiento entre organizaciones, límites de plan, los dos libros, un solo impuesto por defecto, y las tres guardas de privilegios —toda tabla con RLS, `authenticated` sin `DELETE` ni `TRUNCATE`, `anon` sin nada—.
 
-En la CI corre contra un `postgres:16` con `supabase/stubs/auth.sql`, que suple el esquema `auth`. Contra el proyecto real se corre envuelto en `begin; … rollback;` para que no quede ni una fila de prueba. **Las dos cosas hacen falta:** un Postgres pelado no trae los `default privileges` de Supabase, y por eso la CI no vio sola el agujero de ADR-25.
+En la CI corre contra un `postgres:17` —la misma versión mayor que el proyecto— con `supabase/stubs/auth.sql`, que suple el esquema `auth`. Contra el proyecto real se corre envuelto en `begin; … rollback;` para que no quede ni una fila de prueba. **Las dos cosas hacen falta:** un Postgres pelado no trae los `default privileges` de Supabase, y por eso la CI no vio sola el agujero de ADR-25.
 
 ## Las reglas que no se negocian
 
