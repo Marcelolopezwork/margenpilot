@@ -8,13 +8,13 @@ Cotizador, dashboard financiero y pipeline comercial en un solo software, con **
 
 | | |
 |---|---|
-| Fase | **F1 Fundaciones**, base de datos terminada |
-| Web | arranca, con acceso por enlace de correo |
+| Fase | **F1 Fundaciones**, terminada: base de datos, armazón y Configuración |
+| Web | acceso por enlace de correo · armazón con las siete secciones · las seis pantallas de Configuración |
 | Base de datos | seis migraciones **aplicadas** al proyecto real |
 | Supabase | `veocqvmywodeizuvnssn` · organización `margen pilot` · Postgres 17 |
 | Repositorio | [Marcelolopezwork/margenpilot](https://github.com/Marcelolopezwork/margenpilot), público · CI en cada push |
 | Hosting | SiteGround · `crm.thepublisherlab.com` · `public/.htaccess` ya preparado |
-| Verificado | 27 aserciones contra la base real · 16 pruebas de dinero · tipos, lint y build · CI en verde, con las migraciones reaplicadas desde cero |
+| Verificado | 27 aserciones contra la base real · 44 pruebas (dinero, errores, formato, armazón) · tipos, lint y build · CI en verde, con las migraciones reaplicadas desde cero |
 | Pendiente | las dos URL de redirección en Supabase (ADR-29) · primer inicio de sesión para crear la organización |
 
 Las dos aplicaciones anteriores y sus proyectos de Supabase quedan **intactos**. No se migra ningún dato de 2026. Focus queda fuera.

@@ -1,0 +1,792 @@
+// Generado desde el proyecto real con `npm run db:types`. No editar a mano.
+export type Json =
+  | string
+  | number
+  | boolean
+  | null
+  | { [key: string]: Json | undefined }
+  | Json[]
+
+export type Database = {
+  // Allows to automatically instantiate createClient with right options
+  // instead of createClient<Database, { PostgrestVersion: 'XX' }>(URL, KEY)
+  __InternalSupabase: {
+    PostgrestVersion: "14.18"
+  }
+  public: {
+    Tables: {
+      audit_log: {
+        Row: {
+          action: string
+          actor_id: string | null
+          after: Json | null
+          at: string
+          before: Json | null
+          entity_id: string | null
+          entity_table: string
+          id: number
+          organization_id: string | null
+        }
+        Insert: {
+          action: string
+          actor_id?: string | null
+          after?: Json | null
+          at?: string
+          before?: Json | null
+          entity_id?: string | null
+          entity_table: string
+          id?: number
+          organization_id?: string | null
+        }
+        Update: {
+          action?: string
+          actor_id?: string | null
+          after?: Json | null
+          at?: string
+          before?: Json | null
+          entity_id?: string | null
+          entity_table?: string
+          id?: number
+          organization_id?: string | null
+        }
+        Relationships: []
+      }
+      brands: {
+        Row: {
+          accent_color: string | null
+          created_at: string
+          id: string
+          is_active: boolean
+          legal_entity_id: string
+          logo_path: string | null
+          name: string
+          organization_id: string
+          updated_at: string
+        }
+        Insert: {
+          accent_color?: string | null
+          created_at?: string
+          id?: string
+          is_active?: boolean
+          legal_entity_id: string
+          logo_path?: string | null
+          name: string
+          organization_id: string
+          updated_at?: string
+        }
+        Update: {
+          accent_color?: string | null
+          created_at?: string
+          id?: string
+          is_active?: boolean
+          legal_entity_id?: string
+          logo_path?: string | null
+          name?: string
+          organization_id?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "brands_legal_entity_id_fkey"
+            columns: ["legal_entity_id"]
+            isOneToOne: false
+            referencedRelation: "legal_entities"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "brands_organization_id_fkey"
+            columns: ["organization_id"]
+            isOneToOne: false
+            referencedRelation: "organizations"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      cash_accounts: {
+        Row: {
+          account_ref_masked: string | null
+          bank_name: string | null
+          created_at: string
+          currency_code: string
+          id: string
+          is_active: boolean
+          kind: Database["public"]["Enums"]["account_kind"]
+          legal_entity_id: string
+          name: string
+          organization_id: string
+          sort: number
+          updated_at: string
+        }
+        Insert: {
+          account_ref_masked?: string | null
+          bank_name?: string | null
+          created_at?: string
+          currency_code: string
+          id?: string
+          is_active?: boolean
+          kind?: Database["public"]["Enums"]["account_kind"]
+          legal_entity_id: string
+          name: string
+          organization_id: string
+          sort?: number
+          updated_at?: string
+        }
+        Update: {
+          account_ref_masked?: string | null
+          bank_name?: string | null
+          created_at?: string
+          currency_code?: string
+          id?: string
+          is_active?: boolean
+          kind?: Database["public"]["Enums"]["account_kind"]
+          legal_entity_id?: string
+          name?: string
+          organization_id?: string
+          sort?: number
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "cash_accounts_currency_code_fkey"
+            columns: ["currency_code"]
+            isOneToOne: false
+            referencedRelation: "currencies"
+            referencedColumns: ["code"]
+          },
+          {
+            foreignKeyName: "cash_accounts_legal_entity_id_fkey"
+            columns: ["legal_entity_id"]
+            isOneToOne: false
+            referencedRelation: "legal_entities"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "cash_accounts_organization_id_fkey"
+            columns: ["organization_id"]
+            isOneToOne: false
+            referencedRelation: "organizations"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      currencies: {
+        Row: {
+          code: string
+          minor_units: number
+          name: string
+          symbol: string
+        }
+        Insert: {
+          code: string
+          minor_units?: number
+          name: string
+          symbol: string
+        }
+        Update: {
+          code?: string
+          minor_units?: number
+          name?: string
+          symbol?: string
+        }
+        Relationships: []
+      }
+      financial_categories: {
+        Row: {
+          created_at: string
+          direction: Database["public"]["Enums"]["category_direction"]
+          id: string
+          is_active: boolean
+          name: string
+          organization_id: string
+          parent_id: string | null
+          sort: number
+        }
+        Insert: {
+          created_at?: string
+          direction?: Database["public"]["Enums"]["category_direction"]
+          id?: string
+          is_active?: boolean
+          name: string
+          organization_id: string
+          parent_id?: string | null
+          sort?: number
+        }
+        Update: {
+          created_at?: string
+          direction?: Database["public"]["Enums"]["category_direction"]
+          id?: string
+          is_active?: boolean
+          name?: string
+          organization_id?: string
+          parent_id?: string | null
+          sort?: number
+        }
+        Relationships: [
+          {
+            foreignKeyName: "financial_categories_organization_id_fkey"
+            columns: ["organization_id"]
+            isOneToOne: false
+            referencedRelation: "organizations"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "financial_categories_parent_id_fkey"
+            columns: ["parent_id"]
+            isOneToOne: false
+            referencedRelation: "financial_categories"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      fx_rates: {
+        Row: {
+          as_of: string
+          created_at: string
+          created_by: string | null
+          from_code: string
+          id: string
+          kind: Database["public"]["Enums"]["fx_rate_kind"]
+          organization_id: string | null
+          rate: number
+          source: string
+          to_code: string
+        }
+        Insert: {
+          as_of: string
+          created_at?: string
+          created_by?: string | null
+          from_code: string
+          id?: string
+          kind?: Database["public"]["Enums"]["fx_rate_kind"]
+          organization_id?: string | null
+          rate: number
+          source: string
+          to_code: string
+        }
+        Update: {
+          as_of?: string
+          created_at?: string
+          created_by?: string | null
+          from_code?: string
+          id?: string
+          kind?: Database["public"]["Enums"]["fx_rate_kind"]
+          organization_id?: string | null
+          rate?: number
+          source?: string
+          to_code?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "fx_rates_from_code_fkey"
+            columns: ["from_code"]
+            isOneToOne: false
+            referencedRelation: "currencies"
+            referencedColumns: ["code"]
+          },
+          {
+            foreignKeyName: "fx_rates_organization_id_fkey"
+            columns: ["organization_id"]
+            isOneToOne: false
+            referencedRelation: "organizations"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "fx_rates_to_code_fkey"
+            columns: ["to_code"]
+            isOneToOne: false
+            referencedRelation: "currencies"
+            referencedColumns: ["code"]
+          },
+        ]
+      }
+      legal_entities: {
+        Row: {
+          archived_reason: string | null
+          country: string
+          created_at: string
+          default_currency_code: string
+          id: string
+          is_active: boolean
+          legal_name: string
+          organization_id: string
+          tax_id: string | null
+          updated_at: string
+        }
+        Insert: {
+          archived_reason?: string | null
+          country: string
+          created_at?: string
+          default_currency_code: string
+          id?: string
+          is_active?: boolean
+          legal_name: string
+          organization_id: string
+          tax_id?: string | null
+          updated_at?: string
+        }
+        Update: {
+          archived_reason?: string | null
+          country?: string
+          created_at?: string
+          default_currency_code?: string
+          id?: string
+          is_active?: boolean
+          legal_name?: string
+          organization_id?: string
+          tax_id?: string | null
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "legal_entities_default_currency_code_fkey"
+            columns: ["default_currency_code"]
+            isOneToOne: false
+            referencedRelation: "currencies"
+            referencedColumns: ["code"]
+          },
+          {
+            foreignKeyName: "legal_entities_organization_id_fkey"
+            columns: ["organization_id"]
+            isOneToOne: false
+            referencedRelation: "organizations"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      memberships: {
+        Row: {
+          created_at: string
+          invited_by: string | null
+          organization_id: string
+          role: Database["public"]["Enums"]["membership_role"]
+          status: Database["public"]["Enums"]["membership_status"]
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          created_at?: string
+          invited_by?: string | null
+          organization_id: string
+          role?: Database["public"]["Enums"]["membership_role"]
+          status?: Database["public"]["Enums"]["membership_status"]
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          created_at?: string
+          invited_by?: string | null
+          organization_id?: string
+          role?: Database["public"]["Enums"]["membership_role"]
+          status?: Database["public"]["Enums"]["membership_status"]
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "memberships_organization_id_fkey"
+            columns: ["organization_id"]
+            isOneToOne: false
+            referencedRelation: "organizations"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      organization_currencies: {
+        Row: {
+          currency_code: string
+          enabled_at: string
+          is_enabled: boolean
+          organization_id: string
+        }
+        Insert: {
+          currency_code: string
+          enabled_at?: string
+          is_enabled?: boolean
+          organization_id: string
+        }
+        Update: {
+          currency_code?: string
+          enabled_at?: string
+          is_enabled?: boolean
+          organization_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "organization_currencies_currency_code_fkey"
+            columns: ["currency_code"]
+            isOneToOne: false
+            referencedRelation: "currencies"
+            referencedColumns: ["code"]
+          },
+          {
+            foreignKeyName: "organization_currencies_organization_id_fkey"
+            columns: ["organization_id"]
+            isOneToOne: false
+            referencedRelation: "organizations"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      organizations: {
+        Row: {
+          country: string
+          created_at: string
+          created_by: string | null
+          display_currency_code: string
+          id: string
+          name: string
+          requires_plan_reconciliation: boolean
+          slug: string
+          updated_at: string
+        }
+        Insert: {
+          country?: string
+          created_at?: string
+          created_by?: string | null
+          display_currency_code?: string
+          id?: string
+          name: string
+          requires_plan_reconciliation?: boolean
+          slug: string
+          updated_at?: string
+        }
+        Update: {
+          country?: string
+          created_at?: string
+          created_by?: string | null
+          display_currency_code?: string
+          id?: string
+          name?: string
+          requires_plan_reconciliation?: boolean
+          slug?: string
+          updated_at?: string
+        }
+        Relationships: []
+      }
+      plan_entitlements: {
+        Row: {
+          key: string
+          plan_code: string
+          value_bool: boolean | null
+          value_int: number | null
+        }
+        Insert: {
+          key: string
+          plan_code: string
+          value_bool?: boolean | null
+          value_int?: number | null
+        }
+        Update: {
+          key?: string
+          plan_code?: string
+          value_bool?: boolean | null
+          value_int?: number | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "plan_entitlements_plan_code_fkey"
+            columns: ["plan_code"]
+            isOneToOne: false
+            referencedRelation: "plans"
+            referencedColumns: ["code"]
+          },
+        ]
+      }
+      plans: {
+        Row: {
+          code: string
+          is_public: boolean
+          name: string
+          sort: number
+        }
+        Insert: {
+          code: string
+          is_public?: boolean
+          name: string
+          sort?: number
+        }
+        Update: {
+          code?: string
+          is_public?: boolean
+          name?: string
+          sort?: number
+        }
+        Relationships: []
+      }
+      profiles: {
+        Row: {
+          created_at: string
+          email: string | null
+          full_name: string | null
+          id: string
+          locale: string
+          updated_at: string
+        }
+        Insert: {
+          created_at?: string
+          email?: string | null
+          full_name?: string | null
+          id: string
+          locale?: string
+          updated_at?: string
+        }
+        Update: {
+          created_at?: string
+          email?: string | null
+          full_name?: string | null
+          id?: string
+          locale?: string
+          updated_at?: string
+        }
+        Relationships: []
+      }
+      subscriptions: {
+        Row: {
+          cancel_at: string | null
+          created_at: string
+          current_period_end: string | null
+          organization_id: string
+          plan_code: string
+          status: string
+          stripe_customer_id: string | null
+          stripe_subscription_id: string | null
+          updated_at: string
+        }
+        Insert: {
+          cancel_at?: string | null
+          created_at?: string
+          current_period_end?: string | null
+          organization_id: string
+          plan_code: string
+          status?: string
+          stripe_customer_id?: string | null
+          stripe_subscription_id?: string | null
+          updated_at?: string
+        }
+        Update: {
+          cancel_at?: string | null
+          created_at?: string
+          current_period_end?: string | null
+          organization_id?: string
+          plan_code?: string
+          status?: string
+          stripe_customer_id?: string | null
+          stripe_subscription_id?: string | null
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "subscriptions_organization_id_fkey"
+            columns: ["organization_id"]
+            isOneToOne: true
+            referencedRelation: "organizations"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "subscriptions_plan_code_fkey"
+            columns: ["plan_code"]
+            isOneToOne: false
+            referencedRelation: "plans"
+            referencedColumns: ["code"]
+          },
+        ]
+      }
+      tax_rates: {
+        Row: {
+          created_at: string
+          id: string
+          is_active: boolean
+          is_default: boolean
+          legal_entity_id: string
+          name: string
+          organization_id: string
+          rate: number
+        }
+        Insert: {
+          created_at?: string
+          id?: string
+          is_active?: boolean
+          is_default?: boolean
+          legal_entity_id: string
+          name: string
+          organization_id: string
+          rate: number
+        }
+        Update: {
+          created_at?: string
+          id?: string
+          is_active?: boolean
+          is_default?: boolean
+          legal_entity_id?: string
+          name?: string
+          organization_id?: string
+          rate?: number
+        }
+        Relationships: [
+          {
+            foreignKeyName: "tax_rates_legal_entity_id_fkey"
+            columns: ["legal_entity_id"]
+            isOneToOne: false
+            referencedRelation: "legal_entities"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "tax_rates_organization_id_fkey"
+            columns: ["organization_id"]
+            isOneToOne: false
+            referencedRelation: "organizations"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+    }
+    Views: {
+      [_ in never]: never
+    }
+    Functions: {
+      create_organization: {
+        Args: { p_currency?: string; p_name: string }
+        Returns: string
+      }
+    }
+    Enums: {
+      account_kind: "bank" | "cash" | "wallet" | "card"
+      category_direction: "in" | "out" | "both"
+      fx_rate_kind: "closing" | "official" | "manual"
+      membership_role: "owner" | "admin" | "finance" | "commercial" | "viewer"
+      membership_status: "invited" | "active" | "suspended"
+    }
+    CompositeTypes: {
+      [_ in never]: never
+    }
+  }
+}
+
+type DatabaseWithoutInternals = Omit<Database, "__InternalSupabase">
+
+type DefaultSchema = DatabaseWithoutInternals[Extract<keyof Database, "public">]
+
+export type Tables<
+  DefaultSchemaTableNameOrOptions extends
+    | keyof (DefaultSchema["Tables"] & DefaultSchema["Views"])
+    | { schema: keyof DatabaseWithoutInternals },
+  TableName extends (DefaultSchemaTableNameOrOptions extends {
+    schema: keyof DatabaseWithoutInternals
+  }
+    ? keyof (DatabaseWithoutInternals[DefaultSchemaTableNameOrOptions["schema"]]["Tables"] &
+        DatabaseWithoutInternals[DefaultSchemaTableNameOrOptions["schema"]]["Views"])
+    : never) = never,
+> = DefaultSchemaTableNameOrOptions extends {
+  schema: keyof DatabaseWithoutInternals
+}
+  ? (DatabaseWithoutInternals[DefaultSchemaTableNameOrOptions["schema"]]["Tables"] &
+      DatabaseWithoutInternals[DefaultSchemaTableNameOrOptions["schema"]]["Views"])[TableName] extends {
+      Row: infer R
+    }
+    ? R
+    : never
+  : DefaultSchemaTableNameOrOptions extends keyof (DefaultSchema["Tables"] &
+        DefaultSchema["Views"])
+    ? (DefaultSchema["Tables"] &
+        DefaultSchema["Views"])[DefaultSchemaTableNameOrOptions] extends {
+        Row: infer R
+      }
+      ? R
+      : never
+    : never
+
+export type TablesInsert<
+  DefaultSchemaTableNameOrOptions extends
+    | keyof DefaultSchema["Tables"]
+    | { schema: keyof DatabaseWithoutInternals },
+  TableName extends (DefaultSchemaTableNameOrOptions extends {
+    schema: keyof DatabaseWithoutInternals
+  }
+    ? keyof DatabaseWithoutInternals[DefaultSchemaTableNameOrOptions["schema"]]["Tables"]
+    : never) = never,
+> = DefaultSchemaTableNameOrOptions extends {
+  schema: keyof DatabaseWithoutInternals
+}
+  ? DatabaseWithoutInternals[DefaultSchemaTableNameOrOptions["schema"]]["Tables"][TableName] extends {
+      Insert: infer I
+    }
+    ? I
+    : never
+  : DefaultSchemaTableNameOrOptions extends keyof DefaultSchema["Tables"]
+    ? DefaultSchema["Tables"][DefaultSchemaTableNameOrOptions] extends {
+        Insert: infer I
+      }
+      ? I
+      : never
+    : never
+
+export type TablesUpdate<
+  DefaultSchemaTableNameOrOptions extends
+    | keyof DefaultSchema["Tables"]
+    | { schema: keyof DatabaseWithoutInternals },
+  TableName extends (DefaultSchemaTableNameOrOptions extends {
+    schema: keyof DatabaseWithoutInternals
+  }
+    ? keyof DatabaseWithoutInternals[DefaultSchemaTableNameOrOptions["schema"]]["Tables"]
+    : never) = never,
+> = DefaultSchemaTableNameOrOptions extends {
+  schema: keyof DatabaseWithoutInternals
+}
+  ? DatabaseWithoutInternals[DefaultSchemaTableNameOrOptions["schema"]]["Tables"][TableName] extends {
+      Update: infer U
+    }
+    ? U
+    : never
+  : DefaultSchemaTableNameOrOptions extends keyof DefaultSchema["Tables"]
+    ? DefaultSchema["Tables"][DefaultSchemaTableNameOrOptions] extends {
+        Update: infer U
+      }
+      ? U
+      : never
+    : never
+
+export type Enums<
+  DefaultSchemaEnumNameOrOptions extends
+    | keyof DefaultSchema["Enums"]
+    | { schema: keyof DatabaseWithoutInternals },
+  EnumName extends (DefaultSchemaEnumNameOrOptions extends {
+    schema: keyof DatabaseWithoutInternals
+  }
+    ? keyof DatabaseWithoutInternals[DefaultSchemaEnumNameOrOptions["schema"]]["Enums"]
+    : never) = never,
+> = DefaultSchemaEnumNameOrOptions extends {
+  schema: keyof DatabaseWithoutInternals
+}
+  ? DatabaseWithoutInternals[DefaultSchemaEnumNameOrOptions["schema"]]["Enums"][EnumName]
+  : DefaultSchemaEnumNameOrOptions extends keyof DefaultSchema["Enums"]
+    ? DefaultSchema["Enums"][DefaultSchemaEnumNameOrOptions]
+    : never
+
+export type CompositeTypes<
+  PublicCompositeTypeNameOrOptions extends
+    | keyof DefaultSchema["CompositeTypes"]
+    | { schema: keyof DatabaseWithoutInternals },
+  CompositeTypeName extends (PublicCompositeTypeNameOrOptions extends {
+    schema: keyof DatabaseWithoutInternals
+  }
+    ? keyof DatabaseWithoutInternals[PublicCompositeTypeNameOrOptions["schema"]]["CompositeTypes"]
+    : never) = never,
+> = PublicCompositeTypeNameOrOptions extends {
+  schema: keyof DatabaseWithoutInternals
+}
+  ? DatabaseWithoutInternals[PublicCompositeTypeNameOrOptions["schema"]]["CompositeTypes"][CompositeTypeName]
+  : PublicCompositeTypeNameOrOptions extends keyof DefaultSchema["CompositeTypes"]
+    ? DefaultSchema["CompositeTypes"][PublicCompositeTypeNameOrOptions]
+    : never
+
+export const Constants = {
+  public: {
+    Enums: {
+      account_kind: ["bank", "cash", "wallet", "card"],
+      category_direction: ["in", "out", "both"],
+      fx_rate_kind: ["closing", "official", "manual"],
+      membership_role: ["owner", "admin", "finance", "commercial", "viewer"],
+      membership_status: ["invited", "active", "suspended"],
+    },
+  },
+} as const

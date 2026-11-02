@@ -1,4 +1,5 @@
 import { createClient } from '@supabase/supabase-js';
+import type { Database } from '../types/database';
 
 /**
  * Cliente de Supabase para el navegador.
@@ -21,7 +22,7 @@ const anonKey =
 export const isConfigured = Boolean(url && anonKey);
 
 export const supabase = isConfigured
-  ? createClient(url as string, anonKey as string, {
+  ? createClient<Database>(url as string, anonKey as string, {
       auth: { persistSession: true, autoRefreshToken: true, detectSessionInUrl: true },
     })
   : null;

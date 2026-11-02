@@ -139,6 +139,16 @@ Verificado **sobre lo que quedó publicado**, no sobre lo que se pretendía publ
 - **No hay cambio de código.** `SignIn.tsx` pasa `emailRedirectTo: window.location.origin`, así que el enlace vuelve al sitio desde el que se pidió, sea `localhost:5173` o el dominio. Lo único que hay que mantener es la lista blanca de Supabase.
 - El subdominio de pruebas que ADR-21 pone en lugar del staging por rama será otro subdominio del mismo dominio, y también tendrá que entrar en esa lista.
 
+### ADR-30 · El armazón no lleva controles que no controlan nada
+**02/11/2026.** `UI_UX_PLAN.md` §3 describe en móvil cinco destinos con un `+` central de acciones rápidas, y en la barra superior un conmutador de moneda de visualización. F1 no trae ninguno de los dos.
+
+El `+` abriría una hoja con tres acciones —nuevo movimiento, nueva cotización, nueva transferencia— que no existen hasta F2 y F3. El conmutador de moneda no tiene ninguna cifra que conmutar hasta que haya movimientos. Un control inhabilitado enseña al usuario a ignorar esa parte de la interfaz, y eso no se desaprende cuando el control empieza a funcionar.
+
+En su lugar, la barra inferior lleva tres destinos y «Más», que abre el resto. Los dos controles vuelven con la fase que les da contenido, y el plan de UI sigue siendo el destino, no una promesa incumplida.
+
+### ADR-31 · `react-router-dom` 7
+**02/11/2026.** `npm audit` marcaba dos avisos moderados contra todo el rango 6.0.0–7.17.0: un *open redirect* por barra invertida en `<Link>` y `useNavigate`, y una inyección de constructor en la hidratación SSR. Ninguno nos afectaba hoy —no hacemos SSR y todos los destinos son literales—, pero el primero sí nos afectaría en cuanto F2 construya enlaces con datos del usuario. Se sube a 7.18.5, que es un salto de versión mayor y deja la auditoría de producción en cero. Cuesta 5,6 KB comprimidos.
+
 ### D-5 · Tasa del consolidado — **resuelta**
 **La última tasa disponible**, mostrada siempre con su fecha y su fuente. El consolidado es referencial y no se almacena.
 
@@ -158,10 +168,13 @@ Eso es el producto. Todo lo que no sirva a esas tres piezas no entra.
 
 **Resuelto el 28/10/2026:** el proyecto de Supabase existe (`veocqvmywodeizuvnssn`, organización `margen pilot`, región `us-east-1`, Postgres 17). Las seis migraciones de F1 están aplicadas y las 27 aserciones de la suite pasan contra esa base. La verificación local con Docker deja de ser necesaria: se verifica contra el proyecto real, dentro de una transacción que se deshace, de modo que no queda ni una fila de prueba.
 
+**Hecho el 02/11/2026:** F1-12 (armazón: barra lateral colapsable, barra inferior, selector de organización y entidad, tema en tres estados) y las seis pantallas de Configuración —entidades, marcas, monedas, impuestos, cuentas y categorías—, con los errores de la base traducidos a frases que dicen qué hacer. Nueve pruebas sobre el árbol de accesibilidad comprueban la aceptación de F1-12 sin depender de una sesión real.
+
 **Me bloquea trabajo ahora:**
 
 - **Las URL de redirección en Supabase.** En *Authentication → URL Configuration* hacen falta las dos: `http://localhost:5173/**` para desarrollo y `https://crm.thepublisherlab.com/**` para producción, con *Site URL* apuntando a la segunda. Sin ellas el enlace del correo rebota al destino por defecto y no se puede entrar (ADR-29).
-- **Tu primer inicio de sesión.** `supabase/setup/margen-pilot-org.sql` busca al usuario por correo para crear tu organización con sus dos entidades. Hasta que entres una vez, `auth.users` está vacío y no hay a quién asignarla.
+- **Tu primer inicio de sesión.** `supabase/setup/margen-pilot-org.sql` busca al usuario por correo para crear tu organización con sus dos entidades. Hasta que entres una vez, `auth.users` está vacío y no hay a quién asignarla. El script está verificado contra la base real con un usuario sintético, dentro de una transacción que se deshace.
+- **Ver la mitad autenticada funcionando.** El armazón y Configuración compilan, pasan las pruebas y tienen sus tipos generados desde el esquema real, pero todavía no se han dibujado con una sesión de verdad porque no hay ningún usuario. Es lo primero que hay que mirar después de tu primer acceso.
 
 **Puede esperar sin coste:** precio del plan Pro y límites finos · identidad visual y dominio · si alguna vez entra el cuadre manual (ADR-18) · alcance de acceso de agentes IA · apps en tiendas (ADR-12).
 

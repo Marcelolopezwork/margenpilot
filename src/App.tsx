@@ -1,7 +1,34 @@
 import { Navigate, Route, Routes } from 'react-router-dom';
+import OrgProvider from './app/OrgProvider';
+import SessionProvider from './app/SessionProvider';
+import { useOrg } from './app/org-context';
+import { useSesion } from './app/session-context';
+import AppShell from './components/AppShell';
+import { Aviso } from './components/ui';
 import { isConfigured } from './lib/supabase';
+import Home from './pages/Home';
+import Onboarding from './pages/Onboarding';
+import Pendiente from './pages/Pendiente';
 import Setup from './pages/Setup';
 import SignIn from './pages/SignIn';
+import Categorias from './pages/settings/Categorias';
+import Cuentas from './pages/settings/Cuentas';
+import Entidades from './pages/settings/Entidades';
+import Impuestos from './pages/settings/Impuestos';
+import Marcas from './pages/settings/Marcas';
+import Monedas from './pages/settings/Monedas';
+import Settings from './pages/settings/Settings';
+
+/** Pantalla de espera sobria: ni logotipo animado ni barra falsa de progreso. */
+function Esperando({ que }: { que: string }) {
+  return (
+    <main className="flex min-h-screen items-center justify-center px-4">
+      <p role="status" className="text-sm text-muted">
+        Cargando {que}…
+      </p>
+    </main>
+  );
+}
 
 export default function App() {
   // Sin .env no hay nada que hacer: la app lo explica en vez de romperse
@@ -9,9 +36,76 @@ export default function App() {
   if (!isConfigured) return <Setup />;
 
   return (
+    <SessionProvider>
+      <ConSesion />
+    </SessionProvider>
+  );
+}
+
+/**
+ * Mientras no sabemos si hay sesión no se decide nada. Si se tratara
+ * «todavía no sé» como «no hay sesión», a quien vuelve con sesión válida se le
+ * mandaría a la pantalla de acceso durante un parpadeo.
+ */
+function ConSesion() {
+  const { cargando, usuario } = useSesion();
+
+  if (cargando) return <Esperando que="tu sesión" />;
+
+  if (!usuario) {
+    return (
+      <Routes>
+        <Route path="/entrar" element={<SignIn />} />
+        <Route path="*" element={<Navigate to="/entrar" replace />} />
+      </Routes>
+    );
+  }
+
+  return (
+    <OrgProvider>
+      <ConOrganizacion />
+    </OrgProvider>
+  );
+}
+
+function ConOrganizacion() {
+  const { cargando, error, organizaciones } = useOrg();
+
+  if (cargando) return <Esperando que="tu organización" />;
+
+  if (error) {
+    return (
+      <main className="mx-auto flex min-h-screen max-w-md items-center px-4">
+        <Aviso tipo="error">{error}</Aviso>
+      </main>
+    );
+  }
+
+  // Una cuenta sin organización no es un error: es alguien que acaba de entrar
+  // por primera vez.
+  if (organizaciones.length === 0) return <Onboarding />;
+
+  return (
     <Routes>
-      <Route path="/entrar" element={<SignIn />} />
-      <Route path="/" element={<Navigate to="/entrar" replace />} />
+      <Route element={<AppShell />}>
+        <Route index element={<Home />} />
+        <Route path="comercial" element={<Pendiente ruta="/comercial" fase="F2" />} />
+        <Route path="catalogos" element={<Pendiente ruta="/catalogos" fase="F2" />} />
+        <Route path="finanzas" element={<Pendiente ruta="/finanzas" fase="F3" />} />
+        <Route path="pipeline" element={<Pendiente ruta="/pipeline" fase="F4" />} />
+        <Route path="analisis" element={<Pendiente ruta="/analisis" fase="F3" />} />
+        <Route path="configuracion" element={<Settings />}>
+          <Route index element={<Navigate to="entidades" replace />} />
+          <Route path="entidades" element={<Entidades />} />
+          <Route path="marcas" element={<Marcas />} />
+          <Route path="monedas" element={<Monedas />} />
+          <Route path="impuestos" element={<Impuestos />} />
+          <Route path="cuentas" element={<Cuentas />} />
+          <Route path="categorias" element={<Categorias />} />
+        </Route>
+      </Route>
+      {/* Con sesión, /entrar no tiene sentido. */}
+      <Route path="/entrar" element={<Navigate to="/" replace />} />
       <Route path="*" element={<Navigate to="/" replace />} />
     </Routes>
   );
