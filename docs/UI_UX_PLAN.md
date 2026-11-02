@@ -114,8 +114,8 @@ Dos columnas en escritorio, acordeón en móvil.
 
 ```
 ┌─ Cotización COT-2027-014 · Borrador ────── [Vista previa] [Emitir] ─┐
-│ Cliente [Acme SAC ▾]   Entidad [The Publisher SAC ▾]                │
-│ Marca   [The Publisher ▾]  Moneda [PEN ▾]  IGV [18% ▾]  Vence [30d] │
+│ Cliente [Acme SAC ▾]   Entidad [3 Brothers MKT SAC ▾]               │
+│ Marca   [Nlima ▾]  Moneda [PEN ▾]  IGV [18% ▾]  Vence [30d]         │
 ├──────────────────────────── LÍNEAS ─────────────────────────────────┤
 │ 1 · Campaña de lanzamiento                           [▾ costos]     │
 │     Cant 1   Precio neto  S/ 8,500.00     Neto   S/ 8,500.00        │

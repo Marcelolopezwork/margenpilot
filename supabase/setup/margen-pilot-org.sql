@@ -7,8 +7,8 @@
 -- Desde el panel de Supabase: SQL Editor → pegar → Run.
 --
 -- Configura lo decidido en DECISIONS.md D-3:
---   The Publisher Ventures LLC  → marca The Publisher → USD → sin IGV
---   Three Brothers MKT SAC      → marca Nlima         → PEN → IGV 18 %
+--   The Publisher Ventures LLC  → marca The Publisher Lab → USD → sin IGV
+--   3 Brothers MKT SAC          → marca Nlima             → PEN → IGV 18 %
 -- ============================================================================
 
 do $$
@@ -64,7 +64,7 @@ begin
   where organization_id = v_org and legal_name = 'The Publisher Ventures LLC';
 
   insert into brands (organization_id, legal_entity_id, name)
-  values (v_org, v_llc, 'The Publisher')
+  values (v_org, v_llc, 'The Publisher Lab')
   on conflict (organization_id, name) do nothing;
 
   insert into tax_rates (organization_id, legal_entity_id, name, rate, is_default)
@@ -73,10 +73,10 @@ begin
 
   -- ---------------- Libro 2 · Perú, soles, IGV 18 % ------------------------
   insert into legal_entities (organization_id, legal_name, country, default_currency_code)
-  values (v_org, 'Three Brothers MKT SAC', 'PE', 'PEN')
+  values (v_org, '3 Brothers MKT SAC', 'PE', 'PEN')
   on conflict (organization_id, legal_name) do nothing;
   select id into v_sac from legal_entities
-  where organization_id = v_org and legal_name = 'Three Brothers MKT SAC';
+  where organization_id = v_org and legal_name = '3 Brothers MKT SAC';
 
   insert into brands (organization_id, legal_entity_id, name)
   values (v_org, v_sac, 'Nlima')

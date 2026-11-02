@@ -16,7 +16,7 @@ Una tabla `cash_movements` con discriminadores `kind` y `flow_class`, en lugar d
 
 ### ADR-16 · Dos libros contables separados por entidad — **nueva, 28/10/2026**
 **Decisión:** Perú y Estados Unidos son dos contabilidades completamente separadas. `legal_entity_id` es obligatorio en toda cuenta, movimiento, documento y cotización. Todo informe de resultado, rentabilidad y caja se calcula **por entidad**, nunca mezclado. Cada entidad tiene su moneda y su régimen de impuesto.
-**Por qué:** Three Brothers MKT SAC cobra en soles y paga IGV; The Publisher Ventures LLC cobra en dólares y no aplica IGV. Son dos negocios, dos rentabilidades y dos monedas.
+**Por qué:** 3 Brothers MKT SAC cobra en soles y paga IGV; The Publisher Ventures LLC cobra en dólares y no aplica IGV. Son dos negocios, dos rentabilidades y dos monedas.
 **Cómo se impone:** `cash_accounts.legal_entity_id` fija la entidad y la moneda de la cuenta; un trigger valida que el movimiento herede ambas; el lente Resultado se agrupa siempre por entidad; no existe ninguna vista que sume resultados de las dos.
 **Única excepción:** el total de caja consolidado del Inicio, que es **referencial**, va etiquetado con tasa, fecha y fuente, y no se almacena (ADR-14, D-5).
 
@@ -34,7 +34,7 @@ El saldo inicial es un `cash_movement`, así el saldo tiene una sola definición
 ### ADR-24 · El sistema registra documentos, no los emite — **nueva, 28/10/2026**
 **Decisión:** Margen Pilot **emite cotizaciones**, no facturas. `billing_documents` no genera ningún comprobante: es el **registro** de una factura o boleta que existe fuera de la app (la que emitiste en tu facturador o la que te dio un proveedor), y sirve para saber qué te deben y qué debes.
 **Por qué:** Marcelo lo señaló explícitamente, y es correcto: la app no emite ante SUNAT ni valida series.
-**Consecuencia en la UI:** la pantalla se llama «Registrar documento», no «Emitir factura». La cotización sale con el nombre de la entidad configurada (p. ej. Three Brothers MKT SAC) y la marca elegida. Se renombra el grupo a `documents` para que nadie lo lea como facturación electrónica.
+**Consecuencia en la UI:** la pantalla se llama «Registrar documento», no «Emitir factura». La cotización sale con el nombre de la entidad configurada (p. ej. 3 Brothers MKT SAC) y la marca elegida. Se renombra el grupo a `documents` para que nadie lo lea como facturación electrónica.
 
 ### ADR-04 · Los costos viven en tablas hijas — **vigente**
 `cost_items`, `service_cost_lines` y `quote_line_costs`, con política RLS propia para `owner|admin|finance`, porque Supabase atiende a todos los usuarios con el mismo rol de base de datos y los permisos por columna no distinguen un comercial de un financiero.
@@ -103,11 +103,11 @@ Una organización con **dos entidades legales**, y de momento solo dos:
 
 | Entidad legal | Marca | Moneda | Impuesto |
 |---|---|---|---|
-| The Publisher Ventures LLC | The Publisher | **USD** | sin IGV (0 %) |
-| Three Brothers MKT SAC | Nlima | **PEN** | IGV 18 % |
+| The Publisher Ventures LLC | The Publisher Lab | **USD** | sin IGV (0 %) |
+| 3 Brothers MKT SAC | Nlima | **PEN** | IGV 18 % |
 
 - La organización es el contenedor; dentro viven las entidades. Las **marcas se añaden libremente**, sin límite: cada usuario decide cuántas tiene y las crea él mismo.
-- **Dos detalles de grafía que te pido confirmar antes del primer PDF**, porque el nombre se imprime en las cotizaciones: escribiste «Tree Brothers MKT SAC» y lo he puesto como **Three Brothers MKT SAC**; y la marca de esa entidad la he puesto como **Nlima**, que es como aparecía en tu plan original, no «Lima». Si alguna de las dos está mal, se cambia en un sitio.
+- **Confirmado por Marcelo el 02/11/2026:** la razón social es **3 Brothers MKT SAC**, con el número y no «Three», y su agencia es **Nlima**. La marca de la LLC es **The Publisher Lab**, no «The Publisher», como figuraba por error hasta esa fecha. Si SUNAT imprime la razón social en otra forma —mayúsculas, o «S.A.C.» con puntos—, es una cadena en `supabase/setup/margen-pilot-org.sql` y se cambia ahí.
 
 ### D-4 · Plan para tu propia organización — **resuelta por omisión**
 Con dos entidades y dos monedas no cabes en Pro, así que tu organización va con plan `internal`: sin límites, no público, no facturable. Si prefieres otra cosa, se cambia en una fila de la tabla `subscriptions`.
@@ -132,6 +132,13 @@ Comprobado por HTTP con la clave pública real: las siete peticiones —leer pla
 
 Verificado **sobre lo que quedó publicado**, no sobre lo que se pretendía publicar: 42 archivos, sin `.env` y sin ninguna clave (`sb_publishable_`, `sb_secret_`, JWT). La referencia del proyecto de Supabase sí está, y no es un secreto: viaja en cada petición que hace el navegador. Lo que protege la base no es que el esquema sea secreto, es ADR-25.
 
+### ADR-29 · El producto vive en `crm.thepublisherlab.com`
+**02/11/2026.** Subdominio en el SiteGround de ADR-21, con el `public/.htaccess` que ya reescribe a `index.html`. Consecuencias:
+
+- *Authentication → URL Configuration* lleva **las dos** URL de redirección, desarrollo y producción, y el *Site URL* apunta a producción. Una sola no basta: el enlace de acceso se emite contra el origen desde el que se pidió.
+- **No hay cambio de código.** `SignIn.tsx` pasa `emailRedirectTo: window.location.origin`, así que el enlace vuelve al sitio desde el que se pidió, sea `localhost:5173` o el dominio. Lo único que hay que mantener es la lista blanca de Supabase.
+- El subdominio de pruebas que ADR-21 pone en lugar del staging por rama será otro subdominio del mismo dominio, y también tendrá que entrar en esa lista.
+
 ### D-5 · Tasa del consolidado — **resuelta**
 **La última tasa disponible**, mostrada siempre con su fecha y su fuente. El consolidado es referencial y no se almacena.
 
@@ -153,8 +160,7 @@ Eso es el producto. Todo lo que no sirva a esas tres piezas no entra.
 
 **Me bloquea trabajo ahora:**
 
-- **La URL de redirección en Supabase.** En *Authentication → URL Configuration* falta `http://localhost:5173/**`. Sin ella el enlace del correo rebota al destino por defecto y no se puede entrar en la app.
-- **Las dos grafías que se imprimen en las cotizaciones.** Escribiste «Tree Brothers MKT SAC» y lo tengo como **Three Brothers MKT SAC**; la marca de esa entidad la tengo como **Nlima**, no «Lima». Confirmar antes del primer PDF.
+- **Las URL de redirección en Supabase.** En *Authentication → URL Configuration* hacen falta las dos: `http://localhost:5173/**` para desarrollo y `https://crm.thepublisherlab.com/**` para producción, con *Site URL* apuntando a la segunda. Sin ellas el enlace del correo rebota al destino por defecto y no se puede entrar (ADR-29).
 - **Tu primer inicio de sesión.** `supabase/setup/margen-pilot-org.sql` busca al usuario por correo para crear tu organización con sus dos entidades. Hasta que entres una vez, `auth.users` está vacío y no hay a quién asignarla.
 
 **Puede esperar sin coste:** precio del plan Pro y límites finos · identidad visual y dominio · si alguna vez entra el cuadre manual (ADR-18) · alcance de acceso de agentes IA · apps en tiendas (ADR-12).

@@ -69,7 +69,7 @@ Confirmar una coincidencia solo escribe en `reconciliation_matches`. El único c
 `cash_movements.currency_code` = `cash_accounts.currency_code`, validado por trigger. Una cuenta tiene una sola moneda. Si una cuenta real es multimoneda (algunos bancos lo permiten), se modela como dos cuentas con el mismo `account_ref_masked` y se concilia por separado.
 
 ### INV-11 — Ningún dato cruza de libro
-`cash_movements.legal_entity_id` y `currency_code` se validan por trigger contra su `cash_account`. Un documento, una cotización y una oportunidad llevan también su `legal_entity_id`, y una asignación exige que documento y movimiento sean de la **misma entidad**. Consecuencia: no existe ninguna operación que mezcle el libro de Three Brothers MKT SAC con el de The Publisher Ventures LLC (ADR-16).
+`cash_movements.legal_entity_id` y `currency_code` se validan por trigger contra su `cash_account`. Un documento, una cotización y una oportunidad llevan también su `legal_entity_id`, y una asignación exige que documento y movimiento sean de la **misma entidad**. Consecuencia: no existe ninguna operación que mezcle el libro de 3 Brothers MKT SAC con el de The Publisher Ventures LLC (ADR-16).
 
 ### INV-10 — Dos monedas nunca se suman sin declararlo
 Ninguna consulta, vista ni componente puede sumar importes de monedas distintas sin pasar por la función de conversión, que **exige** `fx_rate`, `as_of` y `source`. El total consolidado no se almacena nunca: se calcula en el momento de mostrarlo y viaja siempre con su etiqueta.
