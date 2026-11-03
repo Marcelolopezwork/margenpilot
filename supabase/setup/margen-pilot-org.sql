@@ -13,7 +13,10 @@
 
 do $$
 declare
-  v_email text := 'thepublishercontact@gmail.com';  -- ← cambia si usas otro correo
+  -- Tiene que ser un correo que pueda recibir el enlace de acceso: hasta
+  -- que haya SMTP propio, solo los miembros de la organización de
+  -- Supabase lo reciben (D-7).
+  v_email text := 'info@thepublisherlab.com';
   v_user  uuid;
   v_org   uuid;
   v_llc   uuid;
@@ -24,11 +27,16 @@ begin
     raise exception 'No existe el usuario %. Entra una vez en la app antes de ejecutar esto.', v_email;
   end if;
 
-  -- Organización contenedora. Si ya existe, se reutiliza.
+  -- Se reutiliza CUALQUIER organización de la que ya seas dueño, no solo
+  -- la del slug esperado. Si entraste a la app y creaste una desde la
+  -- pantalla de bienvenida, esa es la que se completa aquí; buscando solo
+  -- por slug se te crearía una segunda y acabarías con dos.
   select o.id into v_org
   from organizations o
   join memberships m on m.organization_id = o.id
-  where m.user_id = v_user and o.slug = 'margen-pilot';
+  where m.user_id = v_user and m.role = 'owner' and m.status = 'active'
+  order by (o.slug = 'margen-pilot') desc, o.created_at
+  limit 1;
 
   if v_org is null then
     insert into organizations (name, slug, display_currency_code, created_by)

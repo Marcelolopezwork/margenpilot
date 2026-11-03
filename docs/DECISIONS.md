@@ -177,11 +177,12 @@ Eso es el producto. Todo lo que no sirva a esas tres piezas no entra.
 
 **Resuelto el 28/10/2026:** el proyecto de Supabase existe (`veocqvmywodeizuvnssn`, organización `margen pilot`, región `us-east-1`, Postgres 17). Las seis migraciones de F1 están aplicadas y las 27 aserciones de la suite pasan contra esa base. La verificación local con Docker deja de ser necesaria: se verifica contra el proyecto real, dentro de una transacción que se deshace, de modo que no queda ni una fila de prueba.
 
+**Decidido el 02/11/2026:** Marcelo entra con `info@thepublisherlab.com`, la cuenta dueña de la organización de Supabase, que hasta que exista SMTP propio es la única que recibe el enlace (D-7). `supabase/setup/margen-pilot-org.sql` apunta ahí.
+
 **Hecho el 02/11/2026:** F1-12 (armazón: barra lateral colapsable, barra inferior, selector de organización y entidad, tema en tres estados) y las seis pantallas de Configuración —entidades, marcas, monedas, impuestos, cuentas y categorías—, con los errores de la base traducidos a frases que dicen qué hacer. Nueve pruebas sobre el árbol de accesibilidad comprueban la aceptación de F1-12 sin depender de una sesión real.
 
 **Me bloquea trabajo ahora:**
 
-- **El correo con el que vas a entrar.** Hoy solo funciona `info@thepublisherlab.com`, que es la cuenta dueña de la organización de Supabase (D-7). Si prefieres entrar con otra dirección, hay que añadirla como miembro de la organización en Supabase, o montar el SMTP propio.
 - **Las URL de redirección en Supabase.** En *Authentication → URL Configuration* hacen falta las dos: `http://localhost:5173/**` para desarrollo y `https://crm.thepublisherlab.com/**` para producción, con *Site URL* apuntando a la segunda. Sin ellas el enlace del correo rebota al destino por defecto y no se puede entrar (ADR-29).
 - **Tu primer inicio de sesión.** `supabase/setup/margen-pilot-org.sql` busca al usuario por correo para crear tu organización con sus dos entidades. Hasta que entres una vez, `auth.users` está vacío y no hay a quién asignarla. El script está verificado contra la base real con un usuario sintético, dentro de una transacción que se deshace.
 - **Ver la mitad autenticada funcionando.** El armazón y Configuración compilan, pasan las pruebas y tienen sus tipos generados desde el esquema real, pero todavía no se han dibujado con una sesión de verdad porque no hay ningún usuario. Es lo primero que hay que mirar después de tu primer acceso.
