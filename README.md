@@ -8,9 +8,9 @@ Cotizador, dashboard financiero y pipeline comercial en un solo software, con **
 
 | | |
 |---|---|
-| Fase | **F1** terminada · **F2** en curso: catálogo de servicios y costos, con pantallas |
-| Web | acceso con contraseña o enlace · armazón con las siete secciones · Configuración (6 pantallas) · Catálogo (servicios, costos, categorías) |
-| Base de datos | siete migraciones **aplicadas** al proyecto real (F1 + catálogos de F2) |
+| Fase | **F1** terminada · **F2**: catálogo y **cotizador funcionando** |
+| Web | acceso con contraseña · Configuración (6 pantallas) · Catálogo (servicios, costos, categorías) · Comercial (clientes, cotizaciones con líneas, costos y márgenes) |
+| Base de datos | ocho migraciones **aplicadas** al proyecto real |
 | Supabase | `veocqvmywodeizuvnssn` · organización `margen pilot` · Postgres 17 |
 | Repositorio | [Marcelolopezwork/margenpilot](https://github.com/Marcelolopezwork/margenpilot), público · CI en cada push |
 | Hosting | SiteGround · `crm.thepublisherlab.com` · `public/.htaccess` ya preparado |

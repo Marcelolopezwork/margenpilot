@@ -169,6 +169,50 @@ export type Database = {
           },
         ]
       }
+      clients: {
+        Row: {
+          created_at: string
+          email: string | null
+          id: string
+          is_active: boolean
+          name: string
+          notes: string | null
+          organization_id: string
+          tax_id: string | null
+          updated_at: string
+        }
+        Insert: {
+          created_at?: string
+          email?: string | null
+          id?: string
+          is_active?: boolean
+          name: string
+          notes?: string | null
+          organization_id: string
+          tax_id?: string | null
+          updated_at?: string
+        }
+        Update: {
+          created_at?: string
+          email?: string | null
+          id?: string
+          is_active?: boolean
+          name?: string
+          notes?: string | null
+          organization_id?: string
+          tax_id?: string | null
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "clients_organization_id_fkey"
+            columns: ["organization_id"]
+            isOneToOne: false
+            referencedRelation: "organizations"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       cost_items: {
         Row: {
           created_at: string
@@ -597,6 +641,132 @@ export type Database = {
         }
         Relationships: []
       }
+      quote_line_costs: {
+        Row: {
+          cost_item_id: string | null
+          created_at: string
+          id: string
+          label: string | null
+          organization_id: string
+          quantity: number
+          quote_line_id: string
+          sort: number
+          unit: string
+          unit_cost: number
+        }
+        Insert: {
+          cost_item_id?: string | null
+          created_at?: string
+          id?: string
+          label?: string | null
+          organization_id: string
+          quantity: number
+          quote_line_id: string
+          sort?: number
+          unit?: string
+          unit_cost: number
+        }
+        Update: {
+          cost_item_id?: string | null
+          created_at?: string
+          id?: string
+          label?: string | null
+          organization_id?: string
+          quantity?: number
+          quote_line_id?: string
+          sort?: number
+          unit?: string
+          unit_cost?: number
+        }
+        Relationships: []
+      }
+      quote_lines: {
+        Row: {
+          created_at: string
+          description: string
+          id: string
+          organization_id: string
+          quantity: number
+          quote_id: string
+          service_id: string | null
+          sort: number
+          unit_price: number
+        }
+        Insert: {
+          created_at?: string
+          description: string
+          id?: string
+          organization_id: string
+          quantity: number
+          quote_id: string
+          service_id?: string | null
+          sort?: number
+          unit_price: number
+        }
+        Update: {
+          created_at?: string
+          description?: string
+          id?: string
+          organization_id?: string
+          quantity?: number
+          quote_id?: string
+          service_id?: string | null
+          sort?: number
+          unit_price?: number
+        }
+        Relationships: []
+      }
+      quotes: {
+        Row: {
+          brand_id: string | null
+          client_id: string
+          created_at: string
+          currency_code: string
+          id: string
+          legal_entity_id: string
+          notes: string | null
+          number: string
+          organization_id: string
+          status: Database["public"]["Enums"]["quote_status"]
+          tax_label: string | null
+          tax_rate_pct: number
+          updated_at: string
+          valid_until: string | null
+        }
+        Insert: {
+          brand_id?: string | null
+          client_id: string
+          created_at?: string
+          currency_code: string
+          id?: string
+          legal_entity_id: string
+          notes?: string | null
+          number: string
+          organization_id: string
+          status?: Database["public"]["Enums"]["quote_status"]
+          tax_label?: string | null
+          tax_rate_pct?: number
+          updated_at?: string
+          valid_until?: string | null
+        }
+        Update: {
+          brand_id?: string | null
+          client_id?: string
+          created_at?: string
+          currency_code?: string
+          id?: string
+          legal_entity_id?: string
+          notes?: string | null
+          number?: string
+          organization_id?: string
+          status?: Database["public"]["Enums"]["quote_status"]
+          tax_label?: string | null
+          tax_rate_pct?: number
+          updated_at?: string
+          valid_until?: string | null
+        }
+        Relationships: []
+      }
       service_categories: {
         Row: {
           created_at: string
@@ -926,6 +1096,10 @@ export type Database = {
         Args: { p_currency?: string; p_name: string }
         Returns: string
       }
+      next_quote_number: {
+        Args: { p_entity: string }
+        Returns: string
+      }
     }
     Enums: {
       account_kind: "bank" | "cash" | "wallet" | "card"
@@ -934,6 +1108,13 @@ export type Database = {
       fx_rate_kind: "closing" | "official" | "manual"
       membership_role: "owner" | "admin" | "finance" | "commercial" | "viewer"
       membership_status: "invited" | "active" | "suspended"
+      quote_status:
+        | "draft"
+        | "sent"
+        | "approved"
+        | "rejected"
+        | "expired"
+        | "void"
       service_kind: "one_off" | "recurring" | "retainer"
       term_kind: "include" | "exclude" | "condition" | "note"
     }
@@ -1069,6 +1250,7 @@ export const Constants = {
       fx_rate_kind: ["closing", "official", "manual"],
       membership_role: ["owner", "admin", "finance", "commercial", "viewer"],
       membership_status: ["invited", "active", "suspended"],
+      quote_status: ["draft", "sent", "approved", "rejected", "expired", "void"],
       service_kind: ["one_off", "recurring", "retainer"],
       term_kind: ["include", "exclude", "condition", "note"],
     },

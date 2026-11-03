@@ -12,6 +12,10 @@ import Pendiente from './pages/Pendiente';
 import Setup from './pages/Setup';
 import SignIn from './pages/SignIn';
 import Catalogo from './pages/catalogo/Catalogo';
+import Clientes from './pages/comercial/Clientes';
+import Comercial from './pages/comercial/Comercial';
+import Cotizacion from './pages/comercial/Cotizacion';
+import Cotizaciones from './pages/comercial/Cotizaciones';
 import CategoriasServicio from './pages/catalogo/CategoriasServicio';
 import Costos from './pages/catalogo/Costos';
 import Servicios from './pages/catalogo/Servicios';
@@ -93,7 +97,12 @@ function ConOrganizacion() {
     <Routes>
       <Route element={<AppShell />}>
         <Route index element={<Home />} />
-        <Route path="comercial" element={<Pendiente ruta="/comercial" fase="F2" />} />
+        <Route path="comercial" element={<Comercial />}>
+          <Route index element={<Navigate to="cotizaciones" replace />} />
+          <Route path="cotizaciones" element={<Cotizaciones />} />
+          <Route path="cotizaciones/:id" element={<Cotizacion />} />
+          <Route path="clientes" element={<Clientes />} />
+        </Route>
         <Route path="catalogos" element={<Catalogo />}>
           <Route index element={<Navigate to="servicios" replace />} />
           <Route path="servicios" element={<Servicios />} />
