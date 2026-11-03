@@ -299,10 +299,7 @@ end $$;
 reset role;
 reset request.jwt.claim.sub;
 
--- Org A sube a pro: con el plan free solo cabe un miembro y aquí hacen falta dos.
-update subscriptions set plan_code = 'pro'
-where organization_id = (select id from organizations where slug = 'org-a');
-
+-- Org A ya está en internal desde D-1, así que no hay tope de miembros.
 insert into auth.users (id, email)
 values ('33333333-3333-3333-3333-333333333333', 'comercial@test.local');
 
@@ -330,9 +327,20 @@ from organizations where slug = 'org-a';
 
 do $$
 begin
+  -- Precondición explícita: D-1 habilitó USD en Org A para probar el plan
+  -- internal, así que la moneda ajena hay que buscarla en Org B, que nació en
+  -- USD y nunca habilitó soles. Si alguien se los habilita, esta aserción
+  -- falla con un mensaje claro en vez de dejar la siguiente sin probar nada.
+  perform assert_true(
+    not exists (
+      select 1 from organization_currencies oc
+      join organizations o on o.id = oc.organization_id
+      where o.slug = 'org-b' and oc.currency_code = 'PEN' and oc.is_enabled),
+    'Org B no tiene soles habilitados, que es lo que hace útil la prueba siguiente');
+
   perform assert_raises(
     $q$insert into cost_items (organization_id, name, unit_cost, currency_code)
-       select id, 'En moneda ajena', 10, 'USD' from organizations where slug = 'org-a'$q$,
+       select id, 'En moneda ajena', 10, 'PEN' from organizations where slug = 'org-b'$q$,
     'currency_not_enabled',
     'un ítem de costo no puede usar una moneda que la organización no habilitó');
 
@@ -377,4 +385,4 @@ end $$;
 
 reset role;
 
-select 'TODAS LAS PRUEBAS DE F1 Y F2 PASARON · 36 aserciones' as resultado;
+select 'TODAS LAS PRUEBAS DE F1 Y F2 PASARON · 37 aserciones' as resultado;
