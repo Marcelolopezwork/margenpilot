@@ -15,7 +15,7 @@ Cotizador, dashboard financiero y pipeline comercial en un solo software, con **
 | Repositorio | [Marcelolopezwork/margenpilot](https://github.com/Marcelolopezwork/margenpilot), público · CI en cada push |
 | Hosting | SiteGround · `crm.thepublisherlab.com` · `public/.htaccess` ya preparado |
 | Verificado | 27 aserciones contra la base real · 44 pruebas (dinero, errores, formato, armazón) · tipos, lint y build · CI en verde, con las migraciones reaplicadas desde cero |
-| Pendiente | las dos URL de redirección en Supabase (ADR-29) · primer inicio de sesión para crear la organización |
+| Pendiente | las dos URL de redirección en Supabase (ADR-29) · primer inicio de sesión para crear la organización · SMTP propio antes del primer cliente (D-7) |
 
 Las dos aplicaciones anteriores y sus proyectos de Supabase quedan **intactos**. No se migra ningún dato de 2026. Focus queda fuera.
 

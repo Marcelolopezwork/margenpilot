@@ -149,6 +149,15 @@ En su lugar, la barra inferior lleva tres destinos y «Más», que abre el resto
 ### ADR-31 · `react-router-dom` 7
 **02/11/2026.** `npm audit` marcaba dos avisos moderados contra todo el rango 6.0.0–7.17.0: un *open redirect* por barra invertida en `<Link>` y `useNavigate`, y una inyección de constructor en la hidratación SSR. Ninguno nos afectaba hoy —no hacemos SSR y todos los destinos son literales—, pero el primero sí nos afectaría en cuanto F2 construya enlaces con datos del usuario. Se sube a 7.18.5, que es un salto de versión mayor y deja la auditoría de producción en cero. Cuesta 5,6 KB comprimidos.
 
+### D-7 · Proveedor de correo transaccional — **abierta y con fecha límite**
+**02/11/2026.** Encontrado al preparar el primer acceso, y el plan no lo contemplaba en ninguna parte.
+
+El servicio de correo que trae Supabase **solo escribe a las direcciones de los miembros de la organización de Supabase**; a cualquier otra responde `email_address_not_authorized`. Además tiene un límite bajo por hora y es «best-effort», sin garantía de entrega.
+
+Consecuencia inmediata: la organización `margen pilot` (plan free) la creó `info@thepublisherlab.com`, así que hoy ese es el único correo que puede recibir un enlace de acceso. Entrar con otro, como `thepublishercontact@gmail.com`, falla aunque las URL de redirección estén bien puestas.
+
+Consecuencia de fondo, que es la que importa: **el producto no puede dar de alta a un solo cliente real sin un SMTP propio.** El acceso es por enlace de correo y ningún cliente va a ser miembro de nuestra organización de Supabase. No es trabajo de F5 ni de «cuando lancemos»: es la víspera del primer usuario que no seas tú. Queda por elegir proveedor y por decidir el dominio desde el que se envía, que debería ser `thepublisherlab.com` con su SPF y su DKIM para no caer en spam.
+
 ### D-5 · Tasa del consolidado — **resuelta**
 **La última tasa disponible**, mostrada siempre con su fecha y su fuente. El consolidado es referencial y no se almacena.
 
@@ -172,6 +181,7 @@ Eso es el producto. Todo lo que no sirva a esas tres piezas no entra.
 
 **Me bloquea trabajo ahora:**
 
+- **El correo con el que vas a entrar.** Hoy solo funciona `info@thepublisherlab.com`, que es la cuenta dueña de la organización de Supabase (D-7). Si prefieres entrar con otra dirección, hay que añadirla como miembro de la organización en Supabase, o montar el SMTP propio.
 - **Las URL de redirección en Supabase.** En *Authentication → URL Configuration* hacen falta las dos: `http://localhost:5173/**` para desarrollo y `https://crm.thepublisherlab.com/**` para producción, con *Site URL* apuntando a la segunda. Sin ellas el enlace del correo rebota al destino por defecto y no se puede entrar (ADR-29).
 - **Tu primer inicio de sesión.** `supabase/setup/margen-pilot-org.sql` busca al usuario por correo para crear tu organización con sus dos entidades. Hasta que entres una vez, `auth.users` está vacío y no hay a quién asignarla. El script está verificado contra la base real con un usuario sintético, dentro de una transacción que se deshace.
 - **Ver la mitad autenticada funcionando.** El armazón y Configuración compilan, pasan las pruebas y tienen sus tipos generados desde el esquema real, pero todavía no se han dibujado con una sesión de verdad porque no hay ningún usuario. Es lo primero que hay que mirar después de tu primer acceso.
