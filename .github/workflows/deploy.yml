@@ -1,0 +1,109 @@
+name: Desplegar
+
+# Cada push a main que pase la CI deja el sitio al día en SiteGround. Existe
+# porque mandar un zip a mano garantiza que antes o después se sirva un build
+# caducado, y entonces se culpa a la caché del navegador durante media hora.
+#
+# Inerte hasta que existan los secretos: si falta alguno, el trabajo se salta
+# y no rompe nada.
+#
+# Secretos (Settings → Secrets and variables → Actions):
+#   SG_SFTP_HOST   el servidor SFTP de SiteGround (Site Tools → Devs → SSH)
+#   SG_SFTP_USER   el usuario
+#   SG_SFTP_PASS   la contraseña
+#   SG_SFTP_PORT   el puerto (SiteGround suele usar 18765)
+#   SG_REMOTE_DIR  la carpeta del subdominio, p. ej. public_html/crm.thepublisherlab.com
+#   VITE_SUPABASE_URL y VITE_SUPABASE_PUBLISHABLE_KEY, que se empotran en el build
+#
+# Las claves de Supabase son públicas por diseño: lo que protege la base es
+# RLS (ADR-25), no que la clave sea secreta. Van en secretos igualmente para
+# no tenerlas escritas en el repositorio.
+
+on:
+  workflow_run:
+    workflows: ['CI']
+    types: [completed]
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  group: despliegue
+  cancel-in-progress: true
+
+jobs:
+  subir:
+    name: Subir dist a SiteGround
+    runs-on: ubuntu-latest
+    # Solo si la CI pasó: nunca se despliega algo que no compiló.
+    if: ${{ github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success' }}
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: ¿Están los secretos?
+        id: listo
+        env:
+          HOST: ${{ secrets.SG_SFTP_HOST }}
+          DIR: ${{ secrets.SG_REMOTE_DIR }}
+        run: |
+          if [ -n "$HOST" ] && [ -n "$DIR" ]; then
+            echo "ok=si" >> "$GITHUB_OUTPUT"
+          else
+            echo "ok=no" >> "$GITHUB_OUTPUT"
+            echo "Faltan secretos de despliegue: no se sube nada." >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+      - uses: actions/setup-node@v7
+        if: steps.listo.outputs.ok == 'si'
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Compilar
+        if: steps.listo.outputs.ok == 'si'
+        env:
+          VITE_SUPABASE_URL: ${{ secrets.VITE_SUPABASE_URL }}
+          VITE_SUPABASE_PUBLISHABLE_KEY: ${{ secrets.VITE_SUPABASE_PUBLISHABLE_KEY }}
+        run: |
+          npm ci
+          npx vite build
+
+      - name: Comprobar que el build salió entero
+        if: steps.listo.outputs.ok == 'si'
+        run: |
+          test -f dist/index.html || { echo "no hay index.html"; exit 1; }
+          test -f dist/.htaccess  || { echo "falta .htaccess: las rutas darían 404"; exit 1; }
+          grep -q 'assets/index-' dist/index.html || { echo "el html no apunta a ningún bundle"; exit 1; }
+
+      - name: Subir por SFTP
+        if: steps.listo.outputs.ok == 'si'
+        env:
+          HOST: ${{ secrets.SG_SFTP_HOST }}
+          USER: ${{ secrets.SG_SFTP_USER }}
+          PASS: ${{ secrets.SG_SFTP_PASS }}
+          PORT: ${{ secrets.SG_SFTP_PORT }}
+          DIR: ${{ secrets.SG_REMOTE_DIR }}
+        run: |
+          sudo apt-get update -qq && sudo apt-get install -y -qq lftp
+          # Sin --delete a propósito: los assets viejos llevan hash en el
+          # nombre y no estorban, mientras que un --delete con la carpeta mal
+          # puesta se lleva por delante lo que haya.
+          lftp -c "
+            set sftp:auto-confirm yes;
+            set net:max-retries 3;
+            open -u '$USER','$PASS' -p '${PORT:-18765}' sftp://$HOST;
+            mirror -R --verbose --exclude '\.map$' dist/ '$DIR';
+          "
+
+      - name: Confirmar qué quedó servido
+        if: steps.listo.outputs.ok == 'si'
+        run: |
+          esperado=$(grep -oE 'assets/index-[A-Za-z0-9._-]+\.js' dist/index.html | head -1)
+          sirviendo=$(curl -sS -L --max-time 30 "https://crm.thepublisherlab.com" \
+            | grep -oE 'assets/index-[A-Za-z0-9._-]+\.js' | head -1)
+          echo "esperado:  $esperado"
+          echo "sirviendo: $sirviendo"
+          if [ "$esperado" != "$sirviendo" ]; then
+            echo "El dominio sigue sirviendo otro bundle. Revisa SG_REMOTE_DIR." >&2
+            exit 1
+          fi
+          echo "Desplegado: $sirviendo" >> "$GITHUB_STEP_SUMMARY"
