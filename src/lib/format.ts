@@ -11,12 +11,24 @@ const LOCALE = 'es-PE';
 /**
  * Una tasa guardada como 18.0000 se lee «18 %» y 0.0000 se lee «0 %».
  * Se admiten hasta dos decimales porque existen tasas como el 4.5 %.
+ *
+ * Acepta texto además de número a propósito: **PostgREST entrega las columnas
+ * `numeric` como string**, aunque los tipos generados por Supabase declaren
+ * `number`. Comprobado contra el proyecto real el 03/11/2026: `numeric` vuelve
+ * entrecomillado y `bigint` no.
+ *
+ * Convertir con `Number()` solo es admisible aquí porque una tasa va de 0 a
+ * 100 y cabe de sobra en un `double`. **Ningún importe pasa por este camino:**
+ * el dinero entra por `money.fromDb`, que lo lleva a unidades mínimas sin
+ * tocar la coma flotante.
  */
-export function formatoTasa(tasa: number): string {
+export function formatoTasa(tasa: number | string): string {
+  const valor = typeof tasa === 'number' ? tasa : Number(tasa);
+  if (!Number.isFinite(valor)) return '—';
   const n = new Intl.NumberFormat(LOCALE, {
     minimumFractionDigits: 0,
     maximumFractionDigits: 2,
-  }).format(tasa);
+  }).format(valor);
   return `${n} %`;
 }
 

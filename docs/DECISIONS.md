@@ -167,6 +167,22 @@ Ahora la pantalla tiene dos pestañas y **la contraseña es la primera**. El enl
 
 **La lección, que es más general que esto:** una decisión técnica que deja al usuario sin poder usar el producto es una mala decisión, por elegante que sea. Se mide por si puede entrar, no por cuántos pasos tiene el formulario.
 
+### ADR-33 · El dinero se guarda en `numeric`, y el `bigint` es del cliente
+**03/11/2026.** Comprobado contra el proyecto real antes de escribir la primera columna de dinero, porque equivocarse aquí se arrastra a todo lo demás.
+
+PostgREST entrega `numeric` **como texto** (`"12345678901234.5678"`) y `bigint` **como número de JavaScript** (`1234`). O sea que guardar importes como `bigint` de unidades mínimas —que es como los manejamos en TypeScript— sería *peor* que `numeric`: al cruzar JSON pasarían por un `double` y perderían precisión por encima de 2^53.
+
+Queda como estaba planeado en FINANCIAL_RULES §4: `numeric(18,2)` para lo que liquida, `numeric(18,4)` para precios y costos unitarios, `numeric(7,4)` para porcentajes. El `bigint` de unidades mínimas vive solo dentro de `money.ts`, y `money.fromDb` es la única puerta de entrada.
+
+**Y hay una mentira que hay que recordar:** los tipos que genera Supabase declaran `number` para las columnas `numeric`, pero en ejecución llega un `string`. No explota al mostrarlo —`Intl` convierte sola— pero sí al hacer cuentas. Por eso `formatoTasa` acepta las dos cosas y lo dice en su comentario.
+
+### ADR-34 · El costo no se esconde en la interfaz, se niega en la base
+**03/11/2026.** En el catálogo de F2, el rol `commercial` no puede leer `cost_items` ni `service_cost_lines`. No es que la pantalla oculte una columna: la base devuelve **cero filas**. Ocultar en la interfaz no sirve de nada cuando cualquiera con la clave pública puede llamar a la API y pedir la tabla entera.
+
+Se apoya en `app.can_see_costs()`, que ya existía desde F1. Verificado con dos usuarios de la misma organización: el comercial ve 1 ficha y 1 categoría, y 0 ítems de costo y 0 líneas; la dueña ve las cuatro cosas.
+
+Y la pertenencia a la organización no se vigila con disparadores sino con **claves ajenas compuestas**: `service_cost_lines (service_id, organization_id)` apunta a `services (id, organization_id)`. Una línea de costo de otra organización es imposible por estructura, no por una comprobación que alguien pueda olvidar.
+
 ### D-5 · Tasa del consolidado — **resuelta**
 **La última tasa disponible**, mostrada siempre con su fecha y su fuente. El consolidado es referencial y no se almacena.
 

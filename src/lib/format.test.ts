@@ -13,6 +13,17 @@ describe('formatoTasa', () => {
   it('conserva los decimales que existen', () => {
     expect(formatoTasa(4.5)).toBe('4.5 %');
   });
+
+  it('acepta el texto que manda Postgres, que es lo que llega de verdad', () => {
+    // PostgREST entrega `numeric` entrecomillado aunque los tipos digan number.
+    expect(formatoTasa('18.0000')).toBe('18 %');
+    expect(formatoTasa('0.0000')).toBe('0 %');
+    expect(formatoTasa('4.5000')).toBe('4.5 %');
+  });
+
+  it('no inventa una cifra si llega basura', () => {
+    expect(formatoTasa('no soy un número')).toBe('—');
+  });
 });
 
 describe('formatoFecha', () => {

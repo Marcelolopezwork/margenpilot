@@ -288,4 +288,93 @@ begin
     'la moneda de alta tiene que existir');
 end $$;
 
-select 'TODAS LAS PRUEBAS DE F1 PASARON · 27 aserciones' as resultado;
+-- ---------------------------------------------------------------------------
+-- F2 · Catálogos · el comercial cotiza con las fichas y NO ve los costos
+--
+-- Es la aceptación de F2-5, y la forma de comprobarla importa: no se mira si
+-- la interfaz esconde una columna, se cuentan las filas que devuelve la base
+-- a cada rol. Cero filas, no columnas vacías.
+-- ---------------------------------------------------------------------------
+
+reset role;
+reset request.jwt.claim.sub;
+
+-- Org A sube a pro: con el plan free solo cabe un miembro y aquí hacen falta dos.
+update subscriptions set plan_code = 'pro'
+where organization_id = (select id from organizations where slug = 'org-a');
+
+insert into auth.users (id, email)
+values ('33333333-3333-3333-3333-333333333333', 'comercial@test.local');
+
+insert into memberships (organization_id, user_id, role, status)
+select id, '33333333-3333-3333-3333-333333333333', 'commercial', 'active'
+from organizations where slug = 'org-a';
+
+insert into service_categories (id, organization_id, name)
+select '44444444-4444-4444-4444-444444444444', id, 'Campañas'
+from organizations where slug = 'org-a';
+
+insert into services (id, organization_id, code, name, category_id, suggested_currency_code, default_fee_pct)
+select '55555555-5555-5555-5555-555555555555', id, 'CAMP-01', 'Campaña de lanzamiento',
+       '44444444-4444-4444-4444-444444444444', 'PEN', 80
+from organizations where slug = 'org-a';
+
+insert into cost_items (id, organization_id, name, kind, unit, unit_cost, currency_code)
+select '66666666-6666-6666-6666-666666666666', id, 'Dirección creativa', 'role', 'hora', 120.0000, 'PEN'
+from organizations where slug = 'org-a';
+
+insert into service_cost_lines (organization_id, service_id, cost_item_id, quantity, unit_cost, unit, currency_code)
+select id, '55555555-5555-5555-5555-555555555555', '66666666-6666-6666-6666-666666666666',
+       12, 120.0000, 'hora', 'PEN'
+from organizations where slug = 'org-a';
+
+do $$
+begin
+  perform assert_raises(
+    $q$insert into cost_items (organization_id, name, unit_cost, currency_code)
+       select id, 'En moneda ajena', 10, 'USD' from organizations where slug = 'org-a'$q$,
+    'currency_not_enabled',
+    'un ítem de costo no puede usar una moneda que la organización no habilitó');
+
+  perform assert_raises(
+    $q$insert into service_cost_lines (organization_id, service_id, quantity, unit_cost, currency_code, label)
+       select id, '55555555-5555-5555-5555-555555555555', 1, 10, 'USD', 'Cruzada'
+       from organizations where slug = 'org-b'$q$,
+    'violates foreign key constraint',
+    'una línea de costo no puede colgar de una ficha de otra organización');
+
+  perform assert_raises(
+    $q$insert into service_cost_lines (organization_id, service_id, quantity, unit_cost, currency_code)
+       select id, '55555555-5555-5555-5555-555555555555', 1, 10, 'PEN'
+       from organizations where slug = 'org-a'$q$,
+    'violates check constraint',
+    'una línea sin ítem de catálogo necesita su propia etiqueta');
+end $$;
+
+set role authenticated;
+
+set request.jwt.claim.sub = '33333333-3333-3333-3333-333333333333';
+do $$
+begin
+  perform assert_true((select count(*) from services) = 1,
+    'el comercial ve las fichas de servicio: las necesita para cotizar');
+  perform assert_true((select count(*) from service_categories) = 1,
+    'el comercial ve las categorías del catálogo');
+  perform assert_true((select count(*) from cost_items) = 0,
+    'el comercial NO ve ningún ítem de costo (F2-5)');
+  perform assert_true((select count(*) from service_cost_lines) = 0,
+    'el comercial NO ve ninguna línea de costo (F2-5)');
+end $$;
+
+set request.jwt.claim.sub = '11111111-1111-1111-1111-111111111111';
+do $$
+begin
+  perform assert_true((select count(*) from cost_items) = 1,
+    'el dueño sí ve los ítems de costo de su organización');
+  perform assert_true((select count(*) from service_cost_lines) = 1,
+    'el dueño sí ve la composición de costos de su ficha');
+end $$;
+
+reset role;
+
+select 'TODAS LAS PRUEBAS DE F1 Y F2 PASARON · 36 aserciones' as resultado;
