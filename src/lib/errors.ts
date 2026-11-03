@@ -56,7 +56,12 @@ const FIJOS: readonly (readonly [string, string])[] = [
     'unknown_entitlement',
     'El plan declara un límite que no tiene contador. Es un error de configuración del plan, no tuyo.',
   ],
-  ['not_authenticated', 'Tu sesión caducó. Vuelve a entrar con tu correo.'],
+  ['not_authenticated', 'Tu sesión caducó. Vuelve a entrar.'],
+  // Los de acceso llegan con el texto de Supabase, en inglés, y son los que
+  // más va a ver alguien que se equivoca al teclear.
+  ['Invalid login credentials', 'Correo o contraseña incorrectos.'],
+  ['Email not confirmed', 'Ese usuario existe pero su correo no está confirmado. Confírmalo desde el panel de Supabase, en Authentication → Users.'],
+  ['email rate limit exceeded', 'Supabase no deja enviar más correos por ahora: su servicio de cortesía tiene un límite bajo por hora. Entra con contraseña o espera un rato (D-7).'],
   ['invalid_name', 'Hace falta un nombre.'],
   ['unknown_currency', 'Esa moneda no existe en el catálogo.'],
 ];
@@ -69,7 +74,17 @@ const POR_CODIGO: Record<string, string> = {
   '23514': 'Algún valor no cumple una regla de la base de datos.',
   '42501':
     'La base de datos no te deja hacer eso. Si crees que deberías poder, es una política que hay que revisar, no un permiso que subir.',
-  PGRST301: 'Tu sesión caducó. Vuelve a entrar con tu correo.',
+  PGRST301: 'Tu sesión caducó. Vuelve a entrar.',
+  invalid_credentials: 'Correo o contraseña incorrectos.',
+  email_not_confirmed:
+    'Ese usuario existe pero su correo no está confirmado. Confírmalo desde el panel de Supabase, en Authentication → Users.',
+  user_not_found: 'No hay ningún usuario con ese correo.',
+  weak_password: 'Esa contraseña es demasiado corta o demasiado común.',
+  email_address_not_authorized:
+    'Supabase solo escribe a los correos de los miembros de su organización mientras no haya SMTP propio. Entra con contraseña (D-7).',
+  over_email_send_rate_limit:
+    'Supabase no deja enviar más correos por ahora: su servicio de cortesía tiene un límite bajo por hora. Entra con contraseña o espera un rato (D-7).',
+  over_request_rate_limit: 'Demasiados intentos seguidos. Espera un minuto.',
 };
 
 const SIN_DETALLE = 'Algo falló y no llegó ningún detalle.';

@@ -158,6 +158,15 @@ Consecuencia inmediata: la organización `margen pilot` (plan free) la creó `in
 
 Consecuencia de fondo, que es la que importa: **el producto no puede dar de alta a un solo cliente real sin un SMTP propio.** El acceso es por enlace de correo y ningún cliente va a ser miembro de nuestra organización de Supabase. No es trabajo de F5 ni de «cuando lancemos»: es la víspera del primer usuario que no seas tú. Queda por elegir proveedor y por decidir el dominio desde el que se envía, que debería ser `thepublisherlab.com` con su SPF y su DKIM para no caer en spam.
 
+### ADR-32 · El acceso principal es correo y contraseña
+**02/11/2026.** Rectifica una decisión mía. `BACKLOG.md` F1-1 pedía «auth con email + contraseña y recuperación» y yo monté solo el enlace por correo, que parecía más cómodo.
+
+El resultado fue que Marcelo pasó cinco días sin poder abrir su propia aplicación. El enlace depende de que el correo salga, llegue y no caiga en spam, y encima el servicio de Supabase solo escribe a los miembros de su organización mientras no haya SMTP propio (D-7). Una forma de entrar que depende de tres cosas que pueden fallar no es la forma principal de entrar.
+
+Ahora la pantalla tiene dos pestañas y **la contraseña es la primera**. El enlace sigue estando, porque para un cliente que no quiere gestionar otra contraseña es mejor, pero deja de ser el único camino. Los errores de acceso se traducen: `Invalid login credentials` se lee «Correo o contraseña incorrectos», y los dos del correo explican que se entre con contraseña.
+
+**La lección, que es más general que esto:** una decisión técnica que deja al usuario sin poder usar el producto es una mala decisión, por elegante que sea. Se mide por si puede entrar, no por cuántos pasos tiene el formulario.
+
 ### D-5 · Tasa del consolidado — **resuelta**
 **La última tasa disponible**, mostrada siempre con su fecha y su fuente. El consolidado es referencial y no se almacena.
 
@@ -183,7 +192,8 @@ Eso es el producto. Todo lo que no sirva a esas tres piezas no entra.
 
 **Me bloquea trabajo ahora:**
 
-- **Las URL de redirección en Supabase.** En *Authentication → URL Configuration* hacen falta las dos: `http://localhost:5173/**` para desarrollo y `https://crm.thepublisherlab.com/**` para producción, con *Site URL* apuntando a la segunda. Sin ellas el enlace del correo rebota al destino por defecto y no se puede entrar (ADR-29).
+- **Tu usuario en Supabase.** Se crea en *Authentication → Users → Add user*, con *Auto Confirm User* marcado, y se entra con contraseña (ADR-32). No depende de ningún correo.
+- **Las URL de redirección en Supabase.** Solo hacen falta para el acceso por enlace, que ya no es el camino principal. En *Authentication → URL Configuration*: `http://localhost:5173/**` y `https://crm.thepublisherlab.com/**`, con *Site URL* apuntando a la segunda (ADR-29).
 - **Tu primer inicio de sesión.** `supabase/setup/margen-pilot-org.sql` busca al usuario por correo para crear tu organización con sus dos entidades. Hasta que entres una vez, `auth.users` está vacío y no hay a quién asignarla. El script está verificado contra la base real con un usuario sintético, dentro de una transacción que se deshace.
 - **Ver la mitad autenticada funcionando.** El armazón y Configuración compilan, pasan las pruebas y tienen sus tipos generados desde el esquema real, pero todavía no se han dibujado con una sesión de verdad porque no hay ningún usuario. Es lo primero que hay que mirar después de tu primer acceso.
 

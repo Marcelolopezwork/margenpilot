@@ -52,8 +52,26 @@ describe('mensajeDeError', () => {
     expect(mensajeDeError({ message: '   ' })).toBe('Algo falló y no llegó ningún detalle.');
   });
 
+  it('traduce una contraseña equivocada, por mensaje y por código', () => {
+    expect(mensajeDeError({ message: 'Invalid login credentials' })).toBe(
+      'Correo o contraseña incorrectos.',
+    );
+    expect(mensajeDeError({ message: 'algo en inglés', code: 'invalid_credentials' })).toBe(
+      'Correo o contraseña incorrectos.',
+    );
+  });
+
+  it('explica el correo que Supabase no quiere enviar', () => {
+    const m = mensajeDeError({ message: '…', code: 'email_address_not_authorized' });
+    expect(m).toContain('Entra con contraseña');
+  });
+
+  it('explica el límite de correos en vez de dejarlo en inglés', () => {
+    expect(mensajeDeError({ message: 'email rate limit exceeded' })).toContain('límite bajo');
+  });
+
   it('prefiere el mensaje propio al código cuando llegan los dos', () => {
     const m = mensajeDeError({ message: 'not_authenticated', code: '42501' });
-    expect(m).toBe('Tu sesión caducó. Vuelve a entrar con tu correo.');
+    expect(m).toBe('Tu sesión caducó. Vuelve a entrar.');
   });
 });

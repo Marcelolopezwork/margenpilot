@@ -9,7 +9,7 @@ Cotizador, dashboard financiero y pipeline comercial en un solo software, con **
 | | |
 |---|---|
 | Fase | **F1 Fundaciones**, terminada: base de datos, armazón y Configuración |
-| Web | acceso por enlace de correo · armazón con las siete secciones · las seis pantallas de Configuración |
+| Web | acceso con contraseña o enlace · armazón con las siete secciones · las seis pantallas de Configuración |
 | Base de datos | seis migraciones **aplicadas** al proyecto real |
 | Supabase | `veocqvmywodeizuvnssn` · organización `margen pilot` · Postgres 17 |
 | Repositorio | [Marcelolopezwork/margenpilot](https://github.com/Marcelolopezwork/margenpilot), público · CI en cada push |
