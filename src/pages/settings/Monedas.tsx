@@ -4,8 +4,8 @@ import { useOrgElegida } from '../../app/org-context';
 import { mensajeDeError } from '../../lib/errors';
 import { requireSupabase } from '../../lib/supabase';
 import { Aviso, Boton, Cargando, Etiqueta } from '../../components/ui';
-import { Fila, Lista, Seccion } from './piezas';
-import { useRecargar } from './recargar';
+import { Fila, Lista, Seccion } from '../../components/piezas';
+import { useRecargar } from '../../components/recargar';
 
 export default function Monedas() {
   const { organizacion } = useOrgElegida();

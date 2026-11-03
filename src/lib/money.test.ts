@@ -4,8 +4,10 @@ import {
   add,
   aggregateMarginPercent,
   convert,
+  currencyOf,
   format,
   fromDb,
+  fromRow,
   marginPercent,
   markupPercent,
   multiplyByQuantity,
@@ -158,5 +160,25 @@ describe('ADR-17 · el aporte del dueño entra en caja y no en resultado', () =>
     expect(toDb(caja)).toBe('29415.50');
     // ...y la exclusión del lente Resultado la hace flow_class en la base de
     // datos, no esta librería. Ver supabase/tests/invariants.sql.
+  });
+});
+
+describe('entrada desde una fila de la base', () => {
+  it('acepta el texto que PostgREST entrega en una columna numeric', () => {
+    // ADR-33: `numeric` llega entrecomillado aunque los tipos digan number.
+    expect(format(fromRow('120.0000', 'PEN'))).toBe(format(fromDb('120.00', 'PEN')));
+  });
+
+  it('acepta también un número, que es la última red', () => {
+    expect(format(fromRow(120, 'PEN'))).toBe(format(fromDb('120.00', 'PEN')));
+  });
+
+  it('reconoce las monedas que existen', () => {
+    expect(currencyOf('PEN')).toBe('PEN');
+    expect(currencyOf('usd')).toBe('USD');
+  });
+
+  it('se niega a adivinar una moneda que no conoce', () => {
+    expect(() => currencyOf('XXX')).toThrow(MoneyError);
   });
 });

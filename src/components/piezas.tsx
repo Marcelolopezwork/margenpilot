@@ -1,5 +1,5 @@
 import { useEffect, useRef } from 'react';
-import { Tarjeta } from '../../components/ui';
+import { Tarjeta } from './ui';
 
 /**
  * Lo que repiten las seis pantallas de Configuración: la cabecera que explica

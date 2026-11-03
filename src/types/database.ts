@@ -169,6 +169,63 @@ export type Database = {
           },
         ]
       }
+      cost_items: {
+        Row: {
+          created_at: string
+          currency_code: string
+          id: string
+          is_active: boolean
+          kind: Database["public"]["Enums"]["cost_item_kind"]
+          name: string
+          notes: string | null
+          organization_id: string
+          unit: string
+          unit_cost: number
+          updated_at: string
+        }
+        Insert: {
+          created_at?: string
+          currency_code: string
+          id?: string
+          is_active?: boolean
+          kind?: Database["public"]["Enums"]["cost_item_kind"]
+          name: string
+          notes?: string | null
+          organization_id: string
+          unit?: string
+          unit_cost: number
+          updated_at?: string
+        }
+        Update: {
+          created_at?: string
+          currency_code?: string
+          id?: string
+          is_active?: boolean
+          kind?: Database["public"]["Enums"]["cost_item_kind"]
+          name?: string
+          notes?: string | null
+          organization_id?: string
+          unit?: string
+          unit_cost?: number
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "cost_items_currency_code_fkey"
+            columns: ["currency_code"]
+            isOneToOne: false
+            referencedRelation: "currencies"
+            referencedColumns: ["code"]
+          },
+          {
+            foreignKeyName: "cost_items_organization_id_fkey"
+            columns: ["organization_id"]
+            isOneToOne: false
+            referencedRelation: "organizations"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       currencies: {
         Row: {
           code: string
@@ -540,6 +597,227 @@ export type Database = {
         }
         Relationships: []
       }
+      service_categories: {
+        Row: {
+          created_at: string
+          id: string
+          is_active: boolean
+          name: string
+          organization_id: string
+          sort: number
+        }
+        Insert: {
+          created_at?: string
+          id?: string
+          is_active?: boolean
+          name: string
+          organization_id: string
+          sort?: number
+        }
+        Update: {
+          created_at?: string
+          id?: string
+          is_active?: boolean
+          name?: string
+          organization_id?: string
+          sort?: number
+        }
+        Relationships: [
+          {
+            foreignKeyName: "service_categories_organization_id_fkey"
+            columns: ["organization_id"]
+            isOneToOne: false
+            referencedRelation: "organizations"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      service_cost_lines: {
+        Row: {
+          cost_item_id: string | null
+          created_at: string
+          currency_code: string
+          id: string
+          label: string | null
+          organization_id: string
+          quantity: number
+          service_id: string
+          sort: number
+          unit: string
+          unit_cost: number
+        }
+        Insert: {
+          cost_item_id?: string | null
+          created_at?: string
+          currency_code: string
+          id?: string
+          label?: string | null
+          organization_id: string
+          quantity: number
+          service_id: string
+          sort?: number
+          unit?: string
+          unit_cost: number
+        }
+        Update: {
+          cost_item_id?: string | null
+          created_at?: string
+          currency_code?: string
+          id?: string
+          label?: string | null
+          organization_id?: string
+          quantity?: number
+          service_id?: string
+          sort?: number
+          unit?: string
+          unit_cost?: number
+        }
+        Relationships: [
+          {
+            foreignKeyName: "service_cost_lines_cost_item_id_organization_id_fkey"
+            columns: ["cost_item_id", "organization_id"]
+            isOneToOne: false
+            referencedRelation: "cost_items"
+            referencedColumns: ["id", "organization_id"]
+          },
+          {
+            foreignKeyName: "service_cost_lines_currency_code_fkey"
+            columns: ["currency_code"]
+            isOneToOne: false
+            referencedRelation: "currencies"
+            referencedColumns: ["code"]
+          },
+          {
+            foreignKeyName: "service_cost_lines_organization_id_fkey"
+            columns: ["organization_id"]
+            isOneToOne: false
+            referencedRelation: "organizations"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "service_cost_lines_service_id_organization_id_fkey"
+            columns: ["service_id", "organization_id"]
+            isOneToOne: false
+            referencedRelation: "services"
+            referencedColumns: ["id", "organization_id"]
+          },
+        ]
+      }
+      service_terms: {
+        Row: {
+          content: string
+          created_at: string
+          id: string
+          kind: Database["public"]["Enums"]["term_kind"]
+          organization_id: string
+          service_id: string
+          sort: number
+        }
+        Insert: {
+          content: string
+          created_at?: string
+          id?: string
+          kind: Database["public"]["Enums"]["term_kind"]
+          organization_id: string
+          service_id: string
+          sort?: number
+        }
+        Update: {
+          content?: string
+          created_at?: string
+          id?: string
+          kind?: Database["public"]["Enums"]["term_kind"]
+          organization_id?: string
+          service_id?: string
+          sort?: number
+        }
+        Relationships: [
+          {
+            foreignKeyName: "service_terms_organization_id_fkey"
+            columns: ["organization_id"]
+            isOneToOne: false
+            referencedRelation: "organizations"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "service_terms_service_id_organization_id_fkey"
+            columns: ["service_id", "organization_id"]
+            isOneToOne: false
+            referencedRelation: "services"
+            referencedColumns: ["id", "organization_id"]
+          },
+        ]
+      }
+      services: {
+        Row: {
+          category_id: string | null
+          code: string
+          created_at: string
+          default_fee_pct: number
+          description: string | null
+          id: string
+          is_active: boolean
+          kind: Database["public"]["Enums"]["service_kind"]
+          name: string
+          organization_id: string
+          periodicity: string | null
+          suggested_currency_code: string | null
+          updated_at: string
+        }
+        Insert: {
+          category_id?: string | null
+          code: string
+          created_at?: string
+          default_fee_pct?: number
+          description?: string | null
+          id?: string
+          is_active?: boolean
+          kind?: Database["public"]["Enums"]["service_kind"]
+          name: string
+          organization_id: string
+          periodicity?: string | null
+          suggested_currency_code?: string | null
+          updated_at?: string
+        }
+        Update: {
+          category_id?: string | null
+          code?: string
+          created_at?: string
+          default_fee_pct?: number
+          description?: string | null
+          id?: string
+          is_active?: boolean
+          kind?: Database["public"]["Enums"]["service_kind"]
+          name?: string
+          organization_id?: string
+          periodicity?: string | null
+          suggested_currency_code?: string | null
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "services_category_id_fkey"
+            columns: ["category_id"]
+            isOneToOne: false
+            referencedRelation: "service_categories"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "services_organization_id_fkey"
+            columns: ["organization_id"]
+            isOneToOne: false
+            referencedRelation: "organizations"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "services_suggested_currency_code_fkey"
+            columns: ["suggested_currency_code"]
+            isOneToOne: false
+            referencedRelation: "currencies"
+            referencedColumns: ["code"]
+          },
+        ]
+      }
       subscriptions: {
         Row: {
           cancel_at: string | null
@@ -652,9 +930,12 @@ export type Database = {
     Enums: {
       account_kind: "bank" | "cash" | "wallet" | "card"
       category_direction: "in" | "out" | "both"
+      cost_item_kind: "role" | "tool" | "external" | "other"
       fx_rate_kind: "closing" | "official" | "manual"
       membership_role: "owner" | "admin" | "finance" | "commercial" | "viewer"
       membership_status: "invited" | "active" | "suspended"
+      service_kind: "one_off" | "recurring" | "retainer"
+      term_kind: "include" | "exclude" | "condition" | "note"
     }
     CompositeTypes: {
       [_ in never]: never
@@ -784,9 +1065,12 @@ export const Constants = {
     Enums: {
       account_kind: ["bank", "cash", "wallet", "card"],
       category_direction: ["in", "out", "both"],
+      cost_item_kind: ["role", "tool", "external", "other"],
       fx_rate_kind: ["closing", "official", "manual"],
       membership_role: ["owner", "admin", "finance", "commercial", "viewer"],
       membership_status: ["invited", "active", "suspended"],
+      service_kind: ["one_off", "recurring", "retainer"],
+      term_kind: ["include", "exclude", "condition", "note"],
     },
   },
 } as const

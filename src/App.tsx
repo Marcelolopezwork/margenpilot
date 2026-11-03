@@ -11,6 +11,10 @@ import Onboarding from './pages/Onboarding';
 import Pendiente from './pages/Pendiente';
 import Setup from './pages/Setup';
 import SignIn from './pages/SignIn';
+import Catalogo from './pages/catalogo/Catalogo';
+import CategoriasServicio from './pages/catalogo/CategoriasServicio';
+import Costos from './pages/catalogo/Costos';
+import Servicios from './pages/catalogo/Servicios';
 import Categorias from './pages/settings/Categorias';
 import Cuentas from './pages/settings/Cuentas';
 import Entidades from './pages/settings/Entidades';
@@ -90,7 +94,12 @@ function ConOrganizacion() {
       <Route element={<AppShell />}>
         <Route index element={<Home />} />
         <Route path="comercial" element={<Pendiente ruta="/comercial" fase="F2" />} />
-        <Route path="catalogos" element={<Pendiente ruta="/catalogos" fase="F2" />} />
+        <Route path="catalogos" element={<Catalogo />}>
+          <Route index element={<Navigate to="servicios" replace />} />
+          <Route path="servicios" element={<Servicios />} />
+          <Route path="costos" element={<Costos />} />
+          <Route path="categorias" element={<CategoriasServicio />} />
+        </Route>
         <Route path="finanzas" element={<Pendiente ruta="/finanzas" fase="F3" />} />
         <Route path="pipeline" element={<Pendiente ruta="/pipeline" fase="F4" />} />
         <Route path="analisis" element={<Pendiente ruta="/analisis" fase="F3" />} />

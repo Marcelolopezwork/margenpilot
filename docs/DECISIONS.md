@@ -208,6 +208,10 @@ Eso es el producto. Todo lo que no sirva a esas tres piezas no entra.
 
 **Hecho el 02/11/2026:** F1-12 (armazón: barra lateral colapsable, barra inferior, selector de organización y entidad, tema en tres estados) y las seis pantallas de Configuración —entidades, marcas, monedas, impuestos, cuentas y categorías—, con los errores de la base traducidos a frases que dicen qué hacer. Nueve pruebas sobre el árbol de accesibilidad comprueban la aceptación de F1-12 sin depender de una sesión real.
 
+**Lo siguiente de F2, por orden:** la ficha de servicio por dentro —sus incluye/no incluye ordenables (F2-3) y su composición de costos con precio sugerido y margen real aparte del fee (F2-4)—, y después el cotizador.
+
+**Deuda anotada:** el bundle pasó de 500 kB en crudo (145 kB comprimidos) y Vite ya avisa. Toca dividir por rutas con `React.lazy` antes de que entre el cotizador, no después.
+
 **Me bloquea trabajo ahora:**
 
 - **Las URL de redirección en Supabase.** Solo hacen falta para el acceso por enlace, que ya no es el camino principal. En *Authentication → URL Configuration*: `http://localhost:5173/**` y `https://crm.thepublisherlab.com/**`, con *Site URL* apuntando a la segunda (ADR-29).

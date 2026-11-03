@@ -85,6 +85,30 @@ export function fromDb(value: string, currency: CurrencyCode): Money {
   return { minor: match[1] === '-' ? -minor : minor, currency };
 }
 
+/**
+ * El código de moneda que llega de la base es un `string` cualquiera. Esto lo
+ * convierte en una moneda conocida o falla en el acto: un importe sin moneda
+ * cierta no es un importe, es un número suelto.
+ */
+export function currencyOf(code: string): CurrencyCode {
+  const upper = code.trim().toUpperCase();
+  if (upper in CURRENCY) return upper as CurrencyCode;
+  throw new MoneyError(`moneda desconocida: ${code}`);
+}
+
+/**
+ * La puerta por la que entra el dinero que viene de una fila de la base.
+ *
+ * PostgREST entrega las columnas `numeric` como **texto**, aunque los tipos
+ * que genera Supabase las declaren `number` (ADR-33). Esta función acepta las
+ * dos cosas y deja constancia de por qué: si algún día llegara de verdad un
+ * `number`, la precisión ya se habría perdido antes de llegar aquí, así que
+ * el `String()` no es una conversión sino la última red.
+ */
+export function fromRow(value: number | string, currency: CurrencyCode): Money {
+  return fromDb(typeof value === 'string' ? value : String(value), currency);
+}
+
 export function zero(currency: CurrencyCode): Money {
   return { minor: 0n, currency };
 }

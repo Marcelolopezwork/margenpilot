@@ -16,6 +16,18 @@ export type ContextoOrg = {
   elegirEntidad: (id: string | null) => void;
 };
 
+/**
+ * Quién ve los costos. Es el reflejo exacto de `app.can_see_costs()` en la
+ * base, y conviene no confundir los papeles: **la base es la que manda**. Esto
+ * solo evita dibujar una pestaña que devolvería cero filas, que es peor que no
+ * tenerla porque parece que falta algo.
+ */
+const ROLES_CON_COSTOS: readonly Enums<'membership_role'>[] = ['owner', 'admin', 'finance'];
+
+export function puedeVerCostos(rol: Enums<'membership_role'>): boolean {
+  return ROLES_CON_COSTOS.includes(rol);
+}
+
 export const OrgContext = createContext<ContextoOrg | null>(null);
 
 export function useOrg(): ContextoOrg {

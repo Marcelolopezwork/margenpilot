@@ -4,8 +4,8 @@ import { useOrg, useOrgElegida } from '../../app/org-context';
 import { mensajeDeError } from '../../lib/errors';
 import { requireSupabase } from '../../lib/supabase';
 import { Aviso, Boton, Campo, Cargando, Etiqueta, Selector, Vacio } from '../../components/ui';
-import { Alta, Fila, Lista, Seccion } from './piezas';
-import { useRecargar } from './recargar';
+import { Alta, Fila, Lista, Seccion } from '../../components/piezas';
+import { useRecargar } from '../../components/recargar';
 
 export default function Marcas() {
   const { organizacion, entidad } = useOrgElegida();

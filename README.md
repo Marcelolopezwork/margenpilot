@@ -8,13 +8,13 @@ Cotizador, dashboard financiero y pipeline comercial en un solo software, con **
 
 | | |
 |---|---|
-| Fase | **F1** terminada · **F2** empezada: modelo de catálogos y costos |
-| Web | acceso con contraseña o enlace · armazón con las siete secciones · las seis pantallas de Configuración |
+| Fase | **F1** terminada · **F2** en curso: catálogo de servicios y costos, con pantallas |
+| Web | acceso con contraseña o enlace · armazón con las siete secciones · Configuración (6 pantallas) · Catálogo (servicios, costos, categorías) |
 | Base de datos | siete migraciones **aplicadas** al proyecto real (F1 + catálogos de F2) |
 | Supabase | `veocqvmywodeizuvnssn` · organización `margen pilot` · Postgres 17 |
 | Repositorio | [Marcelolopezwork/margenpilot](https://github.com/Marcelolopezwork/margenpilot), público · CI en cada push |
 | Hosting | SiteGround · `crm.thepublisherlab.com` · `public/.htaccess` ya preparado |
-| Verificado | 36 aserciones contra la base real · 52 pruebas (dinero, errores, formato, armazón, altas) · tipos, lint y build · CI en verde, con las migraciones reaplicadas desde cero |
+| Verificado | 37 aserciones contra la base real · 56 pruebas (dinero, errores, formato, armazón, altas) · tipos, lint y build · CI en verde, con las migraciones reaplicadas desde cero |
 | Pendiente | registrar una cuenta de caja desde la app · subir el build a `crm.thepublisherlab.com` · SMTP propio antes del primer cliente (D-7) |
 
 Las dos aplicaciones anteriores y sus proyectos de Supabase quedan **intactos**. No se migra ningún dato de 2026. Focus queda fuera.
