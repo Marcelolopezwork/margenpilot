@@ -16,3 +16,6 @@ supabase/.branches/
 
 # macOS
 .DS_Store
+
+# paquetes de despliegue
+*.zip

@@ -186,16 +186,16 @@ Eso es el producto. Todo lo que no sirva a esas tres piezas no entra.
 
 **Resuelto el 28/10/2026:** el proyecto de Supabase existe (`veocqvmywodeizuvnssn`, organización `margen pilot`, región `us-east-1`, Postgres 17). Las seis migraciones de F1 están aplicadas y las 27 aserciones de la suite pasan contra esa base. La verificación local con Docker deja de ser necesaria: se verifica contra el proyecto real, dentro de una transacción que se deshace, de modo que no queda ni una fila de prueba.
 
+**Hecho el 03/11/2026:** Marcelo entró por primera vez con `info@thepublisherlab.com` y contraseña. Su fila de `profiles` se creó sola desde `SessionProvider`, que es la primera prueba de que la app autenticada corre contra la base real. `supabase/setup/margen-pilot-org.sql` se ejecutó: organización `Margen Pilot` con plan `internal`, él como `owner`, PEN y USD habilitadas, 9 categorías y las dos entidades con sus marcas e impuestos por defecto. El disparador de auditoría dejó sus 5 filas.
+
 **Decidido el 02/11/2026:** Marcelo entra con `info@thepublisherlab.com`, la cuenta dueña de la organización de Supabase, que hasta que exista SMTP propio es la única que recibe el enlace (D-7). `supabase/setup/margen-pilot-org.sql` apunta ahí.
 
 **Hecho el 02/11/2026:** F1-12 (armazón: barra lateral colapsable, barra inferior, selector de organización y entidad, tema en tres estados) y las seis pantallas de Configuración —entidades, marcas, monedas, impuestos, cuentas y categorías—, con los errores de la base traducidos a frases que dicen qué hacer. Nueve pruebas sobre el árbol de accesibilidad comprueban la aceptación de F1-12 sin depender de una sesión real.
 
 **Me bloquea trabajo ahora:**
 
-- **Tu usuario en Supabase.** Se crea en *Authentication → Users → Add user*, con *Auto Confirm User* marcado, y se entra con contraseña (ADR-32). No depende de ningún correo.
 - **Las URL de redirección en Supabase.** Solo hacen falta para el acceso por enlace, que ya no es el camino principal. En *Authentication → URL Configuration*: `http://localhost:5173/**` y `https://crm.thepublisherlab.com/**`, con *Site URL* apuntando a la segunda (ADR-29).
-- **Tu primer inicio de sesión.** `supabase/setup/margen-pilot-org.sql` busca al usuario por correo para crear tu organización con sus dos entidades. Hasta que entres una vez, `auth.users` está vacío y no hay a quién asignarla. El script está verificado contra la base real con un usuario sintético, dentro de una transacción que se deshace.
-- **Ver la mitad autenticada funcionando.** El armazón y Configuración compilan, pasan las pruebas y tienen sus tipos generados desde el esquema real, pero todavía no se han dibujado con una sesión de verdad porque no hay ningún usuario. Es lo primero que hay que mirar después de tu primer acceso.
+- **Registrar una cuenta de caja desde la app.** Es lo único que queda por ver funcionando de extremo a extremo: la lectura ya está probada, pero una escritura desde la interfaz contra la base real todavía no. Es además el paso que hace falta antes de F3.
 
 **Puede esperar sin coste:** precio del plan Pro y límites finos · identidad visual y dominio · si alguna vez entra el cuadre manual (ADR-18) · alcance de acceso de agentes IA · apps en tiendas (ADR-12).
 
