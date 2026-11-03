@@ -17,6 +17,7 @@ export default function Cuentas() {
   const monedas = useMonedasHabilitadas(organizacion.id);
   const recargar = useRecargar(['cuentas']);
 
+  const [exito, setExito] = useState<string | null>(null);
   const [nombre, setNombre] = useState('');
   const [entidadId, setEntidadId] = useState('');
   const [moneda, setMoneda] = useState('');
@@ -42,6 +43,7 @@ export default function Cuentas() {
   });
 
   const crear = useMutation({
+    onMutate: () => setExito(null),
     mutationFn: async () => {
       const { error } = await requireSupabase()
         .from('cash_accounts')
@@ -57,6 +59,7 @@ export default function Cuentas() {
       if (error) throw error;
     },
     onSuccess: () => {
+      setExito(`${nombre.trim()} queda creada en ${moneda}. Esa moneda ya no se puede cambiar.`);
       setNombre('');
       setBanco('');
       setUltimos('');
@@ -148,7 +151,7 @@ export default function Cuentas() {
       {alternar.error && <Aviso tipo="error">{mensajeDeError(alternar.error)}</Aviso>}
 
       {puedeCrear && (
-        <Alta titulo="Nueva cuenta" onSubmit={() => crear.mutate()}>
+        <Alta titulo="Nueva cuenta" exito={exito} onSubmit={() => crear.mutate()}>
           <Campo
             etiqueta="Nombre de la cuenta"
             value={nombre}

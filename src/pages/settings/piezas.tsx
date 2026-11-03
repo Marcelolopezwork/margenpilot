@@ -1,3 +1,4 @@
+import { useEffect, useRef } from 'react';
 import { Tarjeta } from '../../components/ui';
 
 /**
@@ -28,13 +29,44 @@ export function Seccion({
   );
 }
 
+/**
+ * Confirmación de que algo se creó.
+ *
+ * Se lleva el foco al aparecer, y eso resuelve dos cosas de un golpe: un
+ * lector de pantalla la anuncia, y el botón de enviar deja de quedarse con el
+ * anillo de foco encima, que es lo que hace que parezca pulsado para siempre
+ * después de crear algo.
+ */
+function Exito({ children }: { children: React.ReactNode }) {
+  const ref = useRef<HTMLParagraphElement>(null);
+
+  useEffect(() => {
+    ref.current?.focus();
+  }, []);
+
+  return (
+    <p
+      ref={ref}
+      tabIndex={-1}
+      role="status"
+      className="mt-4 rounded-card border border-border bg-positive-bg p-4 text-sm text-positive"
+    >
+      <span className="font-medium">Hecho: </span>
+      {children}
+    </p>
+  );
+}
+
 /** Formulario de alta en una tarjeta, con su título propio. */
 export function Alta({
   titulo,
+  exito,
   children,
   onSubmit,
 }: {
   titulo: string;
+  /** Qué se acaba de crear. Null mientras no haya nada que confirmar. */
+  exito?: string | null | undefined;
   children: React.ReactNode;
   onSubmit: () => void;
 }) {
@@ -50,6 +82,9 @@ export function Alta({
       >
         {children}
       </form>
+      {/* La clave fuerza un montaje nuevo por cada alta: sin ella, crear dos
+          seguidas no volvería a mover el foco ni a anunciar la segunda. */}
+      {exito && <Exito key={exito}>{exito}</Exito>}
     </Tarjeta>
   );
 }

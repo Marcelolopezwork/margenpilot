@@ -12,6 +12,7 @@ export default function Marcas() {
   const { entidades } = useOrg();
   const recargar = useRecargar(['marcas']);
 
+  const [exito, setExito] = useState<string | null>(null);
   const [nombre, setNombre] = useState('');
   const [entidadId, setEntidadId] = useState('');
 
@@ -31,6 +32,7 @@ export default function Marcas() {
   });
 
   const crear = useMutation({
+    onMutate: () => setExito(null),
     mutationFn: async () => {
       const { error } = await requireSupabase().from('brands').insert({
         organization_id: organizacion.id,
@@ -40,6 +42,7 @@ export default function Marcas() {
       if (error) throw error;
     },
     onSuccess: () => {
+      setExito(`${nombre.trim()} queda creada.`);
       setNombre('');
       recargar();
     },
@@ -114,7 +117,7 @@ export default function Marcas() {
       {alternar.error && <Aviso tipo="error">{mensajeDeError(alternar.error)}</Aviso>}
 
       {entidades.length > 0 && (
-        <Alta titulo="Nueva marca" onSubmit={() => crear.mutate()}>
+        <Alta titulo="Nueva marca" exito={exito} onSubmit={() => crear.mutate()}>
           <Campo
             etiqueta="Nombre comercial"
             value={nombre}

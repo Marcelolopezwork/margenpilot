@@ -14,6 +14,7 @@ export default function Categorias() {
   const { organizacion } = useOrgElegida();
   const recargar = useRecargar(['categorias']);
 
+  const [exito, setExito] = useState<string | null>(null);
   const [nombre, setNombre] = useState('');
   const [direccion, setDireccion] = useState<Enums<'category_direction'>>('out');
 
@@ -32,6 +33,7 @@ export default function Categorias() {
   });
 
   const crear = useMutation({
+    onMutate: () => setExito(null),
     mutationFn: async () => {
       const { error } = await requireSupabase().from('financial_categories').insert({
         organization_id: organizacion.id,
@@ -41,6 +43,7 @@ export default function Categorias() {
       if (error) throw error;
     },
     onSuccess: () => {
+      setExito(`${nombre.trim()} queda creada.`);
       setNombre('');
       recargar();
     },
@@ -105,7 +108,7 @@ export default function Categorias() {
 
       {alternar.error && <Aviso tipo="error">{mensajeDeError(alternar.error)}</Aviso>}
 
-      <Alta titulo="Nueva categoría" onSubmit={() => crear.mutate()}>
+      <Alta titulo="Nueva categoría" exito={exito} onSubmit={() => crear.mutate()}>
         <Campo
           etiqueta="Nombre"
           value={nombre}

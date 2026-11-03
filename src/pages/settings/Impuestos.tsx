@@ -13,6 +13,7 @@ export default function Impuestos() {
   const { entidades } = useOrg();
   const recargar = useRecargar(['impuestos']);
 
+  const [exito, setExito] = useState<string | null>(null);
   const [entidadId, setEntidadId] = useState('');
   const [nombre, setNombre] = useState('');
   const [tasa, setTasa] = useState('');
@@ -33,6 +34,7 @@ export default function Impuestos() {
   });
 
   const crear = useMutation({
+    onMutate: () => setExito(null),
     mutationFn: async () => {
       const valor = Number(tasa.replace(',', '.'));
       const { error } = await requireSupabase().from('tax_rates').insert({
@@ -44,6 +46,8 @@ export default function Impuestos() {
       if (error) throw error;
     },
     onSuccess: () => {
+      // Una tasa nueva nunca nace por defecto: decirlo aquí evita la pregunta.
+      setExito(`${nombre.trim()} queda creada. Si quieres que el cotizador la proponga, ponla por defecto.`);
       setNombre('');
       setTasa('');
       recargar();
@@ -135,7 +139,7 @@ export default function Impuestos() {
       {porDefecto.error && <Aviso tipo="error">{mensajeDeError(porDefecto.error)}</Aviso>}
 
       {entidades.length > 0 && (
-        <Alta titulo="Nueva tasa" onSubmit={() => crear.mutate()}>
+        <Alta titulo="Nueva tasa" exito={exito} onSubmit={() => crear.mutate()}>
           <Selector
             etiqueta="Entidad"
             value={entidadId}

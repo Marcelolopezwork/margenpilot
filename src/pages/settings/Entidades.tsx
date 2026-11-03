@@ -15,12 +15,14 @@ export default function Entidades() {
   const monedas = useMonedasHabilitadas(organizacion.id);
   const recargar = useRecargar(['entidades']);
 
+  const [exito, setExito] = useState<string | null>(null);
   const [nombre, setNombre] = useState('');
   const [pais, setPais] = useState('PE');
   const [moneda, setMoneda] = useState('');
   const [ruc, setRuc] = useState('');
 
   const crear = useMutation({
+    onMutate: () => setExito(null),
     mutationFn: async () => {
       const { error } = await requireSupabase()
         .from('legal_entities')
@@ -34,6 +36,7 @@ export default function Entidades() {
       if (error) throw error;
     },
     onSuccess: () => {
+      setExito(`${nombre.trim()} queda creada, con su libro contable propio.`);
       setNombre('');
       setRuc('');
       recargar();
@@ -102,7 +105,7 @@ export default function Entidades() {
 
       {alternar.error && <Aviso tipo="error">{mensajeDeError(alternar.error)}</Aviso>}
 
-      <Alta titulo="Nueva entidad legal" onSubmit={() => crear.mutate()}>
+      <Alta titulo="Nueva entidad legal" exito={exito} onSubmit={() => crear.mutate()}>
         <Campo
           etiqueta="Razón social"
           value={nombre}
