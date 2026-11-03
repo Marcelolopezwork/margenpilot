@@ -8,11 +8,15 @@ name: Desplegar
 # y no rompe nada.
 #
 # Secretos (Settings → Secrets and variables → Actions):
-#   SG_SFTP_HOST   el servidor SFTP de SiteGround (Site Tools → Devs → SSH)
-#   SG_SFTP_USER   el usuario
-#   SG_SFTP_PASS   la contraseña
-#   SG_SFTP_PORT   el puerto (SiteGround suele usar 18765)
-#   SG_REMOTE_DIR  la carpeta del subdominio, p. ej. public_html/crm.thepublisherlab.com
+#   SG_HOST        el servidor (Site Tools → Site → FTP Accounts)
+#   SG_USER        el usuario de esa cuenta FTP
+#   SG_PASS        su contraseña
+#   SG_REMOTE_DIR  carpeta destino RELATIVA a donde aterriza la cuenta. Si la
+#                  cuenta ya apunta al subdominio, es un punto: .
+#   SG_PROTOCOL    opcional: «ftp» (por defecto) o «sftp». SiteGround suele
+#                  tener el SSH con clave y no con contraseña, así que la vía
+#                  que funciona con usuario y contraseña es FTP sobre TLS.
+#   SG_PORT        opcional: 21 para ftp, 18765 para sftp
 #   VITE_SUPABASE_URL y VITE_SUPABASE_PUBLISHABLE_KEY, que se empotran en el build
 #
 # Las claves de Supabase son públicas por diseño: lo que protege la base es
@@ -42,7 +46,7 @@ jobs:
       - name: ¿Están los secretos?
         id: listo
         env:
-          HOST: ${{ secrets.SG_SFTP_HOST }}
+          HOST: ${{ secrets.SG_HOST }}
           DIR: ${{ secrets.SG_REMOTE_DIR }}
         run: |
           if [ -n "$HOST" ] && [ -n "$DIR" ]; then
@@ -77,20 +81,31 @@ jobs:
       - name: Subir por SFTP
         if: steps.listo.outputs.ok == 'si'
         env:
-          HOST: ${{ secrets.SG_SFTP_HOST }}
-          USER: ${{ secrets.SG_SFTP_USER }}
-          PASS: ${{ secrets.SG_SFTP_PASS }}
-          PORT: ${{ secrets.SG_SFTP_PORT }}
+          HOST: ${{ secrets.SG_HOST }}
+          USUARIO: ${{ secrets.SG_USER }}
+          CLAVE: ${{ secrets.SG_PASS }}
+          PROTO: ${{ secrets.SG_PROTOCOL }}
+          PUERTO: ${{ secrets.SG_PORT }}
           DIR: ${{ secrets.SG_REMOTE_DIR }}
         run: |
           sudo apt-get update -qq && sudo apt-get install -y -qq lftp
+          proto="${PROTO:-ftp}"
+          if [ "$proto" = "sftp" ]; then
+            puerto="${PUERTO:-18765}"
+            ajustes="set sftp:auto-confirm yes;"
+          else
+            puerto="${PUERTO:-21}"
+            # FTP a secas manda la contraseña en claro: se fuerza TLS.
+            ajustes="set ftp:ssl-force true; set ftp:ssl-protect-data true;"
+          fi
           # Sin --delete a propósito: los assets viejos llevan hash en el
           # nombre y no estorban, mientras que un --delete con la carpeta mal
           # puesta se lleva por delante lo que haya.
           lftp -c "
-            set sftp:auto-confirm yes;
+            $ajustes
             set net:max-retries 3;
-            open -u '$USER','$PASS' -p '${PORT:-18765}' sftp://$HOST;
+            set cmd:fail-exit true;
+            open -u '$USUARIO','$CLAVE' -p '$puerto' $proto://$HOST;
             mirror -R --verbose --exclude '\.map$' dist/ '$DIR';
           "
 
