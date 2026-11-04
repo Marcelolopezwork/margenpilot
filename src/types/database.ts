@@ -687,6 +687,7 @@ export type Database = {
         Row: {
           created_at: string
           description: string
+          fee_pct: number | null
           id: string
           is_active: boolean
           organization_id: string
@@ -699,6 +700,7 @@ export type Database = {
         Insert: {
           created_at?: string
           description: string
+          fee_pct?: number | null
           id?: string
           is_active?: boolean
           organization_id: string
@@ -711,6 +713,7 @@ export type Database = {
         Update: {
           created_at?: string
           description?: string
+          fee_pct?: number | null
           id?: string
           is_active?: boolean
           organization_id?: string
@@ -1102,9 +1105,17 @@ export type Database = {
         Args: { p_currency?: string; p_name: string }
         Returns: string
       }
+      add_quote_line_from_service: {
+        Args: { p_quantity?: number; p_quote: string; p_service: string }
+        Returns: string
+      }
       next_quote_number: {
         Args: { p_entity: string }
         Returns: string
+      }
+      recalc_quote_line_price: {
+        Args: { p_line: string }
+        Returns: number
       }
     }
     Enums: {

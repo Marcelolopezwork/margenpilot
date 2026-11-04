@@ -32,6 +32,7 @@ type Linea = {
   description: string;
   quantity: number;
   unit_price: number;
+  fee_pct: number | null;
   sort: number;
 };
 
@@ -47,6 +48,8 @@ export default function Cotizacion() {
   const [editCant, setEditCant] = useState('');
   const [editPrecio, setEditPrecio] = useState('');
 
+  const [servicioId, setServicioId] = useState('');
+  const [cantServicio, setCantServicio] = useState('1');
   const [desc, setDesc] = useState('');
   const [cant, setCant] = useState('1');
   const [precio, setPrecio] = useState('');
@@ -57,7 +60,7 @@ export default function Cotizacion() {
       const { data, error } = await requireSupabase()
         .from('quotes')
         .select(
-          'id, number, status, currency_code, tax_rate_pct, tax_label, valid_until, notes, legal_entity_id, brand_id, client_id',
+          'id, number, status, currency_code, tax_rate_pct, tax_label, valid_until, notes, legal_entity_id, client_id',
         )
         .eq('id', id)
         .single();
@@ -66,12 +69,26 @@ export default function Cotizacion() {
     },
   });
 
+  const servicios = useQuery({
+    queryKey: ['servicios', organizacion.id],
+    queryFn: async () => {
+      const { data, error } = await requireSupabase()
+        .from('services')
+        .select('id, code, name, default_fee_pct, is_active')
+        .eq('organization_id', organizacion.id)
+        .eq('is_active', true)
+        .order('code');
+      if (error) throw error;
+      return data ?? [];
+    },
+  });
+
   const lineas = useQuery({
     queryKey: ['cotizacion', id, 'lineas'],
     queryFn: async (): Promise<Linea[]> => {
       const { data, error } = await requireSupabase()
         .from('quote_lines')
-        .select('id, description, quantity, unit_price, sort')
+        .select('id, description, quantity, unit_price, fee_pct, sort')
         .eq('quote_id', id)
         .eq('is_active', true)
         .order('sort');
@@ -109,7 +126,24 @@ export default function Cotizacion() {
     },
   });
 
-  const agregarLinea = useMutation({
+  /** El camino principal: la ficha trae su descripción, sus costos y su fee. */
+  const lineaDesdeServicio = useMutation({
+    mutationFn: async () => {
+      const { error } = await requireSupabase().rpc('add_quote_line_from_service', {
+        p_quote: id,
+        p_service: servicioId,
+        p_quantity: Number(cantServicio.replace(',', '.')),
+      });
+      if (error) throw error;
+    },
+    onSuccess: () => {
+      setServicioId('');
+      setCantServicio('1');
+      recargar();
+    },
+  });
+
+  const lineaAMano = useMutation({
     mutationFn: async () => {
       const { error } = await requireSupabase()
         .from('quote_lines')
@@ -150,6 +184,8 @@ export default function Cotizacion() {
         .update({
           quantity: Number(editCant.replace(',', '.')),
           unit_price: Number(editPrecio.replace(',', '.')),
+          // Escribir el precio a mano desengancha la línea del fee.
+          fee_pct: null,
         })
         .eq('id', lineaId);
       if (error) throw error;
@@ -158,6 +194,28 @@ export default function Cotizacion() {
       setEditando(null);
       recargar();
     },
+  });
+
+  const cambiarFee = useMutation({
+    mutationFn: async ({ lineaId, fee }: { lineaId: string; fee: number | null }) => {
+      const supabase = requireSupabase();
+      const up = await supabase.from('quote_lines').update({ fee_pct: fee }).eq('id', lineaId);
+      if (up.error) throw up.error;
+      const re = await supabase.rpc('recalc_quote_line_price', { p_line: lineaId });
+      if (re.error) throw re.error;
+    },
+    onSuccess: recargar,
+  });
+
+  /** Tras tocar los costos, el precio derivado deja de cuadrar. */
+  const recalcular = useMutation({
+    mutationFn: async (lineaId: string) => {
+      const { error } = await requireSupabase().rpc('recalc_quote_line_price', {
+        p_line: lineaId,
+      });
+      if (error) throw error;
+    },
+    onSuccess: recargar,
   });
 
   const cambiarEstado = useMutation({
@@ -185,11 +243,14 @@ export default function Cotizacion() {
   const costosDe = (lineaId: string) =>
     (costos.data ?? []).filter((c) => c.quote_line_id === lineaId);
   const costoDe = (l: Linea): Money =>
-    sumLines(
-      costosDe(l.id).map((c) =>
-        multiplyByQuantity(fromRow(c.unit_cost, moneda), String(c.quantity)),
+    multiplyByQuantity(
+      sumLines(
+        costosDe(l.id).map((c) =>
+          multiplyByQuantity(fromRow(c.unit_cost, moneda), String(c.quantity)),
+        ),
+        moneda,
       ),
-      moneda,
+      String(l.quantity),
     );
 
   const neto = sumLines(filas.map(netoDe), moneda);
@@ -204,6 +265,7 @@ export default function Cotizacion() {
   const markup = markupPercent(neto, costo);
 
   const entidad = entidades.find((e) => e.id === q.legal_entity_id);
+  const fichas = servicios.data ?? [];
 
   function empezarEdicion(l: Linea) {
     setEditando(l.id);
@@ -243,6 +305,8 @@ export default function Cotizacion() {
 
       {cambiarEstado.error && <Aviso tipo="error">{mensajeDeError(cambiarEstado.error)}</Aviso>}
       {quitarLinea.error && <Aviso tipo="error">{mensajeDeError(quitarLinea.error)}</Aviso>}
+      {recalcular.error && <Aviso tipo="error">{mensajeDeError(recalcular.error)}</Aviso>}
+      {cambiarFee.error && <Aviso tipo="error">{mensajeDeError(cambiarFee.error)}</Aviso>}
 
       <Tarjeta className="p-5">
         <h2 className="mb-3 font-medium">Líneas</h2>
@@ -250,8 +314,8 @@ export default function Cotizacion() {
         {lineas.isPending && <Cargando que="las líneas" />}
         {filas.length === 0 && !lineas.isPending && (
           <p className="text-sm text-muted">
-            Todavía no hay líneas. Añade la primera abajo: cantidad por precio unitario, y luego
-            cárgale sus costos para ver el margen de verdad.
+            Todavía no hay líneas. Elige una ficha de servicio abajo: llegan sus costos y el
+            precio sale solo del fee.
           </p>
         )}
 
@@ -261,6 +325,8 @@ export default function Cotizacion() {
               const net = netoDe(l);
               const cost = costoDe(l);
               const m = marginPercent(net, cost);
+              const mk = markupPercent(net, cost);
+              const derivada = l.fee_pct !== null;
               return (
                 <li key={l.id} className="py-3">
                   <div className="flex flex-wrap items-baseline justify-between gap-2">
@@ -279,12 +345,13 @@ export default function Cotizacion() {
                         onChange={(e) => setEditCant(e.target.value)}
                       />
                       <Campo
-                        etiqueta={`Precio (${q.currency_code})`}
+                        etiqueta={`Precio unitario (${q.currency_code})`}
                         type="number"
                         step="0.01"
                         min="0"
                         value={editPrecio}
                         onChange={(e) => setEditPrecio(e.target.value)}
+                        ayuda="Escribirlo a mano desengancha la línea del fee."
                       />
                       <Boton
                         variante="primario"
@@ -325,15 +392,61 @@ export default function Cotizacion() {
                   )}
 
                   {conCostos && (
-                    <div className="mt-2">
+                    <>
+                      {/* La economía de la línea, siempre a la vista. Esconderla
+                          detrás de un clic es esconder lo único que importa. */}
+                      <div className="num mt-2 flex flex-wrap items-center gap-x-4 gap-y-2 text-sm">
+                        <span className="text-muted">costo {format(cost)}</span>
+
+                        {derivada ? (
+                          <label className="flex items-center gap-1 text-muted">
+                            fee
+                            <input
+                              type="number"
+                              step="1"
+                              min="0"
+                              defaultValue={String(l.fee_pct)}
+                              onBlur={(e) =>
+                                cambiarFee.mutate({
+                                  lineaId: l.id,
+                                  fee: Number(e.target.value.replace(',', '.')),
+                                })
+                              }
+                              aria-label={`Fee de ${l.description}`}
+                              className="w-16 rounded-control border border-border bg-surface px-2 py-0.5 text-text"
+                            />
+                            %
+                          </label>
+                        ) : (
+                          <span className="text-muted">precio a mano</span>
+                        )}
+
+                        <span className="font-medium">
+                          margen {m === null ? '—' : `${m.toFixed(1)} %`}
+                        </span>
+                        <span className="text-muted">
+                          markup {mk === null ? '—' : `${mk.toFixed(1)} %`}
+                        </span>
+
+                        {!derivada && (
+                          <Boton
+                            variante="sutil"
+                            className="min-h-0 px-2 py-1 text-xs"
+                            disabled={cambiarFee.isPending}
+                            onClick={() => cambiarFee.mutate({ lineaId: l.id, fee: 80 })}
+                          >
+                            Derivar del costo
+                          </Boton>
+                        )}
+                      </div>
+
                       <Boton
                         variante="sutil"
                         onClick={() => setAbierta(abierta === l.id ? null : l.id)}
                         aria-expanded={abierta === l.id}
                         className="min-h-0 px-0 py-1 text-xs"
                       >
-                        {abierta === l.id ? '▾' : '▸'} costos · {format(cost)}
-                        {m !== null && ` · margen ${m.toFixed(1)} %`}
+                        {abierta === l.id ? '▾' : '▸'} {costosDe(l.id).length} conceptos de costo
                       </Boton>
 
                       {abierta === l.id && (
@@ -342,10 +455,10 @@ export default function Cotizacion() {
                           organizacionId={organizacion.id}
                           moneda={moneda}
                           costos={costosDe(l.id)}
-                          alCambiar={recargar}
+                          alCambiar={() => recalcular.mutate(l.id)}
                         />
                       )}
-                    </div>
+                    </>
                   )}
                 </li>
               );
@@ -353,53 +466,114 @@ export default function Cotizacion() {
           </ul>
         )}
 
+        {/* ---------- Alta desde una ficha: el camino principal ---------- */}
         <form
           className="mt-4 flex flex-col gap-3 border-t border-border pt-4"
           onSubmit={(e) => {
             e.preventDefault();
-            agregarLinea.mutate();
+            lineaDesdeServicio.mutate();
           }}
         >
-          <Campo
-            etiqueta="Qué incluye esta línea"
-            value={desc}
-            onChange={(e) => setDesc(e.target.value)}
-            required
-            maxLength={300}
-          />
-          <div className="grid gap-3 sm:grid-cols-2">
-            <Campo
-              etiqueta="Cantidad"
-              type="number"
-              inputMode="decimal"
-              step="0.01"
-              min="0.01"
-              value={cant}
-              onChange={(e) => setCant(e.target.value)}
-              required
-            />
-            <Campo
-              etiqueta={`Precio unitario (${q.currency_code})`}
-              type="number"
-              inputMode="decimal"
-              step="0.01"
-              min="0"
-              value={precio}
-              onChange={(e) => setPrecio(e.target.value)}
-              required
-            />
-          </div>
+          <h3 className="text-sm font-medium">Añadir desde el catálogo</h3>
 
-          {agregarLinea.error && <Aviso tipo="error">{mensajeDeError(agregarLinea.error)}</Aviso>}
+          {fichas.length === 0 ? (
+            <Aviso tipo="atencion">
+              No hay fichas de servicio todavía. Créalas en Catálogo → Servicios y ponles su
+              composición de costos: entonces una cotización se arma en dos clics.
+            </Aviso>
+          ) : (
+            <>
+              <Selector
+                etiqueta="Ficha de servicio"
+                value={servicioId}
+                onChange={(e) => setServicioId(e.target.value)}
+                ayuda="Trae su nombre, sus costos y su fee. Todo editable después."
+              >
+                <option value="">Elige una ficha</option>
+                {fichas.map((s) => (
+                  <option key={s.id} value={s.id}>
+                    {s.code} · {s.name} · fee {s.default_fee_pct} %
+                  </option>
+                ))}
+              </Selector>
 
-          <Boton
-            type="submit"
-            variante="primario"
-            disabled={agregarLinea.isPending || !desc.trim() || precio.trim() === ''}
-          >
-            {agregarLinea.isPending ? 'Añadiendo…' : 'Añadir línea'}
-          </Boton>
+              <Campo
+                etiqueta="Cantidad"
+                type="number"
+                inputMode="decimal"
+                step="0.01"
+                min="0.01"
+                value={cantServicio}
+                onChange={(e) => setCantServicio(e.target.value)}
+                required
+              />
+
+              {lineaDesdeServicio.error && (
+                <Aviso tipo="error">{mensajeDeError(lineaDesdeServicio.error)}</Aviso>
+              )}
+
+              <Boton
+                type="submit"
+                variante="primario"
+                disabled={lineaDesdeServicio.isPending || !servicioId}
+              >
+                {lineaDesdeServicio.isPending ? 'Añadiendo…' : 'Añadir desde la ficha'}
+              </Boton>
+            </>
+          )}
         </form>
+
+        {/* ---------- Alta a mano, para lo que no está en catálogo ---------- */}
+        <details className="mt-4 border-t border-border pt-4">
+          <summary className="cursor-pointer text-sm text-muted">
+            O escribir una línea a mano
+          </summary>
+          <form
+            className="mt-3 flex flex-col gap-3"
+            onSubmit={(e) => {
+              e.preventDefault();
+              lineaAMano.mutate();
+            }}
+          >
+            <Campo
+              etiqueta="Qué incluye esta línea"
+              value={desc}
+              onChange={(e) => setDesc(e.target.value)}
+              maxLength={300}
+            />
+            <div className="grid gap-3 sm:grid-cols-2">
+              <Campo
+                etiqueta="Cantidad"
+                type="number"
+                inputMode="decimal"
+                step="0.01"
+                min="0.01"
+                value={cant}
+                onChange={(e) => setCant(e.target.value)}
+              />
+              <Campo
+                etiqueta={`Precio unitario (${q.currency_code})`}
+                type="number"
+                inputMode="decimal"
+                step="0.01"
+                min="0"
+                value={precio}
+                onChange={(e) => setPrecio(e.target.value)}
+                ayuda="Sin costos cargados, el margen de esta línea saldrá 100 %."
+              />
+            </div>
+
+            {lineaAMano.error && <Aviso tipo="error">{mensajeDeError(lineaAMano.error)}</Aviso>}
+
+            <Boton
+              type="submit"
+              variante="secundario"
+              disabled={lineaAMano.isPending || !desc.trim() || precio.trim() === ''}
+            >
+              {lineaAMano.isPending ? 'Añadiendo…' : 'Añadir línea a mano'}
+            </Boton>
+          </form>
+        </details>
       </Tarjeta>
 
       <Tarjeta className="p-5">
@@ -450,8 +624,9 @@ export default function Cotizacion() {
               </div>
             </dl>
             <p className="mt-3 max-w-prose text-xs text-subtle">
-              No son la misma cifra y nunca lo serán: el margen se mide sobre el precio y el markup
-              sobre el costo. Con precio 100 y costo 60, el margen es 40 % y el markup 66,7 %.
+              El fee que pones es el markup: lo que le sumas al costo. El margen es otra cifra, la
+              que de verdad te queda sobre lo que cobras. Con costo 100 y fee 80 %, el precio es
+              180, el markup 80 % y el margen 44,4 %.
             </p>
           </div>
         )}
