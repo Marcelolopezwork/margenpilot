@@ -23,6 +23,8 @@ import { Constants } from '../../types/database';
 import type { Enums } from '../../types/database';
 import { Aviso, Boton, Campo, Cargando, Etiqueta, Selector, Tarjeta } from '../../components/ui';
 import { useRecargar } from '../../components/recargar';
+import LineaCostos from './LineaCostos';
+import type { Costo } from './LineaCostos';
 import { ESTADOS } from './estados';
 
 type Linea = {
@@ -33,16 +35,6 @@ type Linea = {
   sort: number;
 };
 
-type Costo = {
-  id: string;
-  quote_line_id: string;
-  label: string | null;
-  cost_item_id: string | null;
-  quantity: number;
-  unit_cost: number;
-  unit: string;
-};
-
 export default function Cotizacion() {
   const { id = '' } = useParams();
   const { organizacion } = useOrgElegida();
@@ -51,6 +43,10 @@ export default function Cotizacion() {
   const recargar = useRecargar(['cotizacion', 'cotizaciones']);
 
   const [abierta, setAbierta] = useState<string | null>(null);
+  const [editando, setEditando] = useState<string | null>(null);
+  const [editCant, setEditCant] = useState('');
+  const [editPrecio, setEditPrecio] = useState('');
+
   const [desc, setDesc] = useState('');
   const [cant, setCant] = useState('1');
   const [precio, setPrecio] = useState('');
@@ -77,6 +73,7 @@ export default function Cotizacion() {
         .from('quote_lines')
         .select('id, description, quantity, unit_price, sort')
         .eq('quote_id', id)
+        .eq('is_active', true)
         .order('sort');
       if (error) throw error;
       return data ?? [];
@@ -91,6 +88,7 @@ export default function Cotizacion() {
         .from('quote_line_costs')
         .select('id, quote_line_id, label, cost_item_id, quantity, unit_cost, unit')
         .eq('organization_id', organizacion.id)
+        .eq('is_active', true)
         .order('sort');
       if (error) throw error;
       return data ?? [];
@@ -133,9 +131,41 @@ export default function Cotizacion() {
     },
   });
 
+  /** No se borra: se desactiva. La fila y su rastro de auditoría se quedan. */
+  const quitarLinea = useMutation({
+    mutationFn: async (lineaId: string) => {
+      const { error } = await requireSupabase()
+        .from('quote_lines')
+        .update({ is_active: false })
+        .eq('id', lineaId);
+      if (error) throw error;
+    },
+    onSuccess: recargar,
+  });
+
+  const guardarLinea = useMutation({
+    mutationFn: async (lineaId: string) => {
+      const { error } = await requireSupabase()
+        .from('quote_lines')
+        .update({
+          quantity: Number(editCant.replace(',', '.')),
+          unit_price: Number(editPrecio.replace(',', '.')),
+        })
+        .eq('id', lineaId);
+      if (error) throw error;
+    },
+    onSuccess: () => {
+      setEditando(null);
+      recargar();
+    },
+  });
+
   const cambiarEstado = useMutation({
     mutationFn: async (estado: Enums<'quote_status'>) => {
-      const { error } = await requireSupabase().from('quotes').update({ status: estado }).eq('id', id);
+      const { error } = await requireSupabase()
+        .from('quotes')
+        .update({ status: estado })
+        .eq('id', id);
       if (error) throw error;
     },
     onSuccess: recargar,
@@ -156,7 +186,9 @@ export default function Cotizacion() {
     (costos.data ?? []).filter((c) => c.quote_line_id === lineaId);
   const costoDe = (l: Linea): Money =>
     sumLines(
-      costosDe(l.id).map((c) => multiplyByQuantity(fromRow(c.unit_cost, moneda), String(c.quantity))),
+      costosDe(l.id).map((c) =>
+        multiplyByQuantity(fromRow(c.unit_cost, moneda), String(c.quantity)),
+      ),
       moneda,
     );
 
@@ -172,6 +204,12 @@ export default function Cotizacion() {
   const markup = markupPercent(neto, costo);
 
   const entidad = entidades.find((e) => e.id === q.legal_entity_id);
+
+  function empezarEdicion(l: Linea) {
+    setEditando(l.id);
+    setEditCant(String(l.quantity));
+    setEditPrecio(String(l.unit_price));
+  }
 
   return (
     <div className="flex flex-col gap-6">
@@ -204,6 +242,7 @@ export default function Cotizacion() {
       </header>
 
       {cambiarEstado.error && <Aviso tipo="error">{mensajeDeError(cambiarEstado.error)}</Aviso>}
+      {quitarLinea.error && <Aviso tipo="error">{mensajeDeError(quitarLinea.error)}</Aviso>}
 
       <Tarjeta className="p-5">
         <h2 className="mb-3 font-medium">Líneas</h2>
@@ -211,8 +250,8 @@ export default function Cotizacion() {
         {lineas.isPending && <Cargando que="las líneas" />}
         {filas.length === 0 && !lineas.isPending && (
           <p className="text-sm text-muted">
-            Todavía no hay líneas. Añade la primera abajo: cantidad por precio unitario, y el
-            margen aparece solo.
+            Todavía no hay líneas. Añade la primera abajo: cantidad por precio unitario, y luego
+            cárgale sus costos para ver el margen de verdad.
           </p>
         )}
 
@@ -228,9 +267,62 @@ export default function Cotizacion() {
                     <span className="font-medium">{l.description}</span>
                     <span className="num">{format(net)}</span>
                   </div>
-                  <div className="num mt-1 text-sm text-muted">
-                    {String(l.quantity)} × {format(fromRow(l.unit_price, moneda))}
-                  </div>
+
+                  {editando === l.id ? (
+                    <div className="mt-2 flex flex-wrap items-end gap-3">
+                      <Campo
+                        etiqueta="Cantidad"
+                        type="number"
+                        step="0.01"
+                        min="0.01"
+                        value={editCant}
+                        onChange={(e) => setEditCant(e.target.value)}
+                      />
+                      <Campo
+                        etiqueta={`Precio (${q.currency_code})`}
+                        type="number"
+                        step="0.01"
+                        min="0"
+                        value={editPrecio}
+                        onChange={(e) => setEditPrecio(e.target.value)}
+                      />
+                      <Boton
+                        variante="primario"
+                        disabled={guardarLinea.isPending}
+                        onClick={() => guardarLinea.mutate(l.id)}
+                      >
+                        Guardar
+                      </Boton>
+                      <Boton variante="sutil" onClick={() => setEditando(null)}>
+                        Cancelar
+                      </Boton>
+                    </div>
+                  ) : (
+                    <div className="mt-1 flex flex-wrap items-center gap-3">
+                      <span className="num text-sm text-muted">
+                        {String(l.quantity)} × {format(fromRow(l.unit_price, moneda))}
+                      </span>
+                      <Boton
+                        variante="sutil"
+                        className="min-h-0 px-2 py-1 text-xs"
+                        onClick={() => empezarEdicion(l)}
+                      >
+                        Editar
+                      </Boton>
+                      <Boton
+                        variante="sutil"
+                        className="min-h-0 px-2 py-1 text-xs"
+                        disabled={quitarLinea.isPending}
+                        onClick={() => quitarLinea.mutate(l.id)}
+                      >
+                        Quitar
+                      </Boton>
+                    </div>
+                  )}
+
+                  {guardarLinea.error && editando === l.id && (
+                    <Aviso tipo="error">{mensajeDeError(guardarLinea.error)}</Aviso>
+                  )}
 
                   {conCostos && (
                     <div className="mt-2">
@@ -238,30 +330,20 @@ export default function Cotizacion() {
                         variante="sutil"
                         onClick={() => setAbierta(abierta === l.id ? null : l.id)}
                         aria-expanded={abierta === l.id}
-                        className="px-0 text-xs"
+                        className="min-h-0 px-0 py-1 text-xs"
                       >
                         {abierta === l.id ? '▾' : '▸'} costos · {format(cost)}
                         {m !== null && ` · margen ${m.toFixed(1)} %`}
                       </Boton>
 
                       {abierta === l.id && (
-                        <ul className="mt-2 rounded-control bg-surface-2 p-3 text-sm">
-                          {costosDe(l.id).length === 0 && (
-                            <li className="text-muted">
-                              Sin costos cargados. Mientras no los pongas, el margen de esta línea
-                              es del 100 %, que casi nunca es verdad.
-                            </li>
-                          )}
-                          {costosDe(l.id).map((c) => (
-                            <li key={c.id} className="flex justify-between gap-3">
-                              <span>{c.label ?? 'Ítem del catálogo'}</span>
-                              <span className="num text-muted">
-                                {String(c.quantity)} {c.unit} ×{' '}
-                                {format(fromRow(c.unit_cost, moneda))}
-                              </span>
-                            </li>
-                          ))}
-                        </ul>
+                        <LineaCostos
+                          lineaId={l.id}
+                          organizacionId={organizacion.id}
+                          moneda={moneda}
+                          costos={costosDe(l.id)}
+                          alCambiar={recargar}
+                        />
                       )}
                     </div>
                   )}
@@ -290,8 +372,8 @@ export default function Cotizacion() {
               etiqueta="Cantidad"
               type="number"
               inputMode="decimal"
-              step="0.0001"
-              min="0.0001"
+              step="0.01"
+              min="0.01"
               value={cant}
               onChange={(e) => setCant(e.target.value)}
               required
@@ -300,7 +382,7 @@ export default function Cotizacion() {
               etiqueta={`Precio unitario (${q.currency_code})`}
               type="number"
               inputMode="decimal"
-              step="0.0001"
+              step="0.01"
               min="0"
               value={precio}
               onChange={(e) => setPrecio(e.target.value)}

@@ -646,6 +646,7 @@ export type Database = {
           cost_item_id: string | null
           created_at: string
           id: string
+          is_active: boolean
           label: string | null
           organization_id: string
           quantity: number
@@ -658,6 +659,7 @@ export type Database = {
           cost_item_id?: string | null
           created_at?: string
           id?: string
+          is_active?: boolean
           label?: string | null
           organization_id: string
           quantity: number
@@ -670,6 +672,7 @@ export type Database = {
           cost_item_id?: string | null
           created_at?: string
           id?: string
+          is_active?: boolean
           label?: string | null
           organization_id?: string
           quantity?: number
@@ -685,6 +688,7 @@ export type Database = {
           created_at: string
           description: string
           id: string
+          is_active: boolean
           organization_id: string
           quantity: number
           quote_id: string
@@ -696,6 +700,7 @@ export type Database = {
           created_at?: string
           description: string
           id?: string
+          is_active?: boolean
           organization_id: string
           quantity: number
           quote_id: string
@@ -707,6 +712,7 @@ export type Database = {
           created_at?: string
           description?: string
           id?: string
+          is_active?: boolean
           organization_id?: string
           quantity?: number
           quote_id?: string
