@@ -31,6 +31,17 @@ describe('mensajeDeError', () => {
     expect(m).toContain('Configuración → Monedas');
   });
 
+  it('distingue la ficha de otra empresa de la entidad de otra organización', () => {
+    // Comparten prefijo y significan cosas distintas: si el orden de las
+    // reglas se rompe, este caso lo caza.
+    expect(
+      mensajeDeError({ message: 'service_entity_mismatch: la ficha es de otra empresa del grupo' }),
+    ).toContain('otra empresa del grupo');
+    expect(
+      mensajeDeError({ message: 'entity_mismatch: la entidad no pertenece a esta organización' }),
+    ).toContain('otra organización');
+  });
+
   it('traduce la entidad de otra organización', () => {
     const m = mensajeDeError({
       message: 'entity_mismatch: la entidad no pertenece a esta organización',

@@ -151,7 +151,9 @@ export async function construirCotizacionPdf(d: DatosPdf) {
     const alto = 14;
     const ancho = Math.min(52, (logo.ancho / logo.alto) * alto);
     doc.addImage(logo.datos, IZQ, y - 3, ancho, alto);
-    y += alto + 1;
+    // El nombre necesita aire bajo el logo: pegados se leen como una sola
+    // mancha y la marca pierde fuerza.
+    y += alto + 5;
   }
 
   doc.setFont('helvetica', 'bold');

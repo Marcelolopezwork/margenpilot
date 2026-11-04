@@ -77,7 +77,7 @@ export default function Cotizacion() {
     queryFn: async () => {
       const { data, error } = await requireSupabase()
         .from('services')
-        .select('id, code, name, default_fee_pct, is_active')
+        .select('id, code, name, default_fee_pct, is_active, legal_entity_id')
         .eq('organization_id', organizacion.id)
         .eq('is_active', true)
         .order('code');
@@ -330,7 +330,9 @@ export default function Cotizacion() {
   const markup = markupPercent(neto, costo);
 
   const entidad = entidades.find((e) => e.id === q.legal_entity_id);
-  const fichas = servicios.data ?? [];
+  // Solo las de la entidad que cotiza: son dos libros y la base lo rechaza
+  // igualmente, así que ofrecerlas sería ofrecer un error.
+  const fichas = (servicios.data ?? []).filter((s) => s.legal_entity_id === q.legal_entity_id);
   const marca = (marcas.data ?? []).find((m) => m.id === q.brand_id) ?? null;
   // Solo las marcas de la entidad que cotiza: una marca pertenece a su
   // entidad y mezclarlas sería firmar con el nombre equivocado.
@@ -657,8 +659,10 @@ export default function Cotizacion() {
 
           {fichas.length === 0 ? (
             <Aviso tipo="atencion">
-              No hay fichas de servicio todavía. Créalas en Catálogo → Servicios y ponles su
-              composición de costos: entonces una cotización se arma en dos clics.
+              {entidad?.legal_name ?? 'Esta entidad'} no tiene fichas de servicio. Créalas en
+              Catálogo → Servicios eligiéndola como empresa que las vende, con su composición de
+              costos: entonces una cotización se arma en dos clics. Las fichas de la otra empresa
+              no sirven aquí, porque son dos contabilidades con monedas distintas.
             </Aviso>
           ) : (
             <>

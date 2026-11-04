@@ -57,6 +57,32 @@ function Exito({ children }: { children: React.ReactNode }) {
   );
 }
 
+/**
+ * Aviso de que el selector de arriba está filtrando.
+ *
+ * Existe porque Marcelo creyó que la aplicación no le dejaba configurar una
+ * marca: lo que pasaba es que tenía otra entidad elegida arriba y la lista
+ * estaba filtrada en silencio. Una lista incompleta sin explicación se lee
+ * como una lista vacía.
+ */
+export function FiltradoPor({
+  entidad,
+  alQuitar,
+}: {
+  entidad: string | null;
+  alQuitar: () => void;
+}) {
+  if (!entidad) return null;
+  return (
+    <p className="flex flex-wrap items-center gap-2 text-sm text-muted">
+      Mostrando solo lo de <span className="font-medium text-text">{entidad}</span>.
+      <button type="button" onClick={alQuitar} className="underline">
+        Ver todas las entidades
+      </button>
+    </p>
+  );
+}
+
 /** Formulario de alta en una tarjeta, con su título propio. */
 export function Alta({
   titulo,

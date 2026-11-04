@@ -223,6 +223,7 @@ export type Database = {
           id: string
           is_active: boolean
           kind: Database["public"]["Enums"]["cost_item_kind"]
+          legal_entity_id: string
           name: string
           notes: string | null
           organization_id: string
@@ -236,6 +237,7 @@ export type Database = {
           id?: string
           is_active?: boolean
           kind?: Database["public"]["Enums"]["cost_item_kind"]
+          legal_entity_id: string
           name: string
           notes?: string | null
           organization_id: string
@@ -249,6 +251,7 @@ export type Database = {
           id?: string
           is_active?: boolean
           kind?: Database["public"]["Enums"]["cost_item_kind"]
+          legal_entity_id?: string
           name?: string
           notes?: string | null
           organization_id?: string
@@ -997,6 +1000,7 @@ export type Database = {
           id: string
           is_active: boolean
           kind: Database["public"]["Enums"]["service_kind"]
+          legal_entity_id: string
           name: string
           organization_id: string
           periodicity: string | null
@@ -1012,6 +1016,7 @@ export type Database = {
           id?: string
           is_active?: boolean
           kind?: Database["public"]["Enums"]["service_kind"]
+          legal_entity_id: string
           name: string
           organization_id: string
           periodicity?: string | null
@@ -1027,6 +1032,7 @@ export type Database = {
           id?: string
           is_active?: boolean
           kind?: Database["public"]["Enums"]["service_kind"]
+          legal_entity_id?: string
           name?: string
           organization_id?: string
           periodicity?: string | null

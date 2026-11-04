@@ -4,13 +4,13 @@ import { useOrg, useOrgElegida } from '../../app/org-context';
 import { mensajeDeError } from '../../lib/errors';
 import { requireSupabase } from '../../lib/supabase';
 import { Aviso, Boton, Campo, Cargando, Etiqueta, Selector, Vacio } from '../../components/ui';
-import { Alta, Fila, Lista, Seccion } from '../../components/piezas';
+import { Alta, Fila, FiltradoPor, Lista, Seccion } from '../../components/piezas';
 import MarcaFormato from './MarcaFormato';
 import { useRecargar } from '../../components/recargar';
 
 export default function Marcas() {
   const { organizacion, entidad } = useOrgElegida();
-  const { entidades } = useOrg();
+  const { entidades, elegirEntidad } = useOrg();
   const recargar = useRecargar(['marcas']);
 
   const [exito, setExito] = useState<string | null>(null);
@@ -70,6 +70,8 @@ export default function Marcas() {
       titulo="Marcas"
       regla="La marca es el nombre comercial con el que sale la cotización, y pertenece a una entidad. Se pueden crear tantas como quieras: no cuentan para ningún límite de plan. Lo que una marca no tiene es caja ni documentos propios, porque el dinero y los impuestos son de la entidad, no del nombre comercial."
     >
+      <FiltradoPor entidad={entidad?.legal_name ?? null} alQuitar={() => elegirEntidad(null)} />
+
       {consulta.isPending && <Cargando que="las marcas" />}
       {consulta.error && <Aviso tipo="error">{mensajeDeError(consulta.error)}</Aviso>}
 

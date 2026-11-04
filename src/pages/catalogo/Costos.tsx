@@ -1,14 +1,14 @@
 import { useState } from 'react';
 import { useMutation, useQuery } from '@tanstack/react-query';
 import { useMonedasHabilitadas } from '../../app/consultas';
-import { puedeVerCostos, useOrgElegida } from '../../app/org-context';
+import { puedeVerCostos, useOrg, useOrgElegida } from '../../app/org-context';
 import { mensajeDeError } from '../../lib/errors';
 import { currencyOf, format, fromRow } from '../../lib/money';
 import { requireSupabase } from '../../lib/supabase';
 import { Constants } from '../../types/database';
 import type { Enums } from '../../types/database';
 import { Aviso, Boton, Campo, Cargando, Etiqueta, Selector, Vacio } from '../../components/ui';
-import { Alta, Fila, Lista, Seccion } from '../../components/piezas';
+import { Alta, Fila, FiltradoPor, Lista, Seccion } from '../../components/piezas';
 import { useRecargar } from '../../components/recargar';
 
 const TIPOS: Record<Enums<'cost_item_kind'>, string> = {
@@ -19,7 +19,8 @@ const TIPOS: Record<Enums<'cost_item_kind'>, string> = {
 };
 
 export default function Costos() {
-  const { organizacion } = useOrgElegida();
+  const { organizacion, entidad } = useOrgElegida();
+  const { entidades, elegirEntidad } = useOrg();
   const monedas = useMonedasHabilitadas(organizacion.id);
   const recargar = useRecargar(['costos']);
 
@@ -29,15 +30,18 @@ export default function Costos() {
   const [unidad, setUnidad] = useState('hora');
   const [costo, setCosto] = useState('');
   const [moneda, setMoneda] = useState('');
+  const [entidadId, setEntidadId] = useState(entidad?.id ?? '');
 
   const consulta = useQuery({
-    queryKey: ['costos', organizacion.id],
+    queryKey: ['costos', organizacion.id, entidad?.id ?? null],
     queryFn: async () => {
-      const { data, error } = await requireSupabase()
+      let q = requireSupabase()
         .from('cost_items')
-        .select('id, name, kind, unit, unit_cost, currency_code, is_active')
+        .select('id, name, kind, unit, unit_cost, currency_code, is_active, legal_entity_id')
         .eq('organization_id', organizacion.id)
         .order('name');
+      if (entidad) q = q.eq('legal_entity_id', entidad.id);
+      const { data, error } = await q;
       if (error) throw error;
       return data ?? [];
     },
@@ -48,6 +52,7 @@ export default function Costos() {
     mutationFn: async () => {
       const { error } = await requireSupabase().from('cost_items').insert({
         organization_id: organizacion.id,
+        legal_entity_id: entidadId,
         name: nombre.trim(),
         kind: tipo,
         unit: unidad.trim(),
@@ -93,8 +98,10 @@ export default function Costos() {
   return (
     <Seccion
       titulo="Ítems de costo"
-      regla="Lo que cuesta producir, con su unidad y su precio por unidad: una hora de dirección creativa, un mes de licencia, un proveedor externo. Se reutilizan entre fichas de servicio, y al añadir uno a una ficha se copia su costo del momento, así que subirle el precio a un ítem no reescribe las fichas que ya existían."
+      regla="Lo que cuesta producir, con su unidad y su precio por unidad: una hora de dirección creativa, un mes de licencia, un proveedor externo. Cada costo pertenece a una empresa, porque son dos contabilidades: una hora de diseñador en soles no tiene nada que hacer en una cotización en dólares. Al añadir uno a una ficha se copia su costo del momento, así que subirle el precio después no reescribe las fichas que ya existían."
     >
+      <FiltradoPor entidad={entidad?.legal_name ?? null} alQuitar={() => elegirEntidad(null)} />
+
       {consulta.isPending && <Cargando que="los ítems de costo" />}
       {consulta.error && <Aviso tipo="error">{mensajeDeError(consulta.error)}</Aviso>}
 
@@ -140,6 +147,23 @@ export default function Costos() {
       {alternar.error && <Aviso tipo="error">{mensajeDeError(alternar.error)}</Aviso>}
 
       <Alta titulo="Nuevo ítem de costo" exito={exito} onSubmit={() => crear.mutate()}>
+        <Selector
+          etiqueta="Empresa a la que pertenece"
+          value={entidadId}
+          onChange={(e) => setEntidadId(e.target.value)}
+          required
+          ayuda="Solo se podrá usar en fichas y cotizaciones de esta empresa."
+        >
+          <option value="">Elige una empresa</option>
+          {entidades
+            .filter((e) => e.is_active)
+            .map((e) => (
+              <option key={e.id} value={e.id}>
+                {e.legal_name} · {e.default_currency_code}
+              </option>
+            ))}
+        </Selector>
+
         <Campo
           etiqueta="Nombre"
           value={nombre}
@@ -202,7 +226,9 @@ export default function Costos() {
         <Boton
           type="submit"
           variante="primario"
-          disabled={crear.isPending || !nombre.trim() || !moneda || costo.trim() === ''}
+          disabled={
+            crear.isPending || !nombre.trim() || !moneda || !entidadId || costo.trim() === ''
+          }
         >
           {crear.isPending ? 'Creando…' : 'Crear ítem'}
         </Boton>

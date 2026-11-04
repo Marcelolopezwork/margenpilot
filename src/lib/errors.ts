@@ -44,6 +44,10 @@ const FIJOS: readonly (readonly [string, string])[] = [
     'Esa moneda no está habilitada en la organización. Habilítala primero en Configuración → Monedas.',
   ],
   [
+    'service_entity_mismatch',
+    'Esa ficha es de la otra empresa del grupo. Son dos contabilidades con monedas distintas, así que no se pueden cruzar: crea la ficha en esta empresa o cotiza desde la otra.',
+  ],
+  [
     'entity_mismatch',
     'La entidad elegida es de otra organización. Elige una entidad de esta organización.',
   ],

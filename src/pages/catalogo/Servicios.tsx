@@ -1,14 +1,14 @@
 import { useState } from 'react';
 import { useMutation, useQuery } from '@tanstack/react-query';
 import { useMonedasHabilitadas } from '../../app/consultas';
-import { useOrgElegida } from '../../app/org-context';
+import { useOrg, useOrgElegida } from '../../app/org-context';
 import { mensajeDeError } from '../../lib/errors';
 import { formatoTasa } from '../../lib/format';
 import { requireSupabase } from '../../lib/supabase';
 import { Constants } from '../../types/database';
 import type { Enums } from '../../types/database';
 import { Aviso, Boton, Campo, Cargando, Etiqueta, Selector, Vacio } from '../../components/ui';
-import { Alta, Fila, Lista, Seccion } from '../../components/piezas';
+import { Alta, Fila, FiltradoPor, Lista, Seccion } from '../../components/piezas';
 import { useRecargar } from '../../components/recargar';
 import ServicioTerminos from './ServicioTerminos';
 
@@ -19,7 +19,8 @@ const TIPOS: Record<Enums<'service_kind'>, string> = {
 };
 
 export default function Servicios() {
-  const { organizacion } = useOrgElegida();
+  const { organizacion, entidad } = useOrgElegida();
+  const { entidades, elegirEntidad } = useOrg();
   const monedas = useMonedasHabilitadas(organizacion.id);
   const recargar = useRecargar(['servicios']);
 
@@ -31,6 +32,7 @@ export default function Servicios() {
   const [periodicidad, setPeriodicidad] = useState('');
   const [moneda, setMoneda] = useState('');
   const [fee, setFee] = useState('80');
+  const [entidadId, setEntidadId] = useState(entidad?.id ?? '');
 
   const categorias = useQuery({
     queryKey: ['categorias-servicio', organizacion.id],
@@ -47,15 +49,17 @@ export default function Servicios() {
   });
 
   const consulta = useQuery({
-    queryKey: ['servicios', organizacion.id],
+    queryKey: ['servicios', organizacion.id, entidad?.id ?? null],
     queryFn: async () => {
-      const { data, error } = await requireSupabase()
+      let q = requireSupabase()
         .from('services')
         .select(
-          'id, code, name, kind, periodicity, suggested_currency_code, default_fee_pct, is_active, category_id',
+          'id, code, name, kind, periodicity, suggested_currency_code, default_fee_pct, is_active, category_id, legal_entity_id',
         )
         .eq('organization_id', organizacion.id)
         .order('code');
+      if (entidad) q = q.eq('legal_entity_id', entidad.id);
+      const { data, error } = await q;
       if (error) throw error;
       return data ?? [];
     },
@@ -68,6 +72,7 @@ export default function Servicios() {
         .from('services')
         .insert({
           organization_id: organizacion.id,
+          legal_entity_id: entidadId,
           code: codigo.trim().toUpperCase(),
           name: nombre.trim(),
           category_id: categoria || null,
@@ -108,6 +113,8 @@ export default function Servicios() {
       titulo="Fichas de servicio"
       regla="Lo que vendes, con su código, su tipo y el fee que propones por defecto. Ojo con el fee: es markup SOBRE EL COSTO, no margen sobre el precio. Un fee del 80 % sobre un costo de 100 da un precio de 180, y eso es un margen del 44,4 %, no del 80 %. Son dos cifras distintas y el cotizador las mostrará por separado."
     >
+      <FiltradoPor entidad={entidad?.legal_name ?? null} alQuitar={() => elegirEntidad(null)} />
+
       {consulta.isPending && <Cargando que="las fichas" />}
       {consulta.error && <Aviso tipo="error">{mensajeDeError(consulta.error)}</Aviso>}
 
@@ -166,6 +173,23 @@ export default function Servicios() {
       {alternar.error && <Aviso tipo="error">{mensajeDeError(alternar.error)}</Aviso>}
 
       <Alta titulo="Nueva ficha de servicio" exito={exito} onSubmit={() => crear.mutate()}>
+        <Selector
+          etiqueta="Empresa que lo vende"
+          value={entidadId}
+          onChange={(e) => setEntidadId(e.target.value)}
+          required
+          ayuda="Solo se podrá usar en cotizaciones de esta empresa, y sus costos tienen que ser de ella."
+        >
+          <option value="">Elige una empresa</option>
+          {entidades
+            .filter((e) => e.is_active)
+            .map((e) => (
+              <option key={e.id} value={e.id}>
+                {e.legal_name} · {e.default_currency_code}
+              </option>
+            ))}
+        </Selector>
+
         <Campo
           etiqueta="Código"
           value={codigo}
@@ -257,6 +281,7 @@ export default function Servicios() {
             crear.isPending ||
             !codigo.trim() ||
             !nombre.trim() ||
+            !entidadId ||
             (tipo !== 'one_off' && !periodicidad.trim())
           }
         >
