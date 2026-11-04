@@ -90,4 +90,12 @@ describe('mensajeDeError', () => {
     const m = mensajeDeError({ message: 'not_authenticated', code: '42501' });
     expect(m).toBe('Tu sesión caducó. Vuelve a entrar.');
   });
+
+  it('explica una cotización que ya no es tuya en vez de callarse', () => {
+    // El fallo que se arregló: antes la base devolvía cero filas sin error y
+    // la pantalla decía que había guardado.
+    expect(mensajeDeError({ message: 'quote_not_found: la cotización no existe' })).toContain(
+      'ya no existe',
+    );
+  });
 });

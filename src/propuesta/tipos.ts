@@ -52,9 +52,14 @@ export type Portada = (typeof PORTADAS)[number];
 export const TIPOGRAFIAS = ['bebas', 'archivo', 'editorial', 'suiza'] as const;
 export type Tipografia = (typeof TIPOGRAFIAS)[number];
 
+export const TEMAS = ['claro', 'oscuro'] as const;
+export type Tema = (typeof TEMAS)[number];
+
 export type Diseño = {
   portada: Portada;
   tipografia: Tipografia;
+  /** Claro es papel blanco; oscuro vuelca toda la propuesta a fondo negro. */
+  tema: Tema;
   /** Nulo usa el de la marca. */
   colorPrimario: string | null;
   colorSecundario: string | null;
@@ -74,6 +79,7 @@ export type Diseño = {
 export const DISEÑO_POR_DEFECTO: Diseño = {
   portada: 'completa',
   tipografia: 'bebas',
+  tema: 'claro',
   colorPrimario: null,
   colorSecundario: null,
   fotoPortada: null,
@@ -110,10 +116,12 @@ export function leerDiseño(crudo: unknown): Diseño {
   const portada = PORTADAS.find((p) => p === d['portada']) ?? DISEÑO_POR_DEFECTO.portada;
   const tipografia =
     TIPOGRAFIAS.find((t) => t === d['tipografia']) ?? DISEÑO_POR_DEFECTO.tipografia;
+  const tema = TEMAS.find((t) => t === d['tema']) ?? DISEÑO_POR_DEFECTO.tema;
 
   return {
     portada,
     tipografia,
+    tema,
     colorPrimario: texto(d['colorPrimario']),
     colorSecundario: texto(d['colorSecundario']),
     fotoPortada: texto(d['fotoPortada']),

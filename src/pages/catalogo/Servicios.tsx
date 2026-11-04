@@ -11,6 +11,7 @@ import { Aviso, Boton, Campo, Cargando, Etiqueta, Selector, Vacio } from '../../
 import { Alta, Fila, FiltradoPor, Lista, Seccion } from '../../components/piezas';
 import { useRecargar } from '../../components/recargar';
 import ServicioTerminos from './ServicioTerminos';
+import SelectorDeFoto from '../../propuesta/SelectorDeFoto';
 
 const TIPOS: Record<Enums<'service_kind'>, string> = {
   one_off: 'Puntual',
@@ -54,7 +55,7 @@ export default function Servicios() {
       let q = requireSupabase()
         .from('services')
         .select(
-          'id, code, name, kind, periodicity, suggested_currency_code, default_fee_pct, is_active, category_id, legal_entity_id',
+          'id, code, name, kind, periodicity, suggested_currency_code, default_fee_pct, is_active, category_id, legal_entity_id, cover_path',
         )
         .eq('organization_id', organizacion.id)
         .order('code');
@@ -63,6 +64,17 @@ export default function Servicios() {
       if (error) throw error;
       return data ?? [];
     },
+  });
+
+  const foto = useMutation({
+    mutationFn: async ({ id, ruta }: { id: string; ruta: string | null }) => {
+      const { error } = await requireSupabase()
+        .from('services')
+        .update({ cover_path: ruta })
+        .eq('id', id);
+      if (error) throw error;
+    },
+    onSuccess: recargar,
   });
 
   const crear = useMutation({
@@ -153,6 +165,14 @@ export default function Servicios() {
                     servicioId={s.id}
                     organizacionId={organizacion.id}
                     nombre={s.name}
+                  />
+                  {/* La foto con la que sale este servicio en una propuesta,
+                      salvo que la cotización elija otra. */}
+                  <SelectorDeFoto
+                    organizacionId={organizacion.id}
+                    ruta={s.cover_path}
+                    etiqueta="Foto para la propuesta"
+                    alElegir={(ruta) => foto.mutate({ id: s.id, ruta })}
                   />
                 </>
               }

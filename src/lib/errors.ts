@@ -52,6 +52,14 @@ const FIJOS: readonly (readonly [string, string])[] = [
     'Esa ficha es de la otra empresa del grupo. Son dos contabilidades con monedas distintas, así que no se pueden cruzar: crea la ficha en esta empresa o cotiza desde la otra.',
   ],
   [
+    'quote_not_found',
+    'Esa cotización ya no existe o no es de tu organización. Vuelve al listado y ábrela de nuevo.',
+  ],
+  [
+    'design_patch_invalid',
+    'El ajuste de diseño llegó mal formado. Recarga la pantalla; si vuelve a pasar, es un fallo nuestro.',
+  ],
+  [
     'entity_mismatch',
     'La entidad elegida es de otra organización. Elige una entidad de esta organización.',
   ],

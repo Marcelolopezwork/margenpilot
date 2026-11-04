@@ -415,6 +415,7 @@ export default function Propuesta({
     <div
       className="propuesta lienzo"
       data-mayusculas={pareja.mayusculas ? 'si' : 'no'}
+      data-tema={diseño.tema}
       style={
         {
           '--primario': colorPrimario,

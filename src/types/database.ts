@@ -1056,6 +1056,7 @@ export type Database = {
         Row: {
           category_id: string | null
           code: string
+          cover_path: string | null
           created_at: string
           default_fee_pct: number
           description: string | null
@@ -1072,6 +1073,7 @@ export type Database = {
         Insert: {
           category_id?: string | null
           code: string
+          cover_path?: string | null
           created_at?: string
           default_fee_pct?: number
           description?: string | null
@@ -1088,6 +1090,7 @@ export type Database = {
         Update: {
           category_id?: string | null
           code?: string
+          cover_path?: string | null
           created_at?: string
           default_fee_pct?: number
           description?: string | null
@@ -1244,6 +1247,10 @@ export type Database = {
       recalc_quote_line_price: {
         Args: { p_line: string }
         Returns: number
+      }
+      set_quote_design: {
+        Args: { p_patch: Json; p_quote: string }
+        Returns: Json
       }
     }
     Enums: {

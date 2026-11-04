@@ -59,7 +59,7 @@ que la clave sea secreta.
 Todo esto está **en producción y verificado contra la base real**, no solo
 compilado.
 
-### Base de datos · veintitrés migraciones aplicadas
+### Base de datos · veinticuatro migraciones aplicadas
 
 ```
 20261028120000 foundations      esquema, tablas, disparadores, auditoría
@@ -85,6 +85,7 @@ compilado.
 20261104210000 ficha_convierte_costos  la ficha convierte al copiar
 20261104220000 segundo_color   el color de acento de la marca
 20261105120000 propuesta_a_medida  biblioteca de fotos y diseño por cotización
+20261105130000 disenio_sin_pisarse  el diseño se parchea; foto por ficha
 ```
 
 ### Pantallas
@@ -111,7 +112,7 @@ caja (BCP soles en PEN, Mercury en USD), un cliente y una cotización de prueba.
 
 ### Verificación
 
-- **74 pruebas** de Vitest: dinero, errores, formato, armazón, altas, el A4 y la propuesta
+- **78 pruebas** de Vitest: dinero, errores, formato, armazón, altas, el A4 y la propuesta
 - **37 aserciones** SQL en `supabase/tests/invariants.sql`
 - CI en GitHub Actions: tipos, lint, pruebas, build, y las migraciones
   reaplicadas desde cero en cada push
@@ -243,6 +244,27 @@ Cada una costó tiempo. Están aquí para no repetirlas.
    fuera de su propia aplicación (ADR-32).
 7. **Construir cimientos en orden perfecto no es avance si el usuario no ve
    nada.** Conviene intercalar algo usable en cada tramo.
+
+---
+
+### Dos pantallas no comparten clave de caché si no traen las mismas columnas
+
+El editor y la propuesta usaban las dos `['cotizacion', id]`, pero el editor
+no selecciona `design`. React Query guarda **una** entrada por clave, así que
+la propuesta leía a veces una fila sin diseño, lo tomaba por «no hay diseño» y
+al siguiente clic guardaba los valores de serie encima de lo que Marcelo
+acababa de elegir. En pantalla parecía que los botones no hacían nada; en
+`audit_log` se veía perfectamente: sus clics escribían y un segundo después
+llegaba otra escritura con los valores por defecto.
+
+Dos arreglos, y los dos hacen falta: clave propia (`['propuesta', id]`) y
+guardar **solo el campo que cambió** con `set_quote_design`, que lo funde en
+la base. Lo segundo es lo que hace que el fallo no pueda volver por otra
+puerta.
+
+Y la raíz de que costara verlo: un `update ... where id = ?` que no afecta a
+ninguna fila **no es un error** en PostgREST. Por eso `set_quote_design` lanza
+`quote_not_found` cuando no actualiza nada.
 
 ---
 

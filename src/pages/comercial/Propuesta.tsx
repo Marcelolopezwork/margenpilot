@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
 import { useMutation, useQuery } from '@tanstack/react-query';
 import { useOrg, useOrgElegida } from '../../app/org-context';
@@ -8,11 +8,12 @@ import { currencyOf, format } from '../../lib/money';
 import type { CurrencyCode } from '../../lib/money';
 import { requireSupabase } from '../../lib/supabase';
 import { Aviso, Boton, Cargando } from '../../components/ui';
-import { useRecargar } from '../../components/recargar';
 import Laminas from '../../propuesta/Laminas';
 import {
+  DISEÑO_POR_DEFECTO,
   PAREJAS,
   PORTADAS,
+  TEMAS,
   TIPOGRAFIAS,
   leerDiseño,
   urlDeFuentes,
@@ -35,7 +36,6 @@ export default function Propuesta() {
   const { id = '' } = useParams();
   const { organizacion } = useOrgElegida();
   const { entidades } = useOrg();
-  const recargar = useRecargar(['cotizacion', 'propuesta']);
 
   // Qué hueco de foto se está rellenando. La alternativa —un desplegable por
   // hueco— obliga a reconocer las fotos por su nombre de archivo.
@@ -44,8 +44,12 @@ export default function Propuesta() {
   const [avisoFoto, setAvisoFoto] = useState<string | null>(null);
   const entrada = useRef<HTMLInputElement>(null);
 
+  // Clave propia y no `['cotizacion', id]`: el editor guarda bajo esa clave
+  // una fila sin la columna `design`, y compartirla hacía que esta pantalla
+  // leyera «no hay diseño» y guardara los valores de serie encima de lo que
+  // Marcelo acababa de elegir.
   const cabecera = useQuery({
-    queryKey: ['cotizacion', id],
+    queryKey: ['propuesta', id],
     queryFn: async () => {
       const { data, error } = await requireSupabase()
         .from('quotes')
@@ -64,7 +68,9 @@ export default function Propuesta() {
     queryFn: async () => {
       const { data, error } = await requireSupabase()
         .from('quote_lines')
-        .select('id, description, public_detail, public_summary, quantity, unit_price, sort')
+        .select(
+          'id, description, public_detail, public_summary, quantity, unit_price, sort, service_id',
+        )
         .eq('quote_id', id)
         .eq('is_active', true)
         .order('sort');
@@ -115,6 +121,20 @@ export default function Propuesta() {
     },
   });
 
+  // Cada ficha de servicio puede traer su propia foto: una propuesta de
+  // branding sale con el banner de branding sin elegirlo cada vez.
+  const servicios = useQuery({
+    queryKey: ['servicios', organizacion.id],
+    queryFn: async () => {
+      const { data, error } = await requireSupabase()
+        .from('services')
+        .select('id, cover_path')
+        .eq('organization_id', organizacion.id);
+      if (error) throw error;
+      return data ?? [];
+    },
+  });
+
   const fotos = useQuery({
     queryKey: ['propuesta', 'fotos', organizacion.id],
     queryFn: async () => {
@@ -129,15 +149,18 @@ export default function Propuesta() {
     },
   });
 
+  /**
+   * Se manda **solo lo que cambió**, y la base lo funde con lo que ya hay. Dos
+   * ajustes seguidos ya no pueden pisarse: cada uno toca su campo y nada más.
+   */
   const guardar = useMutation({
-    mutationFn: async (nuevo: Diseño) => {
-      const { error } = await requireSupabase()
-        .from('quotes')
-        .update({ design: nuevo as unknown as Json })
-        .eq('id', id);
+    mutationFn: async (parche: Partial<Diseño>) => {
+      const { error } = await requireSupabase().rpc('set_quote_design', {
+        p_quote: id,
+        p_patch: parche as unknown as Json,
+      });
       if (error) throw error;
     },
-    onSuccess: recargar,
   });
 
   const subir = useMutation({
@@ -166,10 +189,21 @@ export default function Propuesta() {
     },
   });
 
-  const diseño: Diseño = useMemo(
-    () => leerDiseño(cabecera.data?.design),
-    [cabecera.data?.design],
-  );
+  /**
+   * El diseño vive en la pantalla mientras se toca y viaja al servidor
+   * detrás. Antes se releía del servidor tras cada clic, y en ese viaje de ida
+   * y vuelta un cambio podía llegar tarde y deshacer al siguiente.
+   *
+   * Se siembra una sola vez, cuando llega la cotización. A partir de ahí
+   * manda lo que se ve.
+   */
+  const [diseño, setDiseño] = useState<Diseño>(DISEÑO_POR_DEFECTO);
+  const sembrado = useRef(false);
+  useEffect(() => {
+    if (sembrado.current || !cabecera.data) return;
+    sembrado.current = true;
+    setDiseño(leerDiseño(cabecera.data.design));
+  }, [cabecera.data]);
 
   useEffect(() => {
     const link = document.createElement('link');
@@ -180,7 +214,8 @@ export default function Propuesta() {
   }, [diseño.tipografia]);
 
   function cambiar(parche: Partial<Diseño>) {
-    guardar.mutate({ ...diseño, ...parche });
+    setDiseño((previo) => ({ ...previo, ...parche }));
+    guardar.mutate(parche);
   }
 
   function asignar(ruta: string | null) {
@@ -228,6 +263,14 @@ export default function Propuesta() {
   const filas = lineas.data ?? [];
   const entidad = entidades.find((e) => e.id === q.legal_entity_id);
   const marca = (marcas.data ?? []).find((m) => m.id === q.brand_id) ?? null;
+
+  /** La foto de un servicio: la elegida en esta cotización y, si no, la de su ficha. */
+  const fotoDelServicio = (lineaId: string, servicioId: string | null): string | null => {
+    const propia = diseño.fotosServicio[lineaId];
+    if (propia) return propia;
+    if (!servicioId) return null;
+    return (servicios.data ?? []).find((s) => s.id === servicioId)?.cover_path ?? null;
+  };
 
   const urlDe = (ruta: string | null): string | null => {
     if (!ruta) return null;
@@ -298,6 +341,11 @@ export default function Propuesta() {
   const conFotos: Diseño = {
     ...diseño,
     fotoPortada: diseño.fotoPortada ?? marca?.cover_path ?? null,
+    fotosServicio: Object.fromEntries(
+      filas
+        .map((l) => [l.id, fotoDelServicio(l.id, l.service_id)] as const)
+        .filter((par): par is readonly [string, string] => par[1] !== null),
+    ),
   };
 
   const huecos = [
@@ -306,7 +354,7 @@ export default function Propuesta() {
     ...filas.map((l) => ({
       clave: l.id,
       titulo: l.description,
-      ruta: diseño.fotosServicio[l.id] ?? null,
+      ruta: fotoDelServicio(l.id, l.service_id),
     })),
     { clave: 'cierre', titulo: 'Cierre', ruta: diseño.fotoCierre },
   ];
@@ -327,6 +375,13 @@ export default function Propuesta() {
         </Link>
         <h1 className="mt-2 text-base font-medium">{q.number}</h1>
         <p className="text-xs text-muted">{datos.cliente.nombre}</p>
+
+        {/* Arriba del todo: un aviso al final de un panel con scroll es un
+            aviso que nadie lee. */}
+        {guardar.error && <Aviso tipo="error">{mensajeDeError(guardar.error)}</Aviso>}
+        <p className="mt-1 text-xs text-subtle" role="status">
+          {guardar.isPending ? 'Guardando…' : 'Los cambios se guardan solos.'}
+        </p>
 
         <Boton
           variante="primario"
@@ -369,6 +424,16 @@ export default function Propuesta() {
           </div>
         </Grupo>
 
+        <Grupo titulo="Fondo">
+          <div className="flex gap-1.5">
+            {TEMAS.map((t) => (
+              <Opcion key={t} activa={diseño.tema === t} onClick={() => cambiar({ tema: t })}>
+                {t === 'claro' ? 'Papel blanco' : 'Fondo oscuro'}
+              </Opcion>
+            ))}
+          </div>
+        </Grupo>
+
         <Grupo titulo="Colores">
           <div className="flex items-center gap-3">
             <Color
@@ -382,6 +447,10 @@ export default function Propuesta() {
               onChange={(v) => cambiar({ colorSecundario: v })}
             />
           </div>
+          <p className="mt-2 text-xs text-subtle">
+            El principal pinta los bloques de color, los títulos y el precio. El de acento, la
+            numeración, los filetes y las viñetas.
+          </p>
           {(diseño.colorPrimario ?? diseño.colorSecundario) !== null && (
             <button
               type="button"
@@ -476,7 +545,6 @@ export default function Propuesta() {
           </div>
         </Grupo>
 
-        {guardar.error && <Aviso tipo="error">{mensajeDeError(guardar.error)}</Aviso>}
       </aside>
 
       <div className="marco-propuesta">

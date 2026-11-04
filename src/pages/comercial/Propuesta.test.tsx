@@ -1,6 +1,7 @@
 // @vitest-environment jsdom
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { cleanup, render, screen } from '@testing-library/react';
+import { cleanup, render, screen, waitFor } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { MemoryRouter, Route, Routes } from 'react-router-dom';
 import type { User } from '@supabase/supabase-js';
@@ -41,7 +42,7 @@ const DATOS: Record<string, unknown> = {
     brand_id: null,
     client_id: 'cli-1',
     created_at: '2026-11-04T10:00:00Z',
-    design: { portada: 'completa', mostrarCondiciones: true },
+    design: {},
   },
   quote_lines: FILAS,
   quote_line_terms: [
@@ -53,23 +54,44 @@ const DATOS: Record<string, unknown> = {
   org_media: [],
 };
 
+/**
+ * El remedo de Supabase **guarda lo que se escribe**. Con uno que devolviera
+ * siempre lo mismo, una prueba de «cambio la portada y cambia la lámina»
+ * pasaría o fallaría por el motivo equivocado.
+ */
+const escrito: { design: Record<string, unknown>; parches: Record<string, unknown>[] } = {
+  design: {},
+  parches: [],
+};
+
 vi.mock('../../lib/supabase', () => {
-  const cadena = (tabla: string) => {
-    const resultado = Promise.resolve({ data: DATOS[tabla] ?? [], error: null });
-    const proxy: Record<string, unknown> = new Proxy(resultado, {
-      get(objetivo, prop) {
-        if (prop === 'then' || prop === 'catch' || prop === 'finally') {
-          return (objetivo[prop as 'then'] as (...a: unknown[]) => unknown).bind(objetivo);
-        }
-        return () => proxy;
+  const tabla = (nombre: string) => {
+    const api: Record<string, unknown> = {
+      update: () => api,
+      then: (resolver: (v: unknown) => unknown) => {
+        const fila =
+          nombre === 'quotes'
+            ? { ...(DATOS['quotes'] as object), design: escrito.design }
+            : (DATOS[nombre] ?? []);
+        return Promise.resolve({ data: fila, error: null }).then(resolver);
       },
-    }) as unknown as Record<string, unknown>;
-    return proxy;
+    };
+    for (const metodo of ['select', 'eq', 'order', 'single', 'insert', 'limit']) {
+      api[metodo] = () => api;
+    }
+    return api;
   };
   return {
     isConfigured: true,
     requireSupabase: () => ({
-      from: (tabla: string) => cadena(tabla),
+      from: (nombre: string) => tabla(nombre),
+      // El guardado manda solo lo que cambió y la base lo funde; el remedo
+      // hace lo mismo para que la prueba valga de algo.
+      rpc: (_nombre: string, args: { p_patch: Record<string, unknown> }) => {
+        escrito.parches.push(args.p_patch);
+        escrito.design = { ...escrito.design, ...args.p_patch };
+        return Promise.resolve({ data: escrito.design, error: null });
+      },
       storage: {
         from: () => ({ getPublicUrl: (r: string) => ({ data: { publicUrl: `/x/${r}` } }) }),
       },
@@ -148,7 +170,11 @@ async function montar() {
   await screen.findByRole('heading', { name: 'NL-COT-2026-0007', level: 1 });
 }
 
-afterEach(cleanup);
+afterEach(() => {
+  cleanup();
+  escrito.design = {};
+  escrito.parches = [];
+});
 
 describe('la pantalla de la propuesta', () => {
   it('se monta con una cotización de verdad en vez de quedarse en blanco', async () => {
@@ -174,9 +200,54 @@ describe('la pantalla de la propuesta', () => {
     expect(texto).not.toContain('quote_line_costs');
   });
 
-  it('deja elegir la variante de portada y la tipografía', async () => {
+  it('cambia de verdad la portada al elegir otra variante', async () => {
+    const usuario = userEvent.setup();
     await montar();
-    expect(screen.getByRole('button', { name: 'Partida en dos' })).toBeTruthy();
-    expect(screen.getByRole('button', { name: 'Bebas Neue · Lato' })).toBeTruthy();
+    expect(document.querySelector('.portada-completa')).toBeTruthy();
+
+    await usuario.click(screen.getByRole('button', { name: 'Partida en dos' }));
+
+    await waitFor(() => expect(document.querySelector('.portada-dividida')).toBeTruthy());
+    expect(document.querySelector('.portada-completa')).toBeNull();
+  });
+
+  it('cambia de verdad la tipografía al elegir otra pareja', async () => {
+    const usuario = userEvent.setup();
+    await montar();
+
+    await usuario.click(screen.getByRole('button', { name: 'Playfair · Lato' }));
+
+    await waitFor(() => {
+      const lienzo = document.querySelector('.lienzo') as HTMLElement | null;
+      expect(lienzo?.style.getPropertyValue('--titulo')).toContain('Playfair');
+    });
+  });
+
+  it('manda solo el campo que cambió, no el diseño entero', async () => {
+    // El fallo de producción venía de reescribir el objeto completo desde una
+    // copia vieja: lo viejo pisaba lo recién guardado. Mandando solo el campo
+    // tocado, eso no puede volver a pasar venga de donde venga cada cambio.
+    const usuario = userEvent.setup();
+    await montar();
+
+    await usuario.click(screen.getByRole('button', { name: 'Partida en dos' }));
+
+    await waitFor(() => expect(escrito.parches).toHaveLength(1));
+    expect(escrito.parches[0]).toEqual({ portada: 'dividida' });
+  });
+
+  it('no pierde un ajuste anterior al hacer el siguiente', async () => {
+    // El fallo que vio Marcelo: cada cambio parte del diseño que tenga a mano,
+    // y si ese está viejo deshace lo que se acabó de guardar.
+    const usuario = userEvent.setup();
+    await montar();
+
+    await usuario.click(screen.getByRole('button', { name: 'Foto arriba' }));
+    await usuario.click(screen.getByRole('button', { name: 'Inter · Inter' }));
+
+    await waitFor(() => {
+      expect(escrito.design['portada']).toBe('banda');
+      expect(escrito.design['tipografia']).toBe('suiza');
+    });
   });
 });

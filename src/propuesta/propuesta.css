@@ -39,6 +39,29 @@
   line-height: 1.45;
 }
 
+/*
+ * El fondo oscuro no es un filtro: cambia la tinta, los grises y los filetes,
+ * porque un texto negro sobre negro no se lee por mucho que el fondo sea
+ * bonito.
+ */
+.propuesta[data-tema='oscuro'] {
+  --tinta: #f4f2ee;
+  --apagado: #9c9ca6;
+  --filete: #343440;
+}
+
+.propuesta[data-tema='oscuro'] .lamina {
+  background: #0e0e13;
+}
+
+.propuesta[data-tema='oscuro'] .portada-banda .contenido,
+.propuesta[data-tema='oscuro'] .indice .cuerpo,
+.propuesta[data-tema='oscuro'] .servicio .cuerpo,
+.propuesta[data-tema='oscuro'] .inversion .cuerpo,
+.propuesta[data-tema='oscuro'] .condiciones .cuerpo {
+  color: var(--tinta);
+}
+
 /* ------------------------------------------------------------------ piezas */
 
 .display {
@@ -132,7 +155,7 @@
   margin: 4mm 0 0;
 }
 
-.portada-completa .meta {
+.meta {
   margin-top: 6mm;
   display: flex;
   align-items: baseline;
@@ -141,7 +164,7 @@
   color: rgba(255, 255, 255, 0.86);
 }
 
-.portada-completa .meta strong {
+.meta strong {
   font-size: 13pt;
   font-weight: 700;
   color: #fff;
