@@ -3,7 +3,7 @@ import { Link, useParams } from 'react-router-dom';
 import { useMutation, useQuery } from '@tanstack/react-query';
 import { puedeVerCostos, useOrg, useOrgElegida } from '../../app/org-context';
 import { mensajeDeError } from '../../lib/errors';
-import { formatoTasa } from '../../lib/format';
+import { formatoFecha, formatoTasa } from '../../lib/format';
 import {
   add,
   currencyOf,
@@ -18,6 +18,7 @@ import {
   zero,
 } from '../../lib/money';
 import type { CurrencyCode, Money } from '../../lib/money';
+import { descargarCotizacionPdf } from '../../lib/pdf';
 import { requireSupabase } from '../../lib/supabase';
 import { Constants } from '../../types/database';
 import type { Enums } from '../../types/database';
@@ -30,6 +31,7 @@ import { ESTADOS } from './estados';
 type Linea = {
   id: string;
   description: string;
+  public_detail: string | null;
   quantity: number;
   unit_price: number;
   fee_pct: number | null;
@@ -60,7 +62,7 @@ export default function Cotizacion() {
       const { data, error } = await requireSupabase()
         .from('quotes')
         .select(
-          'id, number, status, currency_code, tax_rate_pct, tax_label, valid_until, notes, legal_entity_id, client_id',
+          'id, number, status, currency_code, tax_rate_pct, tax_included, tax_label, valid_until, notes, legal_entity_id, brand_id, client_id, created_at',
         )
         .eq('id', id)
         .single();
@@ -88,7 +90,7 @@ export default function Cotizacion() {
     queryFn: async (): Promise<Linea[]> => {
       const { data, error } = await requireSupabase()
         .from('quote_lines')
-        .select('id, description, quantity, unit_price, fee_pct, sort')
+        .select('id, description, public_detail, quantity, unit_price, fee_pct, sort')
         .eq('quote_id', id)
         .eq('is_active', true)
         .order('sort');
@@ -123,6 +125,20 @@ export default function Cotizacion() {
         .single();
       if (error) throw error;
       return data;
+    },
+  });
+
+  const marcas = useQuery({
+    queryKey: ['marcas', organizacion.id, null],
+    queryFn: async () => {
+      const { data, error } = await requireSupabase()
+        .from('brands')
+        .select('id, name, accent_color, logo_path, legal_entity_id, is_active')
+        .eq('organization_id', organizacion.id)
+        .eq('is_active', true)
+        .order('name');
+      if (error) throw error;
+      return data ?? [];
     },
   });
 
@@ -218,6 +234,39 @@ export default function Cotizacion() {
     onSuccess: recargar,
   });
 
+  const cambiarImpuesto = useMutation({
+    mutationFn: async (aplica: boolean) => {
+      const { error } = await requireSupabase()
+        .from('quotes')
+        .update({ tax_included: aplica })
+        .eq('id', id);
+      if (error) throw error;
+    },
+    onSuccess: recargar,
+  });
+
+  const cambiarMarca = useMutation({
+    mutationFn: async (marcaId: string | null) => {
+      const { error } = await requireSupabase()
+        .from('quotes')
+        .update({ brand_id: marcaId })
+        .eq('id', id);
+      if (error) throw error;
+    },
+    onSuccess: recargar,
+  });
+
+  const guardarDetalle = useMutation({
+    mutationFn: async ({ lineaId, detalle }: { lineaId: string; detalle: string }) => {
+      const { error } = await requireSupabase()
+        .from('quote_lines')
+        .update({ public_detail: detalle.trim() || null })
+        .eq('id', lineaId);
+      if (error) throw error;
+    },
+    onSuccess: recargar,
+  });
+
   const cambiarEstado = useMutation({
     mutationFn: async (estado: Enums<'quote_status'>) => {
       const { error } = await requireSupabase()
@@ -254,8 +303,10 @@ export default function Cotizacion() {
     );
 
   const neto = sumLines(filas.map(netoDe), moneda);
+  // La casilla manda: sin ella la tasa sigue guardada pero no se aplica.
+  const tasaAplicada = q.tax_included ? String(q.tax_rate_pct) : '0';
   const impuesto = sumLines(
-    filas.map((l) => taxOn(netoDe(l), String(q.tax_rate_pct))),
+    filas.map((l) => taxOn(netoDe(l), tasaAplicada)),
     moneda,
   );
   const total = add(neto, impuesto);
@@ -266,6 +317,55 @@ export default function Cotizacion() {
 
   const entidad = entidades.find((e) => e.id === q.legal_entity_id);
   const fichas = servicios.data ?? [];
+  const marca = (marcas.data ?? []).find((m) => m.id === q.brand_id) ?? null;
+  // Solo las marcas de la entidad que cotiza: una marca pertenece a su
+  // entidad y mezclarlas sería firmar con el nombre equivocado.
+  const marcasDeLaEntidad = (marcas.data ?? []).filter(
+    (m) => m.legal_entity_id === q.legal_entity_id,
+  );
+
+  function urlDelLogo(ruta: string | null): string | null {
+    if (!ruta) return null;
+    return requireSupabase().storage.from('marcas').getPublicUrl(ruta).data.publicUrl;
+  }
+
+  async function descargar() {
+    await descargarCotizacionPdf({
+      numero: q.number,
+      fecha: formatoFecha(q.created_at),
+      validaHasta: q.valid_until ? formatoFecha(q.valid_until) : null,
+      emisor: {
+        nombre: entidad?.legal_name ?? '',
+        taxId: entidad?.tax_id ?? null,
+        direccion: entidad?.address ?? null,
+        telefono: entidad?.phone ?? null,
+        email: entidad?.email ?? null,
+      },
+      marca: marca
+        ? { nombre: marca.name, color: marca.accent_color, logoUrl: urlDelLogo(marca.logo_path) }
+        : null,
+      cliente: { nombre: cliente.data?.name ?? '', taxId: cliente.data?.tax_id ?? null },
+      // Ni un costo cruza esta frontera: el tipo de DatosPdf no los admite.
+      lineas: filas.map((l) => ({
+        descripcion: l.description,
+        detalle: l.public_detail,
+        cantidad: String(l.quantity),
+        precioUnitario: format(fromRow(l.unit_price, moneda)),
+        importe: format(netoDe(l)),
+      })),
+      neto: format(neto),
+      impuesto:
+        q.tax_included && Number(q.tax_rate_pct) > 0
+          ? {
+              etiqueta: `${q.tax_label ?? 'Impuesto'} ${formatoTasa(q.tax_rate_pct)}`,
+              importe: format(impuesto),
+            }
+          : null,
+      total: format(total, { showCode: true }),
+      notas: q.notes,
+      condiciones: entidad?.quote_terms ?? null,
+    });
+  }
 
   function empezarEdicion(l: Linea) {
     setEditando(l.id);
@@ -303,6 +403,44 @@ export default function Cotizacion() {
         </div>
       </header>
 
+      <Tarjeta className="flex flex-wrap items-end justify-between gap-4 p-5">
+        <div className="flex flex-wrap items-end gap-4">
+          <Selector
+            etiqueta="Marca que firma"
+            value={q.brand_id ?? ''}
+            onChange={(e) => cambiarMarca.mutate(e.target.value || null)}
+            ayuda="Da el logo y el color del PDF."
+          >
+            <option value="">Sin marca · sale la razón social</option>
+            {marcasDeLaEntidad.map((m) => (
+              <option key={m.id} value={m.id}>
+                {m.name}
+              </option>
+            ))}
+          </Selector>
+
+          <label className="flex min-h-11 items-center gap-2 text-sm">
+            <input
+              type="checkbox"
+              checked={q.tax_included}
+              disabled={cambiarImpuesto.isPending || Number(q.tax_rate_pct) === 0}
+              onChange={(e) => cambiarImpuesto.mutate(e.target.checked)}
+              className="h-4 w-4"
+            />
+            Aplicar {q.tax_label ?? 'impuesto'}
+            {Number(q.tax_rate_pct) === 0 && (
+              <span className="text-subtle">· esta entidad no tiene impuesto</span>
+            )}
+          </label>
+        </div>
+
+        <Boton variante="primario" onClick={() => void descargar()} disabled={filas.length === 0}>
+          Descargar PDF
+        </Boton>
+      </Tarjeta>
+
+      {cambiarMarca.error && <Aviso tipo="error">{mensajeDeError(cambiarMarca.error)}</Aviso>}
+      {cambiarImpuesto.error && <Aviso tipo="error">{mensajeDeError(cambiarImpuesto.error)}</Aviso>}
       {cambiarEstado.error && <Aviso tipo="error">{mensajeDeError(cambiarEstado.error)}</Aviso>}
       {quitarLinea.error && <Aviso tipo="error">{mensajeDeError(quitarLinea.error)}</Aviso>}
       {recalcular.error && <Aviso tipo="error">{mensajeDeError(recalcular.error)}</Aviso>}
@@ -390,6 +528,20 @@ export default function Cotizacion() {
                   {guardarLinea.error && editando === l.id && (
                     <Aviso tipo="error">{mensajeDeError(guardarLinea.error)}</Aviso>
                   )}
+
+                  {/* Lo que el cliente lee debajo del concepto en el PDF. Es
+                      distinto de la descripción interna a propósito. */}
+                  <div className="mt-2">
+                    <Campo
+                      etiqueta="Qué incluye, para el cliente"
+                      defaultValue={l.public_detail ?? ''}
+                      onBlur={(e) =>
+                        guardarDetalle.mutate({ lineaId: l.id, detalle: e.target.value })
+                      }
+                      maxLength={400}
+                      ayuda="Sale impreso bajo el concepto. En blanco, no sale nada."
+                    />
+                  </div>
 
                   {conCostos && (
                     <>
@@ -583,7 +735,7 @@ export default function Cotizacion() {
             <dt className="text-muted">Neto</dt>
             <dd>{format(neto)}</dd>
           </div>
-          {Number(q.tax_rate_pct) > 0 ? (
+          {q.tax_included && Number(q.tax_rate_pct) > 0 ? (
             <div className="flex justify-between">
               <dt className="text-muted">
                 {q.tax_label ?? 'Impuesto'} {formatoTasa(q.tax_rate_pct)}

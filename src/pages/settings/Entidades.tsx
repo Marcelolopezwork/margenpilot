@@ -7,6 +7,7 @@ import { nombrePais } from '../../lib/format';
 import { requireSupabase } from '../../lib/supabase';
 import { Aviso, Boton, Campo, Cargando, Etiqueta, Selector, Vacio } from '../../components/ui';
 import { Alta, Fila, Lista, Seccion } from '../../components/piezas';
+import EntidadDatosPdf from './EntidadDatosPdf';
 import { useRecargar } from '../../components/recargar';
 
 export default function Entidades() {
@@ -87,6 +88,15 @@ export default function Entidades() {
                 <>
                   {nombrePais(e.country)}
                   {e.tax_id ? ` · ${e.tax_id}` : ''}
+                  <EntidadDatosPdf
+                    entidadId={e.id}
+                    nombre={e.legal_name}
+                    direccion={e.address}
+                    telefono={e.phone}
+                    correo={e.email}
+                    condiciones={e.quote_terms}
+                    alCambiar={recargar}
+                  />
                 </>
               }
               extremo={

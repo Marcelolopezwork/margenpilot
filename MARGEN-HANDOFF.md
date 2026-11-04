@@ -4,7 +4,7 @@
 Dice qué es el proyecto, qué funciona ya y qué falta, para no rehacer lo hecho.
 Se actualiza al final de cada sesión que cambie algo.
 
-Última actualización: **3 de noviembre de 2026**.
+Última actualización: **4 de noviembre de 2026**.
 
 ---
 
@@ -71,6 +71,10 @@ compilado.
 20261103120000 catalogos        servicios, ítems de costo, composición
 20261103130000 cotizaciones     clientes, cotizaciones, líneas, costos
 20261103140000 quitar_lineas    desactivar líneas sin borrarlas
+20261103150000 precio_derivado  precio = costo × (1 + fee/100)
+20261103160000 linea_desde_servicio  copiar una ficha a una línea
+20261104120000 igv_opcional     casilla de IGV y detalle para el cliente
+20261104130000 datos_para_el_pdf  contacto de la entidad y bucket de logos
 ```
 
 ### Pantallas
@@ -79,8 +83,10 @@ compilado.
 - **Inicio** · estado de la puesta en marcha
 - **Configuración** · entidades, marcas, monedas, impuestos, cuentas, categorías
 - **Catálogo** · servicios, ítems de costo, categorías de servicio
-- **Comercial** · clientes, cotizaciones, y el editor con líneas, costos por
-  línea, totales, margen y markup
+- **Comercial** · clientes, cotizaciones, y el editor: líneas desde una ficha
+  de servicio con sus costos y precio derivado del fee, costos por línea
+  agrupados en personal y herramientas, casilla de IGV, marca que firma, y
+  **descarga del PDF**
 - **Finanzas, Pipeline, Análisis** · todavía son marcadores honestos que dicen
   en qué fase llegan
 
@@ -103,14 +109,12 @@ caja (BCP soles en PEN, Mercury en USD), un cliente y una cotización de prueba.
 
 ### Lo siguiente de F2
 
-1. **PDF de la cotización** (F2-12). Es lo que de verdad le llega al cliente y
-   todavía no existe. Debe salir de un *snapshot* inmutable, no del catálogo
-   vivo: una cotización enviada no puede cambiar porque alguien editó un precio.
-2. **Incluye / no incluye** por ficha de servicio (F2-3). La tabla
-   `service_terms` ya existe; falta la interfaz.
-3. **Arrastrar una ficha a una línea** (F2-4 en la cotización): traer su
-   descripción y su composición de costos de golpe.
-4. **Emisión y versiones** (F2-11, F2-13): `quote_versions` inmutable.
+1. **Incluye / no incluye** por ficha de servicio (F2-3). La tabla
+   `service_terms` ya existe; falta la interfaz, y que el PDF los imprima.
+2. **Emisión y versiones** (F2-11, F2-13): `quote_versions` inmutable con su
+   PDF. Hoy el PDF se genera del estado actual; al emitir hay que congelarlo.
+3. **Transiciones de estado con bitácora** (F2-10).
+4. **Cronograma de cobro al aprobar** (F2-15 a F2-17), que es la bisagra con F3.
 
 ### Después
 
@@ -133,8 +137,13 @@ caja (BCP soles en PEN, Mercury en USD), un cliente y una cotización de prueba.
 
 ### Deuda técnica anotada
 
-- El bundle pasó de 500 kB en crudo (≈149 kB comprimidos). Hay que dividir por
-  rutas con `React.lazy` **antes** de que entre F3, no después.
+- El bundle principal va por 538 kB en crudo (≈154 kB comprimidos). jsPDF y
+  sus dependencias ya van en trozos aparte, cargados solo al descargar; falta
+  dividir las rutas con `React.lazy` antes de que entre F3.
+- El PDF se genera en el navegador desde el estado actual de la cotización.
+  F2-12 pide que salga de un snapshot inmutable y con `sha256`: hasta que
+  exista `quote_versions`, reimprimir una cotización vieja puede dar un
+  documento distinto del que se envió.
 - Las transiciones de estado de una cotización no están validadas por trigger
   (F2-10): hoy se puede pasar de `draft` a `approved` saltándose `sent`.
 
@@ -160,6 +169,8 @@ Están en `docs/FINANCIAL_RULES.md`, que es normativo. Lo esencial:
    `quote_line_costs` (ADR-34).
 7. **Se redondea al cerrar cada línea**, y el total es la suma de líneas ya
    redondeadas. El impuesto va sobre el neto ya redondeado.
+8. **El PDF no imprime costos.** `DatosPdf` ni siquiera tiene dónde meterlos:
+   la garantía es estructural, no un `if` que alguien pueda quitar.
 
 ---
 

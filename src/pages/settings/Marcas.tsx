@@ -5,6 +5,7 @@ import { mensajeDeError } from '../../lib/errors';
 import { requireSupabase } from '../../lib/supabase';
 import { Aviso, Boton, Campo, Cargando, Etiqueta, Selector, Vacio } from '../../components/ui';
 import { Alta, Fila, Lista, Seccion } from '../../components/piezas';
+import MarcaFormato from './MarcaFormato';
 import { useRecargar } from '../../components/recargar';
 
 export default function Marcas() {
@@ -21,7 +22,7 @@ export default function Marcas() {
     queryFn: async () => {
       let q = requireSupabase()
         .from('brands')
-        .select('id, name, is_active, legal_entity_id')
+        .select('id, name, is_active, legal_entity_id, accent_color, logo_path')
         .eq('organization_id', organizacion.id)
         .order('name');
       if (entidad) q = q.eq('legal_entity_id', entidad.id);
@@ -99,7 +100,19 @@ export default function Marcas() {
                   {!m.is_active && <Etiqueta tono="atencion">Archivada</Etiqueta>}
                 </>
               }
-              secundario={nombreEntidad(m.legal_entity_id)}
+              secundario={
+                <>
+                  {nombreEntidad(m.legal_entity_id)}
+                  <MarcaFormato
+                    marcaId={m.id}
+                    organizacionId={organizacion.id}
+                    nombre={m.name}
+                    color={m.accent_color}
+                    logoPath={m.logo_path}
+                    alCambiar={recargar}
+                  />
+                </>
+              }
               extremo={
                 <Boton
                   variante="sutil"

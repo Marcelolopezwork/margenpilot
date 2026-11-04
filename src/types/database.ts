@@ -402,38 +402,50 @@ export type Database = {
       }
       legal_entities: {
         Row: {
+          address: string | null
           archived_reason: string | null
           country: string
           created_at: string
           default_currency_code: string
+          email: string | null
           id: string
           is_active: boolean
           legal_name: string
           organization_id: string
+          phone: string | null
+          quote_terms: string | null
           tax_id: string | null
           updated_at: string
         }
         Insert: {
+          address?: string | null
           archived_reason?: string | null
           country: string
           created_at?: string
           default_currency_code: string
+          email?: string | null
           id?: string
           is_active?: boolean
           legal_name: string
           organization_id: string
+          phone?: string | null
+          quote_terms?: string | null
           tax_id?: string | null
           updated_at?: string
         }
         Update: {
+          address?: string | null
           archived_reason?: string | null
           country?: string
           created_at?: string
           default_currency_code?: string
+          email?: string | null
           id?: string
           is_active?: boolean
           legal_name?: string
           organization_id?: string
+          phone?: string | null
+          quote_terms?: string | null
           tax_id?: string | null
           updated_at?: string
         }
@@ -691,6 +703,7 @@ export type Database = {
           id: string
           is_active: boolean
           organization_id: string
+          public_detail: string | null
           quantity: number
           quote_id: string
           service_id: string | null
@@ -704,6 +717,7 @@ export type Database = {
           id?: string
           is_active?: boolean
           organization_id: string
+          public_detail?: string | null
           quantity: number
           quote_id: string
           service_id?: string | null
@@ -717,6 +731,7 @@ export type Database = {
           id?: string
           is_active?: boolean
           organization_id?: string
+          public_detail?: string | null
           quantity?: number
           quote_id?: string
           service_id?: string | null
@@ -737,6 +752,7 @@ export type Database = {
           number: string
           organization_id: string
           status: Database["public"]["Enums"]["quote_status"]
+          tax_included: boolean
           tax_label: string | null
           tax_rate_pct: number
           updated_at: string
@@ -753,6 +769,7 @@ export type Database = {
           number: string
           organization_id: string
           status?: Database["public"]["Enums"]["quote_status"]
+          tax_included?: boolean
           tax_label?: string | null
           tax_rate_pct?: number
           updated_at?: string
@@ -769,6 +786,7 @@ export type Database = {
           number?: string
           organization_id?: string
           status?: Database["public"]["Enums"]["quote_status"]
+          tax_included?: boolean
           tax_label?: string | null
           tax_rate_pct?: number
           updated_at?: string

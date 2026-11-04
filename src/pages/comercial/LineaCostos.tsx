@@ -7,6 +7,13 @@ import { multiplyByQuantity } from '../../lib/money';
 import { requireSupabase } from '../../lib/supabase';
 import { Aviso, Boton, Campo, Selector } from '../../components/ui';
 
+const GRUPOS = [
+  { clave: 'role' as const, titulo: 'Personal' },
+  { clave: 'tool' as const, titulo: 'Herramientas y suscripciones' },
+  { clave: 'external' as const, titulo: 'Externos' },
+  { clave: 'other' as const, titulo: 'Otros' },
+];
+
 export type Costo = {
   id: string;
   quote_line_id: string;
@@ -49,7 +56,7 @@ export default function LineaCostos({
     queryFn: async () => {
       const { data, error } = await requireSupabase()
         .from('cost_items')
-        .select('id, name, unit, unit_cost, currency_code, is_active')
+        .select('id, name, kind, unit, unit_cost, currency_code, is_active')
         .eq('organization_id', organizacionId)
         .eq('is_active', true)
         .order('name');
@@ -57,6 +64,14 @@ export default function LineaCostos({
       return data ?? [];
     },
   });
+
+  // Agrupados como en el cotizador de siempre: personal por un lado,
+  // herramientas por otro. Con veinte ítems en una lista plana no se
+  // encuentra nada.
+  const porGrupo = GRUPOS.map((g) => ({
+    ...g,
+    items: (catalogo.data ?? []).filter((c) => c.kind === g.clave),
+  })).filter((g) => g.items.length > 0);
 
   // Elegir un ítem rellena los campos, y a partir de ahí se pueden tocar:
   // esta cotización puede tener un precio distinto al del catálogo.
@@ -154,10 +169,14 @@ export default function LineaCostos({
           ayuda="Rellena los campos con su costo de hoy. Después puedes cambiarlos: lo que se guarda es lo de esta cotización."
         >
           <option value="">Escribirlo a mano</option>
-          {(catalogo.data ?? []).map((c) => (
-            <option key={c.id} value={c.id}>
-              {c.name} · {c.unit_cost} {c.currency_code}/{c.unit}
-            </option>
+          {porGrupo.map((g) => (
+            <optgroup key={g.clave} label={g.titulo}>
+              {g.items.map((c) => (
+                <option key={c.id} value={c.id}>
+                  {c.name} · {c.unit_cost} {c.currency_code}/{c.unit}
+                </option>
+              ))}
+            </optgroup>
           ))}
         </Selector>
 

@@ -28,6 +28,10 @@ const entidad = (id: string, legal_name: string): Entidad => ({
   is_active: true,
   tax_id: null,
   archived_reason: null,
+  address: null,
+  phone: null,
+  email: null,
+  quote_terms: null,
   created_at: '2026-01-01T00:00:00Z',
   updated_at: '2026-01-01T00:00:00Z',
 });
