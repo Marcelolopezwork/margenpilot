@@ -385,4 +385,49 @@ end $$;
 
 reset role;
 
-select 'TODAS LAS PRUEBAS DE F1 Y F2 PASARON · 37 aserciones' as resultado;
+-- ---------------------------------------------------------------------------
+-- F2-10 y F2-11 · El estado se mueve por la puerta, y lo emitido no se toca
+-- ---------------------------------------------------------------------------
+--
+-- Estas no son pruebas de interfaz: comprueban que la base no acepta lo que la
+-- pantalla no ofrece. Si alguien añadiera mañana un `update` directo del
+-- estado, o un grant de más sobre las versiones, aquí se cae.
+
+do $$
+begin
+  perform assert_true(
+    not has_column_privilege('authenticated', 'quotes', 'status', 'update'),
+    'authenticated no puede escribir quotes.status: el estado se mueve con las funciones');
+
+  perform assert_true(
+    has_column_privilege('authenticated', 'quotes', 'design', 'update'),
+    'authenticated sí puede guardar el diseño de la propuesta');
+
+  perform assert_true(
+    not has_table_privilege('authenticated', 'quote_versions', 'insert')
+    and not has_table_privilege('authenticated', 'quote_versions', 'update'),
+    'una versión emitida no se inventa ni se reescribe desde el cliente');
+
+  perform assert_true(
+    not has_table_privilege('authenticated', 'quote_events', 'insert'),
+    'la bitácora la escribe el disparador, no la aplicación');
+
+  perform assert_true(
+    has_table_privilege('authenticated', 'quote_versions', 'select')
+    and has_table_privilege('authenticated', 'quote_events', 'select'),
+    'lo emitido y la bitácora se leen');
+
+  -- La máquina de estados, en los cuatro casos que importan.
+  perform assert_true(app.transicion_de_cotizacion('draft', 'sent'),
+    'un borrador se puede emitir');
+  perform assert_true(not app.transicion_de_cotizacion('draft', 'approved'),
+    'un borrador no puede aprobarse sin haber salido nunca');
+  perform assert_true(app.transicion_de_cotizacion('approved', 'void'),
+    'una aprobada solo se puede anular');
+  perform assert_true(not app.transicion_de_cotizacion('approved', 'negotiation'),
+    'lo que el cliente aceptó no vuelve a negociación');
+  perform assert_true(not app.transicion_de_cotizacion('void', 'sent'),
+    'anulada es terminal');
+end $$;
+
+select 'TODAS LAS PRUEBAS DE F1 Y F2 PASARON · 45 aserciones' as resultado;

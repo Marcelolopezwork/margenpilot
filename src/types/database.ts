@@ -700,6 +700,42 @@ export type Database = {
         }
         Relationships: []
       }
+      quote_events: {
+        Row: {
+          action: string
+          actor_id: string | null
+          at: string
+          from_status: Database["public"]["Enums"]["quote_status"] | null
+          id: number
+          note: string | null
+          organization_id: string
+          quote_id: string
+          to_status: Database["public"]["Enums"]["quote_status"] | null
+        }
+        Insert: {
+          action: string
+          actor_id?: string | null
+          at?: string
+          from_status?: Database["public"]["Enums"]["quote_status"] | null
+          id?: number
+          note?: string | null
+          organization_id: string
+          quote_id: string
+          to_status?: Database["public"]["Enums"]["quote_status"] | null
+        }
+        Update: {
+          action?: string
+          actor_id?: string | null
+          at?: string
+          from_status?: Database["public"]["Enums"]["quote_status"] | null
+          id?: number
+          note?: string | null
+          organization_id?: string
+          quote_id?: string
+          to_status?: Database["public"]["Enums"]["quote_status"] | null
+        }
+        Relationships: []
+      }
       quote_line_costs: {
         Row: {
           cost_item_id: string | null
@@ -832,6 +868,69 @@ export type Database = {
           service_id?: string | null
           sort?: number
           unit_price?: number
+        }
+        Relationships: []
+      }
+      quote_version_costs: {
+        Row: {
+          cost: number
+          margin_pct: number | null
+          markup_pct: number | null
+          organization_id: string
+          profit: number
+          quote_version_id: string
+        }
+        Insert: {
+          cost: number
+          margin_pct?: number | null
+          markup_pct?: number | null
+          organization_id: string
+          profit: number
+          quote_version_id: string
+        }
+        Update: {
+          cost?: number
+          margin_pct?: number | null
+          markup_pct?: number | null
+          organization_id?: string
+          profit?: number
+          quote_version_id?: string
+        }
+        Relationships: []
+      }
+      quote_versions: {
+        Row: {
+          id: string
+          issued_at: string
+          issued_by: string | null
+          organization_id: string
+          quote_id: string
+          snapshot: Json
+          snapshot_sha256: string
+          totals: Json
+          version_no: number
+        }
+        Insert: {
+          id?: string
+          issued_at?: string
+          issued_by?: string | null
+          organization_id: string
+          quote_id: string
+          snapshot: Json
+          snapshot_sha256: string
+          totals: Json
+          version_no: number
+        }
+        Update: {
+          id?: string
+          issued_at?: string
+          issued_by?: string | null
+          organization_id?: string
+          quote_id?: string
+          snapshot?: Json
+          snapshot_sha256?: string
+          totals?: Json
+          version_no?: number
         }
         Relationships: []
       }
@@ -1252,6 +1351,18 @@ export type Database = {
         Args: { p_patch: Json; p_quote: string }
         Returns: Json
       }
+      cambiar_estado_cotizacion: {
+        Args: {
+          p_note?: string
+          p_quote: string
+          p_to: Database["public"]["Enums"]["quote_status"]
+        }
+        Returns: Database["public"]["Enums"]["quote_status"]
+      }
+      emitir_cotizacion: {
+        Args: { p_note?: string; p_quote: string }
+        Returns: { snapshot_sha256: string; version_no: number }[]
+      }
     }
     Enums: {
       account_kind: "bank" | "cash" | "wallet" | "card"
@@ -1263,6 +1374,7 @@ export type Database = {
       quote_status:
         | "draft"
         | "sent"
+        | "negotiation"
         | "approved"
         | "rejected"
         | "expired"
@@ -1402,7 +1514,15 @@ export const Constants = {
       fx_rate_kind: ["closing", "official", "manual"],
       membership_role: ["owner", "admin", "finance", "commercial", "viewer"],
       membership_status: ["invited", "active", "suspended"],
-      quote_status: ["draft", "sent", "approved", "rejected", "expired", "void"],
+      quote_status: [
+        "draft",
+        "sent",
+        "negotiation",
+        "approved",
+        "rejected",
+        "expired",
+        "void",
+      ],
       service_kind: ["one_off", "recurring", "retainer"],
       term_kind: ["include", "exclude", "condition", "note"],
     },

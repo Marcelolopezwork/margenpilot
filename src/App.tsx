@@ -17,6 +17,7 @@ import Comercial from './pages/comercial/Comercial';
 import Cotizacion from './pages/comercial/Cotizacion';
 import Cotizaciones from './pages/comercial/Cotizaciones';
 import Propuesta from './pages/comercial/Propuesta';
+import PropuestaEmitida from './pages/comercial/PropuestaEmitida';
 import CategoriasServicio from './pages/catalogo/CategoriasServicio';
 import Costos from './pages/catalogo/Costos';
 import Servicios from './pages/catalogo/Servicios';
@@ -130,6 +131,10 @@ function ConOrganizacion() {
         imprime tal cual, sin menú lateral ni cabecera que estorben en el PDF.
       */}
       <Route path="comercial/cotizaciones/:id/propuesta" element={<Propuesta />} />
+      <Route
+        path="comercial/cotizaciones/:id/propuesta/v/:version"
+        element={<PropuestaEmitida />}
+      />
       {/* Con sesión, /entrar no tiene sentido. */}
       <Route path="/entrar" element={<Navigate to="/" replace />} />
       <Route path="*" element={<Navigate to="/" replace />} />

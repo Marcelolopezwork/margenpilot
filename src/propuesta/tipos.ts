@@ -46,6 +46,14 @@ export type DatosPropuesta = {
   condiciones: string[];
 };
 
+/**
+ * El color de serie cuando ni el diseño ni la marca dicen otra cosa. Son los
+ * de la propuesta que Marcelo ya usaba. Viven aquí porque los necesitan las
+ * dos pantallas que dibujan láminas: el constructor y la versión emitida.
+ */
+export const PRIMARIO_DE_SERIE = '#012dff';
+export const SECUNDARIO_DE_SERIE = '#fd3659';
+
 export const PORTADAS = ['completa', 'dividida', 'banda'] as const;
 export type Portada = (typeof PORTADAS)[number];
 

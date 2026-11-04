@@ -19,13 +19,12 @@ import type { CurrencyCode, Money } from '../../lib/money';
 import { descargarCotizacionPdf } from '../../lib/pdf';
 import type { DatosPdf } from '../../lib/pdf';
 import { requireSupabase } from '../../lib/supabase';
-import { Constants } from '../../types/database';
-import type { Enums } from '../../types/database';
 import { Aviso, Boton, Campo, Cargando, Etiqueta, Selector, Tarjeta } from '../../components/ui';
 import { useRecargar } from '../../components/recargar';
 import LineaCostos from './LineaCostos';
 import type { Costo } from './LineaCostos';
-import { ESTADOS } from './estados';
+import Emision from './Emision';
+import { ESTADOS, TONOS } from './estados';
 import { netoDeLinea, notaDeImpuesto, totalesDe } from './totales';
 
 type Linea = {
@@ -281,17 +280,6 @@ export default function Cotizacion() {
     onSuccess: recargar,
   });
 
-  const cambiarEstado = useMutation({
-    mutationFn: async (estado: Enums<'quote_status'>) => {
-      const { error } = await requireSupabase()
-        .from('quotes')
-        .update({ status: estado })
-        .eq('id', id);
-      if (error) throw error;
-    },
-    onSuccess: recargar,
-  });
-
   if (cabecera.isPending) return <Cargando que="la cotización" />;
   if (cabecera.error) return <Aviso tipo="error">{mensajeDeError(cabecera.error)}</Aviso>;
 
@@ -415,22 +403,7 @@ export default function Cotizacion() {
             {cliente.data?.name ?? '…'} · {entidad?.legal_name ?? '…'} · {q.currency_code}
           </p>
         </div>
-        <div className="flex items-center gap-2">
-          <Etiqueta tono={q.status === 'approved' ? 'positivo' : 'neutro'}>
-            {ESTADOS[q.status]}
-          </Etiqueta>
-          <Selector
-            etiqueta="Estado"
-            value={q.status}
-            onChange={(e) => cambiarEstado.mutate(e.target.value as Enums<'quote_status'>)}
-          >
-            {Constants.public.Enums.quote_status.map((s) => (
-              <option key={s} value={s}>
-                {ESTADOS[s]}
-              </option>
-            ))}
-          </Selector>
-        </div>
+        <Etiqueta tono={TONOS[q.status]}>{ESTADOS[q.status]}</Etiqueta>
       </header>
 
       <Tarjeta className="flex flex-wrap items-end justify-between gap-4 p-5">
@@ -490,9 +463,15 @@ export default function Cotizacion() {
         </div>
       </Tarjeta>
 
+      <Emision
+        cotizacion={id}
+        estado={q.status}
+        conCostos={conCostos}
+        hayLineas={filas.length > 0}
+      />
+
       {cambiarMarca.error && <Aviso tipo="error">{mensajeDeError(cambiarMarca.error)}</Aviso>}
       {cambiarImpuesto.error && <Aviso tipo="error">{mensajeDeError(cambiarImpuesto.error)}</Aviso>}
-      {cambiarEstado.error && <Aviso tipo="error">{mensajeDeError(cambiarEstado.error)}</Aviso>}
       {quitarLinea.error && <Aviso tipo="error">{mensajeDeError(quitarLinea.error)}</Aviso>}
       {recalcular.error && <Aviso tipo="error">{mensajeDeError(recalcular.error)}</Aviso>}
       {cambiarFee.error && <Aviso tipo="error">{mensajeDeError(cambiarFee.error)}</Aviso>}

@@ -59,7 +59,7 @@ que la clave sea secreta.
 Todo esto está **en producción y verificado contra la base real**, no solo
 compilado.
 
-### Base de datos · veinticuatro migraciones aplicadas
+### Base de datos · veintisiete migraciones aplicadas
 
 ```
 20261028120000 foundations      esquema, tablas, disparadores, auditoría
@@ -86,6 +86,9 @@ compilado.
 20261104220000 segundo_color   el color de acento de la marca
 20261105120000 propuesta_a_medida  biblioteca de fotos y diseño por cotización
 20261105130000 disenio_sin_pisarse  el diseño se parchea; foto por ficha
+20261105140000 estado_en_negociacion  el estado que faltaba en la máquina
+20261105150000 estados_con_bitacora   transiciones válidas; `status` deja de ser escribible
+20261105160000 emision_inmutable      emitir congela el documento en una versión
 ```
 
 ### Pantallas
@@ -101,6 +104,12 @@ compilado.
   de portada, la pareja tipográfica, los colores y una foto por lámina, y se
   imprime a PDF desde el navegador) y **el documento A4** sobrio, que se
   descarga de una
+- **Emisión** · dentro del editor: emitir congela la cotización en una versión
+  inmutable con su huella, reemitir crea la siguiente sin tocar la anterior, el
+  estado solo se mueve por transiciones que la base acepta, anular exige
+  motivo, y cada hecho queda en la bitácora. Cada versión emitida se puede
+  reimprimir —A4 y propuesta en láminas— **desde su copia**, no desde la
+  cotización de hoy
 - **Finanzas, Pipeline, Análisis** · todavía son marcadores honestos que dicen
   en qué fase llegan
 
@@ -112,8 +121,10 @@ caja (BCP soles en PEN, Mercury en USD), un cliente y una cotización de prueba.
 
 ### Verificación
 
-- **78 pruebas** de Vitest: dinero, errores, formato, armazón, altas, el A4 y la propuesta
-- **37 aserciones** SQL en `supabase/tests/invariants.sql`
+- **101 pruebas** de Vitest: dinero, errores, formato, armazón, altas, el A4,
+  la propuesta, la aritmética de la cotización, el panel de emisión y la
+  reimpresión de una versión emitida
+- **45 aserciones** SQL en `supabase/tests/invariants.sql`
 - CI en GitHub Actions: tipos, lint, pruebas, build, y las migraciones
   reaplicadas desde cero en cada push
 
@@ -123,10 +134,18 @@ caja (BCP soles en PEN, Mercury en USD), un cliente y una cotización de prueba.
 
 ### Lo siguiente de F2
 
-1. **Emisión y versiones** (F2-11, F2-13): `quote_versions` inmutable con su
-   PDF. Hoy el PDF se genera del estado actual; al emitir hay que congelarlo.
-2. **Transiciones de estado con bitácora** (F2-10).
-3. **Cronograma de cobro al aprobar** (F2-15 a F2-17), que es la bisagra con F3.
+Hechos en la sesión del 4/11: F2-10 (estados con bitácora), F2-11 (versiones
+inmutables), F2-13 (reemisión) y F2-14 (anulación con motivo).
+
+1. **Listado con margen agregado** (F2-17). Ojo: el margen de un grupo es
+   Σutilidad / Σneto, **nunca** el promedio de porcentajes. Los sumandos están
+   en `quote_versions.totals` y `quote_version_costs`.
+2. **Cronograma de cobro al aprobar** (F2-15 a F2-17), que es la bisagra con F3.
+   Falta el wireframe del paso del medio (H-2 del backlog).
+3. **PDF en el servidor con su propia huella** (F2-12). Hoy la reproducibilidad
+   la da `snapshot_sha256`: el documento sale de la copia, pero lo dibuja el
+   navegador. Un servicio que imprima con Chrome headless lo cerraría, y no
+   toca hasta que haya envío por correo.
 
 ### Después
 
@@ -152,12 +171,15 @@ caja (BCP soles en PEN, Mercury en USD), un cliente y una cotización de prueba.
 - El bundle principal va por 575 kB en crudo (≈164 kB comprimidos). jsPDF y
   sus dependencias ya van en trozos aparte, cargados solo al descargar; falta
   dividir las rutas con `React.lazy` antes de que entre F3.
-- El PDF se genera en el navegador desde el estado actual de la cotización.
-  F2-12 pide que salga de un snapshot inmutable y con `sha256`: hasta que
-  exista `quote_versions`, reimprimir una cotización vieja puede dar un
-  documento distinto del que se envió.
-- Las transiciones de estado de una cotización no están validadas por trigger
-  (F2-10): hoy se puede pasar de `draft` a `approved` saltándose `sent`.
+- La aritmética de la cotización está escrita dos veces: en
+  `src/pages/comercial/totales.ts` y dentro de `emitir_cotizacion`. Tiene que
+  ser así —una la usa la pantalla y la otra la base al congelar— y lo que las
+  mantiene iguales es `totales.test.ts`, con las cifras comprobadas contra el
+  proyecto real. Si alguna vez discrepan, el cliente vería las dos.
+- El panel de emisión repite la máquina de estados en `estados.ts` para no
+  ofrecer un botón que vaya a fallar. La que manda es
+  `app.transicion_de_cotizacion`; si se separan, la base rechaza y la pantalla
+  muestra el motivo, nunca al contrario.
 - La propuesta carga sus tipografías de Google Fonts. Sin red salen las del
   sistema, que es feo pero no roto. Si alguna vez molesta, se sirven los
   `.woff2` desde el propio dominio.
@@ -236,13 +258,24 @@ Cada una costó tiempo. Están aquí para no repetirlas.
 4. **Nunca dos paquetes con el mismo nombre.** Se mandaron dos
    `margen-pilot-web.zip` distintos y se subió el viejo. El nombre del zip
    lleva el hash del bundle por esto.
-5. **La suite de invariantes acumula estado.** Una prueba habilitaba USD en
+5. **Lo que la pantalla no ofrece, la base lo tiene que negar.** El estado de
+   una cotización era un desplegable con los siete valores, y se podía aprobar
+   un borrador que no había salido nunca. No se arregló quitando opciones del
+   desplegable: se le revocó a `authenticated` el permiso de escribir la
+   columna `status` y se dejaron dos funciones como única puerta. Las columnas
+   editables ahora están enumeradas en el grant, así que una columna nueva no
+   es escribible hasta que alguien la añada: falla en voz alta al desarrollar
+   en vez de abrir un portillo en silencio.
+6. **`alter type ... add value` no se puede usar en su propia transacción.**
+   Añadir `negotiation` al enum y estrenarlo en la misma migración falla. Va
+   sola en su archivo, y la máquina que lo usa en el siguiente.
+7. **La suite de invariantes acumula estado.** Una prueba habilitaba USD en
    una organización y otra posterior daba por hecho que no lo estaba. Toda
    aserción nueva debe declarar su precondición como aserción propia.
-6. **Una decisión técnica elegante que deja al usuario sin poder entrar es una
+8. **Una decisión técnica elegante que deja al usuario sin poder entrar es una
    mala decisión.** El acceso solo por enlace de correo lo dejó cinco días
    fuera de su propia aplicación (ADR-32).
-7. **Construir cimientos en orden perfecto no es avance si el usuario no ve
+9. **Construir cimientos en orden perfecto no es avance si el usuario no ve
    nada.** Conviene intercalar algo usable en cada tramo.
 
 ---

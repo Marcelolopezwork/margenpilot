@@ -13,6 +13,8 @@ import {
   DISEÑO_POR_DEFECTO,
   PAREJAS,
   PORTADAS,
+  PRIMARIO_DE_SERIE,
+  SECUNDARIO_DE_SERIE,
   TEMAS,
   TIPOGRAFIAS,
   leerDiseño,
@@ -27,10 +29,6 @@ const NOMBRE_PORTADA: Record<(typeof PORTADAS)[number], string> = {
   dividida: 'Partida en dos',
   banda: 'Foto arriba',
 };
-
-/** El color de serie cuando ni el diseño ni la marca dicen otra cosa. */
-const PRIMARIO = '#012dff';
-const SECUNDARIO = '#fd3659';
 
 export default function Propuesta() {
   const { id = '' } = useParams();
@@ -438,12 +436,12 @@ export default function Propuesta() {
           <div className="flex items-center gap-3">
             <Color
               etiqueta="Principal"
-              valor={diseño.colorPrimario ?? marca?.accent_color ?? PRIMARIO}
+              valor={diseño.colorPrimario ?? marca?.accent_color ?? PRIMARIO_DE_SERIE}
               onChange={(v) => cambiar({ colorPrimario: v })}
             />
             <Color
               etiqueta="Acento"
-              valor={diseño.colorSecundario ?? marca?.accent_secondary ?? SECUNDARIO}
+              valor={diseño.colorSecundario ?? marca?.accent_secondary ?? SECUNDARIO_DE_SERIE}
               onChange={(v) => cambiar({ colorSecundario: v })}
             />
           </div>
@@ -557,8 +555,8 @@ export default function Propuesta() {
             datos={datos}
             diseño={conFotos}
             urlDe={urlDe}
-            colorPrimario={diseño.colorPrimario ?? marca?.accent_color ?? PRIMARIO}
-            colorSecundario={diseño.colorSecundario ?? marca?.accent_secondary ?? SECUNDARIO}
+            colorPrimario={diseño.colorPrimario ?? marca?.accent_color ?? PRIMARIO_DE_SERIE}
+            colorSecundario={diseño.colorSecundario ?? marca?.accent_secondary ?? SECUNDARIO_DE_SERIE}
           />
         )}
       </div>
