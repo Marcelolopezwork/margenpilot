@@ -1,67 +1,35 @@
 /**
- * La cotización que ve el cliente.
+ * La cotización en documento A4: la versión sobria.
  *
- * Dos reglas gobiernan este archivo:
- *
- * 1. **Aquí no se calcula nada.** Todo llega ya formateado desde `money.ts`.
- *    Si este módulo sumara, habría dos aritméticas en el producto y tarde o
- *    temprano una diría algo distinto de la otra.
- * 2. **El costo no sale.** El cliente ve qué contrata y cuánto paga. Que
- *    detrás haya tres horas de diseñador o una licencia de stock es asunto
- *    nuestro. Por eso `DatosPdf` no tiene dónde meter un costo: la garantía
- *    es estructural, no un `if` que alguien pueda quitar.
+ * Es la que sirve para archivar, para adjuntar a una factura o para el
+ * cliente que pide «la cotización» y no una presentación. La que Marcelo
+ * manda a vender vive en `propuesta.ts` y se dibuja en láminas; las dos
+ * comen exactamente los mismos datos.
  *
  * Cada servicio se imprime como un bloque con su descripción y su lista de
  * entregables, no como una fila de tabla. Una fila que dice «Aplicación a
  * medida · S/ 61,750» hace sentir al cliente que paga mucho por poco.
  *
+ * Las reglas que no se pueden saltar —ni un costo impreso, ni una suma hecha
+ * aquí— están explicadas en `pdf-piezas.ts`, que es de donde salen los datos.
+ *
  * jsPDF se carga solo al pulsar «Descargar». Pesa más que toda la aplicación
  * y no tiene sentido que viaje en cada visita.
  */
 
-export type LineaPdf = {
-  descripcion: string;
-  /** La descripción del servicio, copiada de la ficha al cotizar. */
-  resumen: string | null;
-  /** Nota puntual de esta línea, si la hay. */
-  detalle: string | null;
-  incluye: string[];
-  noIncluye: string[];
-  cantidad: string;
-  precioUnitario: string;
-  importe: string;
-};
+import {
+  GRIS,
+  PRIMARIO,
+  SUAVE,
+  TINTA,
+  aRgb,
+  cargarImagen,
+  condicionesDe,
+  nombreDelArchivo as nombrarArchivo,
+} from './pdf-piezas';
+import type { DatosPdf, LineaPdf } from './pdf-piezas';
 
-export type DatosPdf = {
-  numero: string;
-  fecha: string;
-  validaHasta: string | null;
-  emisor: {
-    nombre: string;
-    taxId: string | null;
-    direccion: string | null;
-    telefono: string | null;
-    email: string | null;
-  };
-  marca: {
-    nombre: string;
-    color: string | null;
-    logoUrl: string | null;
-    portadaUrl: string | null;
-  } | null;
-  cliente: { nombre: string; taxId: string | null };
-  lineas: LineaPdf[];
-  neto: string;
-  /** Null cuando la cotización no aplica impuesto. */
-  impuesto: { etiqueta: string; importe: string } | null;
-  total: string;
-  notas: string | null;
-  condiciones: string | null;
-};
-
-const TINTA: [number, number, number] = [28, 26, 23];
-const GRIS: [number, number, number] = [110, 110, 110];
-const SUAVE: [number, number, number] = [245, 243, 239];
+export type { DatosPdf, LineaPdf };
 
 const IZQ = 16;
 const DER = 194;
@@ -70,54 +38,10 @@ const ANCHO = DER - IZQ;
 // página va en 289, así que 283 deja justo el aire necesario.
 const PIE = 283;
 
-function aRgb(hex: string | null): [number, number, number] {
-  const limpio = (hex ?? '').trim().replace('#', '');
-  if (!/^[0-9a-fA-F]{6}$/.test(limpio)) return [42, 75, 141];
-  return [
-    parseInt(limpio.slice(0, 2), 16),
-    parseInt(limpio.slice(2, 4), 16),
-    parseInt(limpio.slice(4, 6), 16),
-  ];
-}
-
-type Imagen = { datos: string; ancho: number; alto: number };
-
-/**
- * Descarga una imagen y la convierte a data URL, que es lo que jsPDF
- * entiende. Si falla —no está, no hay red, es un SVG— se sigue sin ella: una
- * cotización sin logotipo es fea, pero una que no se genera es inútil.
- */
-async function cargarImagen(url: string): Promise<Imagen | null> {
-  try {
-    const respuesta = await fetch(url);
-    if (!respuesta.ok) return null;
-    const blob = await respuesta.blob();
-    if (blob.type === 'image/svg+xml') return null; // jsPDF no dibuja SVG
-
-    const datos = await new Promise<string>((resolve, reject) => {
-      const lector = new FileReader();
-      lector.onload = () => resolve(String(lector.result));
-      lector.onerror = () => reject(new Error('no se pudo leer la imagen'));
-      lector.readAsDataURL(blob);
-    });
-
-    const medidas = await new Promise<{ ancho: number; alto: number }>((resolve, reject) => {
-      const img = new Image();
-      img.onload = () => resolve({ ancho: img.naturalWidth, alto: img.naturalHeight });
-      img.onerror = () => reject(new Error('no se pudo medir la imagen'));
-      img.src = datos;
-    });
-
-    return { datos, ...medidas };
-  } catch {
-    return null;
-  }
-}
-
 export async function construirCotizacionPdf(d: DatosPdf) {
   const { jsPDF } = await import('jspdf');
   const doc = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' });
-  const color = aRgb(d.marca?.color ?? null);
+  const color = aRgb(d.marca?.color ?? null, PRIMARIO);
 
   const [logo, portada] = await Promise.all([
     d.marca?.logoUrl ? cargarImagen(d.marca.logoUrl) : Promise.resolve(null),
@@ -311,8 +235,12 @@ export async function construirCotizacionPdf(d: DatosPdf) {
   const pie: { titulo: string; lineas: string[] }[] = [];
   doc.setFontSize(9.5);
   if (d.notas) pie.push({ titulo: 'NOTAS', lineas: doc.splitTextToSize(d.notas, ANCHO_PIE) });
-  if (d.condiciones) {
-    pie.push({ titulo: 'CONDICIONES', lineas: doc.splitTextToSize(d.condiciones, ANCHO_PIE) });
+  const condiciones = condicionesDe(d);
+  if (condiciones.length) {
+    pie.push({
+      titulo: 'CONDICIONES',
+      lineas: condiciones.flatMap((c) => doc.splitTextToSize(`· ${c}`, ANCHO_PIE) as string[]),
+    });
   }
 
   const altoCaja = d.impuesto ? 30 : 26;
@@ -344,13 +272,11 @@ export async function construirCotizacionPdf(d: DatosPdf) {
   yT += 1;
   fila('Total', d.total, true);
 
-  if (!d.impuesto) {
-    doc.setFont('helvetica', 'normal');
-    doc.setFontSize(8);
-    doc.setTextColor(...GRIS);
-    doc.text('Precio final. No se aplica impuesto.', DER - 4, yT, { align: 'right' });
-    yT += 6;
-  }
+  doc.setFont('helvetica', 'normal');
+  doc.setFontSize(8);
+  doc.setTextColor(...GRIS);
+  doc.text(d.notaImpuesto, DER - 4, yT, { align: 'right' });
+  yT += 6;
 
   // Columna izquierda: notas y condiciones.
   let yP = yBloque + 4;
@@ -385,8 +311,7 @@ export async function construirCotizacionPdf(d: DatosPdf) {
 }
 
 export function nombreDelArchivo(d: DatosPdf): string {
-  const limpio = d.cliente.nombre.replace(/[^a-zA-Z0-9]+/g, '-').replace(/^-|-$/g, '');
-  return `${d.numero}-${limpio || 'cliente'}.pdf`;
+  return nombrarArchivo(d, '');
 }
 
 export async function descargarCotizacionPdf(d: DatosPdf): Promise<void> {

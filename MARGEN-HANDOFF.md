@@ -59,7 +59,7 @@ que la clave sea secreta.
 Todo esto está **en producción y verificado contra la base real**, no solo
 compilado.
 
-### Base de datos · nueve migraciones aplicadas
+### Base de datos · veintidós migraciones aplicadas
 
 ```
 20261028120000 foundations      esquema, tablas, disparadores, auditoría
@@ -75,6 +75,15 @@ compilado.
 20261103160000 linea_desde_servicio  copiar una ficha a una línea
 20261104120000 igv_opcional     casilla de IGV y detalle para el cliente
 20261104130000 datos_para_el_pdf  contacto de la entidad y bucket de logos
+20261104140000 entregables     incluye / no incluye copiados a la línea
+20261104150000 copiar_entregables  la ficha los lleva consigo al cotizar
+20261104160000 entregables_desactivables  quitar uno sin borrarlo
+20261104170000 catalogo_por_entidad  cada ficha y cada costo son de una empresa
+20261104180000 ficha_de_la_misma_entidad  no se cotiza con la ficha de la otra
+20261104190000 costos_compartidos  una herramienta puede ser de las dos
+20261104200000 conversion_declarada  la tasa se escribe en la línea, no se supone
+20261104210000 ficha_convierte_costos  la ficha convierte al copiar
+20261104220000 segundo_color   el color de acento de la marca
 ```
 
 ### Pantallas
@@ -86,7 +95,9 @@ compilado.
 - **Comercial** · clientes, cotizaciones, y el editor: líneas desde una ficha
   de servicio con sus costos y precio derivado del fee, costos por línea
   agrupados en personal y herramientas, casilla de IGV, marca que firma, y
-  **descarga del PDF**
+  **descarga en dos formatos**: la propuesta en láminas (el formato que
+  Marcelo ya mandaba: portada con foto, índice, una portadilla y una lámina
+  por servicio, condiciones y cierre) y el documento A4 sobrio para archivar
 - **Finanzas, Pipeline, Análisis** · todavía son marcadores honestos que dicen
   en qué fase llegan
 
@@ -98,7 +109,7 @@ caja (BCP soles en PEN, Mercury en USD), un cliente y una cotización de prueba.
 
 ### Verificación
 
-- **56 pruebas** de Vitest: dinero, errores, formato, armazón, altas
+- **84 pruebas** de Vitest: dinero, errores, formato, armazón, altas, los dos PDF
 - **37 aserciones** SQL en `supabase/tests/invariants.sql`
 - CI en GitHub Actions: tipos, lint, pruebas, build, y las migraciones
   reaplicadas desde cero en cada push
@@ -109,12 +120,10 @@ caja (BCP soles en PEN, Mercury en USD), un cliente y una cotización de prueba.
 
 ### Lo siguiente de F2
 
-1. **Incluye / no incluye** por ficha de servicio (F2-3). La tabla
-   `service_terms` ya existe; falta la interfaz, y que el PDF los imprima.
-2. **Emisión y versiones** (F2-11, F2-13): `quote_versions` inmutable con su
+1. **Emisión y versiones** (F2-11, F2-13): `quote_versions` inmutable con su
    PDF. Hoy el PDF se genera del estado actual; al emitir hay que congelarlo.
-3. **Transiciones de estado con bitácora** (F2-10).
-4. **Cronograma de cobro al aprobar** (F2-15 a F2-17), que es la bisagra con F3.
+2. **Transiciones de estado con bitácora** (F2-10).
+3. **Cronograma de cobro al aprobar** (F2-15 a F2-17), que es la bisagra con F3.
 
 ### Después
 
@@ -137,7 +146,7 @@ caja (BCP soles en PEN, Mercury en USD), un cliente y una cotización de prueba.
 
 ### Deuda técnica anotada
 
-- El bundle principal va por 538 kB en crudo (≈154 kB comprimidos). jsPDF y
+- El bundle principal va por 561 kB en crudo (≈161 kB comprimidos). jsPDF y
   sus dependencias ya van en trozos aparte, cargados solo al descargar; falta
   dividir las rutas con `React.lazy` antes de que entre F3.
 - El PDF se genera en el navegador desde el estado actual de la cotización.
@@ -146,6 +155,11 @@ caja (BCP soles en PEN, Mercury en USD), un cliente y una cotización de prueba.
   documento distinto del que se envió.
 - Las transiciones de estado de una cotización no están validadas por trigger
   (F2-10): hoy se puede pasar de `draft` a `approved` saltándose `sent`.
+- La propuesta en láminas se dibuja con Helvetica, no con las tipografías de
+  su presentación (Bebas Neue para los títulos, Lato para el texto). jsPDF
+  solo trae las suyas; meter las reales es cargar los `.ttf` como recurso
+  aparte, que se descargaría la primera vez que alguien genera una propuesta.
+  Está decidido a medias a propósito: el formato ya es el suyo, la letra no.
 
 ---
 

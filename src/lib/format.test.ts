@@ -1,5 +1,12 @@
 import { describe, expect, it } from 'vitest';
-import { formatoFecha, formatoTasa, nombreDireccion, nombrePais, nombreTipoCuenta } from './format';
+import {
+  formatoFecha,
+  formatoMesAño,
+  formatoTasa,
+  nombreDireccion,
+  nombrePais,
+  nombreTipoCuenta,
+} from './format';
 
 describe('formatoTasa', () => {
   it('muestra el IGV sin decimales de adorno', () => {
@@ -34,6 +41,19 @@ describe('formatoFecha', () => {
   it('formatea una fecha ISO', () => {
     // Sin afirmar el texto exacto: depende de los datos de locale del entorno.
     expect(formatoFecha('2026-11-02T10:00:00Z')).toMatch(/2026/);
+  });
+});
+
+describe('formatoMesAño', () => {
+  it('devuelve vacío con una fecha inválida, no la palabra «inválida» en la portada', () => {
+    expect(formatoMesAño('no soy una fecha')).toBe('');
+  });
+
+  it('da mes y año en mayúsculas y sin el «de» del medio', () => {
+    const texto = formatoMesAño('2026-11-04T10:00:00Z');
+    expect(texto).toMatch(/2026/);
+    expect(texto).toBe(texto.toLocaleUpperCase('es-PE'));
+    expect(texto).not.toContain(' DE ');
   });
 });
 

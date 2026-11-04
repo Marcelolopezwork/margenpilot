@@ -19,6 +19,7 @@ export default function MarcaFormato({
   organizacionId,
   nombre,
   color,
+  colorSecundario,
   logoPath,
   portadaPath,
   alCambiar,
@@ -27,6 +28,7 @@ export default function MarcaFormato({
   organizacionId: string;
   nombre: string;
   color: string | null;
+  colorSecundario: string | null;
   logoPath: string | null;
   portadaPath: string | null;
   alCambiar: () => void;
@@ -39,11 +41,10 @@ export default function MarcaFormato({
     ruta ? requireSupabase().storage.from('marcas').getPublicUrl(ruta).data.publicUrl : null;
 
   const guardarColor = useMutation({
-    mutationFn: async (nuevo: string) => {
-      const { error } = await requireSupabase()
-        .from('brands')
-        .update({ accent_color: nuevo })
-        .eq('id', marcaId);
+    mutationFn: async ({ cual, valor }: { cual: 'accent_color' | 'accent_secondary'; valor: string }) => {
+      const cambio =
+        cual === 'accent_color' ? { accent_color: valor } : { accent_secondary: valor };
+      const { error } = await requireSupabase().from('brands').update(cambio).eq('id', marcaId);
       if (error) throw error;
     },
     onSuccess: alCambiar,
@@ -144,15 +145,27 @@ export default function MarcaFormato({
   return (
     <div className="mt-3 flex flex-col gap-3 border-t border-border pt-3">
       <label className="flex items-center gap-3 text-sm text-muted">
-        <span className="w-16 text-xs text-subtle">Color</span>
+        <span className="w-16 text-xs text-subtle">Principal</span>
         <input
           type="color"
-          defaultValue={color ?? '#2a4b8d'}
-          onBlur={(e) => guardarColor.mutate(e.target.value)}
-          aria-label={`Color de ${nombre}`}
+          defaultValue={color ?? '#012dff'}
+          onBlur={(e) => guardarColor.mutate({ cual: 'accent_color', valor: e.target.value })}
+          aria-label={`Color principal de ${nombre}`}
           className="h-9 w-14 cursor-pointer rounded-control border border-border bg-surface"
         />
-        <span className="text-xs text-subtle">Pinta la cabecera y los títulos del PDF.</span>
+        <span className="text-xs text-subtle">Los títulos y el precio.</span>
+      </label>
+
+      <label className="flex items-center gap-3 text-sm text-muted">
+        <span className="w-16 text-xs text-subtle">Acento</span>
+        <input
+          type="color"
+          defaultValue={colorSecundario ?? '#fd3659'}
+          onBlur={(e) => guardarColor.mutate({ cual: 'accent_secondary', valor: e.target.value })}
+          aria-label={`Color de acento de ${nombre}`}
+          className="h-9 w-14 cursor-pointer rounded-control border border-border bg-surface"
+        />
+        <span className="text-xs text-subtle">La numeración y los filetes.</span>
       </label>
 
       {imagen('logo_path', 'Logo', logoPath, entradaLogo, 'h-9 max-w-[120px]')}

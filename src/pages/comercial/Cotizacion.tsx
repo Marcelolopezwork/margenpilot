@@ -3,7 +3,7 @@ import { Link, useParams } from 'react-router-dom';
 import { useMutation, useQuery } from '@tanstack/react-query';
 import { puedeVerCostos, useOrg, useOrgElegida } from '../../app/org-context';
 import { mensajeDeError } from '../../lib/errors';
-import { formatoFecha, formatoTasa } from '../../lib/format';
+import { formatoFecha, formatoMesAño, formatoTasa } from '../../lib/format';
 import {
   add,
   currencyOf,
@@ -19,6 +19,8 @@ import {
 } from '../../lib/money';
 import type { CurrencyCode, Money } from '../../lib/money';
 import { descargarCotizacionPdf } from '../../lib/pdf';
+import type { DatosPdf } from '../../lib/pdf';
+import { descargarPropuestaPdf } from '../../lib/propuesta';
 import { requireSupabase } from '../../lib/supabase';
 import { Constants } from '../../types/database';
 import type { Enums } from '../../types/database';
@@ -147,7 +149,7 @@ export default function Cotizacion() {
     queryFn: async () => {
       const { data, error } = await requireSupabase()
         .from('brands')
-        .select('id, name, accent_color, logo_path, cover_path, legal_entity_id, is_active')
+        .select('id, name, accent_color, accent_secondary, logo_path, cover_path, legal_entity_id, is_active')
         .eq('organization_id', organizacion.id)
         .eq('is_active', true)
         .order('name');
@@ -345,10 +347,19 @@ export default function Cotizacion() {
     return requireSupabase().storage.from('marcas').getPublicUrl(ruta).data.publicUrl;
   }
 
-  async function descargar() {
-    await descargarCotizacionPdf({
+  /**
+   * Los datos que ven los dos PDF. Se arman una sola vez: la propuesta en
+   * láminas y el documento A4 dicen exactamente lo mismo, solo cambia el
+   * dibujo. Si cada uno se montara por su lado acabarían discrepando.
+   */
+  function datosDelPdf(): DatosPdf {
+    const conImpuesto = q.tax_included && Number(q.tax_rate_pct) > 0;
+    const etiquetaImpuesto = q.tax_label ?? `Impuesto ${formatoTasa(q.tax_rate_pct)}`;
+
+    return {
       numero: q.number,
       fecha: formatoFecha(q.created_at),
+      periodo: formatoMesAño(q.created_at),
       validaHasta: q.valid_until ? formatoFecha(q.valid_until) : null,
       emisor: {
         nombre: entidad?.legal_name ?? '',
@@ -361,6 +372,7 @@ export default function Cotizacion() {
         ? {
             nombre: marca.name,
             color: marca.accent_color,
+            colorSecundario: marca.accent_secondary,
             logoUrl: urlDelLogo(marca.logo_path),
             portadaUrl: urlDelLogo(marca.cover_path),
           }
@@ -375,25 +387,28 @@ export default function Cotizacion() {
           detalle: l.public_detail,
           incluye: suyos.filter((e) => e.kind === 'include').map((e) => e.content),
           noIncluye: suyos.filter((e) => e.kind === 'exclude').map((e) => e.content),
+          condiciones: suyos.filter((e) => e.kind === 'condition').map((e) => e.content),
           cantidad: String(l.quantity),
           precioUnitario: format(fromRow(l.unit_price, moneda)),
           importe: format(netoDe(l)),
         };
       }),
       neto: format(neto),
-      impuesto:
-        q.tax_included && Number(q.tax_rate_pct) > 0
-          ? {
-              // La etiqueta guardada suele traer ya el porcentaje («IGV 18%»).
-              // Añadírselo otra vez producía «IGV 18% 18 %» en el documento.
-              etiqueta: q.tax_label ?? `Impuesto ${formatoTasa(q.tax_rate_pct)}`,
-              importe: format(impuesto),
-            }
-          : null,
+      // La etiqueta guardada suele traer ya el porcentaje («IGV 18%»).
+      // Añadírselo otra vez producía «IGV 18% 18 %» en el documento.
+      impuesto: conImpuesto ? { etiqueta: etiquetaImpuesto, importe: format(impuesto) } : null,
+      // Una entidad sin impuesto no tiene nada que excluir: decirle a un
+      // cliente de Estados Unidos que el precio «no incluye IGV» sería
+      // mentirle con buenos modales.
+      notaImpuesto: conImpuesto
+        ? `Precio incluye ${etiquetaImpuesto}.`
+        : Number(q.tax_rate_pct) > 0
+          ? `Precio no incluye ${etiquetaImpuesto}.`
+          : 'Precio final. No se aplica impuesto.',
       total: format(total, { showCode: true }),
       notas: q.notes,
       condiciones: entidad?.quote_terms ?? null,
-    });
+    };
   }
 
   function empezarEdicion(l: Linea) {
@@ -463,9 +478,28 @@ export default function Cotizacion() {
           </label>
         </div>
 
-        <Boton variante="primario" onClick={() => void descargar()} disabled={filas.length === 0}>
-          Descargar PDF
-        </Boton>
+        {/*
+          Dos formatos del mismo contenido: la propuesta en láminas es la que
+          se manda a vender y el documento A4 la que se archiva o se adjunta a
+          una factura. Por eso la primera manda y la segunda es un enlace
+          discreto al lado.
+        */}
+        <div className="flex flex-wrap items-center gap-3">
+          <Boton
+            variante="primario"
+            onClick={() => void descargarPropuestaPdf(datosDelPdf())}
+            disabled={filas.length === 0}
+          >
+            Descargar propuesta
+          </Boton>
+          <Boton
+            variante="secundario"
+            onClick={() => void descargarCotizacionPdf(datosDelPdf())}
+            disabled={filas.length === 0}
+          >
+            Versión A4
+          </Boton>
+        </div>
       </Tarjeta>
 
       {cambiarMarca.error && <Aviso tipo="error">{mensajeDeError(cambiarMarca.error)}</Aviso>}

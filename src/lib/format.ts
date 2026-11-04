@@ -43,6 +43,14 @@ export function formatoFecha(iso: string): string {
   }).format(d);
 }
 
+/** Mes y año en mayúsculas, como va en la portada: NOVIEMBRE 2026. */
+export function formatoMesAño(iso: string): string {
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return '';
+  const texto = new Intl.DateTimeFormat(LOCALE, { month: 'long', year: 'numeric' }).format(d);
+  return texto.replace(' de ', ' ').toLocaleUpperCase(LOCALE);
+}
+
 const PAISES: Record<string, string> = { PE: 'Perú', US: 'Estados Unidos' };
 
 /** Código ISO de país a nombre. Si no lo conocemos, se muestra el código. */

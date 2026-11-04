@@ -15,6 +15,7 @@ import type { DatosPdf } from './pdf';
 const base: DatosPdf = {
   numero: 'COT-2026-001',
   fecha: '4 nov 2026',
+  periodo: 'NOVIEMBRE 2026',
   validaHasta: '4 dic 2026',
   emisor: {
     nombre: '3 Brothers MKT SAC',
@@ -23,7 +24,13 @@ const base: DatosPdf = {
     telefono: '+51 999 888 777',
     email: 'hola@nlima.pe',
   },
-  marca: { nombre: 'Nlima', color: '#E8001D', logoUrl: null, portadaUrl: null },
+  marca: {
+    nombre: 'Nlima',
+    color: '#E8001D',
+    colorSecundario: '#FD3659',
+    logoUrl: null,
+    portadaUrl: null,
+  },
   cliente: { nombre: 'EJ Deportes', taxId: '20987654321' },
   lineas: [
     {
@@ -32,6 +39,7 @@ const base: DatosPdf = {
       detalle: null,
       incluye: ['Naming y territorio verbal', 'Logotipo y sus variantes', 'Manual de uso'],
       noIncluye: ['Registro de marca ante Indecopi'],
+      condiciones: ['Dos rondas de observaciones por entregable.'],
       cantidad: '1',
       precioUnitario: 'S/ 9,583.00',
       importe: 'S/ 9,583.00',
@@ -39,6 +47,7 @@ const base: DatosPdf = {
   ],
   neto: 'S/ 9,583.00',
   impuesto: { etiqueta: 'IGV 18 %', importe: 'S/ 1,724.94' },
+  notaImpuesto: 'Precio incluye IGV 18 %.',
   total: 'S/ 11,307.94 PEN',
   notas: 'Incluye dos rondas de ajustes.',
   condiciones: 'Pago 50 % al inicio y 50 % contra entrega.',
@@ -82,6 +91,7 @@ describe('la cotización en PDF', () => {
       'detalle',
       'incluye',
       'noIncluye',
+      'condiciones',
       'cantidad',
       'precioUnitario',
       'importe',
@@ -111,6 +121,7 @@ describe('la cotización en PDF', () => {
       detalle: null,
       incluye: ['Primer entregable', 'Segundo entregable', 'Tercer entregable'],
       noIncluye: [],
+      condiciones: [],
       cantidad: '2',
       precioUnitario: 'S/ 1,000.00',
       importe: 'S/ 2,000.00',
@@ -122,7 +133,13 @@ describe('la cotización en PDF', () => {
   it('no se cae si el color de la marca es basura', async () => {
     const doc = await construirCotizacionPdf({
       ...base,
-      marca: { nombre: 'Nlima', color: 'azul bonito', logoUrl: null, portadaUrl: null },
+      marca: {
+        nombre: 'Nlima',
+        color: 'azul bonito',
+        colorSecundario: 'coral de los de antes',
+        logoUrl: null,
+        portadaUrl: null,
+      },
     });
     expect(doc.output('arraybuffer').byteLength).toBeGreaterThan(1000);
   });
@@ -137,6 +154,7 @@ describe('la cotización en PDF', () => {
           detalle: null,
           incluye: [],
           noIncluye: [],
+          condiciones: [],
           cantidad: '1',
           precioUnitario: 'S/ 100.00',
           importe: 'S/ 100.00',

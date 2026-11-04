@@ -54,6 +54,7 @@ export type Database = {
       brands: {
         Row: {
           accent_color: string | null
+          accent_secondary: string | null
           cover_path: string | null
           created_at: string
           id: string
@@ -66,6 +67,7 @@ export type Database = {
         }
         Insert: {
           accent_color?: string | null
+          accent_secondary?: string | null
           cover_path?: string | null
           created_at?: string
           id?: string
@@ -78,6 +80,7 @@ export type Database = {
         }
         Update: {
           accent_color?: string | null
+          accent_secondary?: string | null
           cover_path?: string | null
           created_at?: string
           id?: string
