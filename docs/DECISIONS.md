@@ -202,6 +202,8 @@ Eso es el producto. Todo lo que no sirva a esas tres piezas no entra.
 
 **Resuelto el 28/10/2026:** el proyecto de Supabase existe (`veocqvmywodeizuvnssn`, organización `margen pilot`, región `us-east-1`, Postgres 17). Las seis migraciones de F1 están aplicadas y las 27 aserciones de la suite pasan contra esa base. La verificación local con Docker deja de ser necesaria: se verifica contra el proyecto real, dentro de una transacción que se deshace, de modo que no queda ni una fila de prueba.
 
+**Hecho el 03/11/2026 (tarde):** F2 avanza. Catálogo y cotizador en producción: clientes, cotizaciones con numeración asignada por la base, líneas, costos por línea traídos del catálogo, y margen y markup como cifras separadas. Las líneas se quitan desactivándolas, sin romper la invariante de que `authenticated` no borra nada. Marcelo creó su primera cotización real (COT-2026-001).
+
 **Hecho el 03/11/2026:** Marcelo entró por primera vez con `info@thepublisherlab.com` y contraseña. Su fila de `profiles` se creó sola desde `SessionProvider`, que es la primera prueba de que la app autenticada corre contra la base real. `supabase/setup/margen-pilot-org.sql` se ejecutó: organización `Margen Pilot` con plan `internal`, él como `owner`, PEN y USD habilitadas, 9 categorías y las dos entidades con sus marcas e impuestos por defecto. El disparador de auditoría dejó sus 5 filas.
 
 **Decidido el 02/11/2026:** Marcelo entra con `info@thepublisherlab.com`, la cuenta dueña de la organización de Supabase, que hasta que exista SMTP propio es la única que recibe el enlace (D-7). `supabase/setup/margen-pilot-org.sql` apunta ahí.
@@ -215,7 +217,8 @@ Eso es el producto. Todo lo que no sirva a esas tres piezas no entra.
 **Me bloquea trabajo ahora:**
 
 - **Las URL de redirección en Supabase.** Solo hacen falta para el acceso por enlace, que ya no es el camino principal. En *Authentication → URL Configuration*: `http://localhost:5173/**` y `https://crm.thepublisherlab.com/**`, con *Site URL* apuntando a la segunda (ADR-29).
-- **Registrar una cuenta de caja desde la app.** Es lo único que queda por ver funcionando de extremo a extremo: la lectura ya está probada, pero una escritura desde la interfaz contra la base real todavía no. Es además el paso que hace falta antes de F3.
+- **SMTP propio (D-7).** Sin él el producto no puede dar de alta a ningún cliente que no sea Marcelo.
+- **Los secretos del despliegue automático.** `.github/workflows/deploy.yml` está activo pero inerte sin ellos, y mientras tanto cada cambio viaja en un zip a mano.
 
 **Puede esperar sin coste:** precio del plan Pro y límites finos · identidad visual y dominio · si alguna vez entra el cuadre manual (ADR-18) · alcance de acceso de agentes IA · apps en tiendas (ADR-12).
 

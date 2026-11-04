@@ -71,7 +71,8 @@ En la CI corre contra un `postgres:17` —la misma versión mayor que el proyect
 
 | Documento | Para qué |
 |---|---|
-| [docs/DECISIONS.md](docs/DECISIONS.md) | **Empieza aquí.** Decisiones vigentes y lo que sigue abierto |
+| [MARGEN-HANDOFF.md](MARGEN-HANDOFF.md) | **Empieza aquí si abres una sesión nueva.** Estado, qué falta y las trampas ya conocidas |
+| [docs/DECISIONS.md](docs/DECISIONS.md) | Decisiones vigentes y lo que sigue abierto |
 | [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) | Stack, ERD, RLS, límites de plan, pipeline |
 | [docs/FINANCIAL_RULES.md](docs/FINANCIAL_RULES.md) | **Normativo.** Invariantes, fórmulas, redondeo, multimoneda |
 | [docs/PRD.md](docs/PRD.md) | Qué es el producto y qué no es |
