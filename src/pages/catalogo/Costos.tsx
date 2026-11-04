@@ -40,7 +40,8 @@ export default function Costos() {
         .select('id, name, kind, unit, unit_cost, currency_code, is_active, legal_entity_id')
         .eq('organization_id', organizacion.id)
         .order('name');
-      if (entidad) q = q.eq('legal_entity_id', entidad.id);
+      // Los compartidos salen siempre: pertenecen a las dos.
+      if (entidad) q = q.or(`legal_entity_id.eq.${entidad.id},legal_entity_id.is.null`);
       const { data, error } = await q;
       if (error) throw error;
       return data ?? [];
@@ -52,7 +53,7 @@ export default function Costos() {
     mutationFn: async () => {
       const { error } = await requireSupabase().from('cost_items').insert({
         organization_id: organizacion.id,
-        legal_entity_id: entidadId,
+        legal_entity_id: entidadId || null,
         name: nombre.trim(),
         kind: tipo,
         unit: unidad.trim(),
@@ -98,7 +99,7 @@ export default function Costos() {
   return (
     <Seccion
       titulo="Ítems de costo"
-      regla="Lo que cuesta producir, con su unidad y su precio por unidad: una hora de dirección creativa, un mes de licencia, un proveedor externo. Cada costo pertenece a una empresa, porque son dos contabilidades: una hora de diseñador en soles no tiene nada que hacer en una cotización en dólares. Al añadir uno a una ficha se copia su costo del momento, así que subirle el precio después no reescribe las fichas que ya existían."
+      regla="Lo que cuesta producir, con su unidad y su precio por unidad. Las personas pertenecen a una empresa, porque son dos contabilidades. Las herramientas suelen ser compartidas: tu hosting aloja las webs de las dos y te lo facturan en una sola moneda, así que se registra una vez en esa moneda y cada cotización lo convierte con el tipo de cambio registrado. Al añadir un costo a una ficha se copia su precio del momento, así que subirlo después no reescribe las fichas que ya existían."
     >
       <FiltradoPor entidad={entidad?.legal_name ?? null} alQuitar={() => elegirEntidad(null)} />
 
@@ -122,6 +123,7 @@ export default function Costos() {
                 <>
                   <span className="font-medium">{c.name}</span>
                   <Etiqueta>{TIPOS[c.kind]}</Etiqueta>
+                  {c.legal_entity_id === null && <Etiqueta>Compartido</Etiqueta>}
                   {!c.is_active && <Etiqueta tono="atencion">Inactivo</Etiqueta>}
                 </>
               }
@@ -151,10 +153,9 @@ export default function Costos() {
           etiqueta="Empresa a la que pertenece"
           value={entidadId}
           onChange={(e) => setEntidadId(e.target.value)}
-          required
-          ayuda="Solo se podrá usar en fichas y cotizaciones de esta empresa."
+          ayuda="Compartido es para lo que usan las dos: una herramienta se factura en su moneda y la cotización la convierte con el tipo de cambio registrado."
         >
-          <option value="">Elige una empresa</option>
+          <option value="">Compartido entre las dos empresas</option>
           {entidades
             .filter((e) => e.is_active)
             .map((e) => (
@@ -226,9 +227,7 @@ export default function Costos() {
         <Boton
           type="submit"
           variante="primario"
-          disabled={
-            crear.isPending || !nombre.trim() || !moneda || !entidadId || costo.trim() === ''
-          }
+          disabled={crear.isPending || !nombre.trim() || !moneda || costo.trim() === ''}
         >
           {crear.isPending ? 'Creando…' : 'Crear ítem'}
         </Boton>

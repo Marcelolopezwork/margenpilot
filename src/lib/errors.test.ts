@@ -49,6 +49,11 @@ describe('mensajeDeError', () => {
     expect(m).toContain('otra organización');
   });
 
+  it('explica que falta el tipo de cambio en vez de callarse', () => {
+    const m = mensajeDeError({ message: 'no_fx_rate: no hay tipo de cambio de USD a PEN' });
+    expect(m).toContain('Configuración → Tipo de cambio');
+  });
+
   it('traduce un nombre repetido por su código SQLSTATE', () => {
     const m = mensajeDeError({ message: 'duplicate key value violates…', code: '23505' });
     expect(m).toContain('Ya existe un registro con ese nombre');

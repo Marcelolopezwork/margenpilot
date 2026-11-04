@@ -223,7 +223,7 @@ export type Database = {
           id: string
           is_active: boolean
           kind: Database["public"]["Enums"]["cost_item_kind"]
-          legal_entity_id: string
+          legal_entity_id: string | null
           name: string
           notes: string | null
           organization_id: string
@@ -237,7 +237,7 @@ export type Database = {
           id?: string
           is_active?: boolean
           kind?: Database["public"]["Enums"]["cost_item_kind"]
-          legal_entity_id: string
+          legal_entity_id?: string | null
           name: string
           notes?: string | null
           organization_id: string
@@ -251,7 +251,7 @@ export type Database = {
           id?: string
           is_active?: boolean
           kind?: Database["public"]["Enums"]["cost_item_kind"]
-          legal_entity_id?: string
+          legal_entity_id?: string | null
           name?: string
           notes?: string | null
           organization_id?: string
@@ -663,6 +663,8 @@ export type Database = {
         Row: {
           cost_item_id: string | null
           created_at: string
+          fx_as_of: string | null
+          fx_rate: number | null
           id: string
           is_active: boolean
           label: string | null
@@ -670,12 +672,16 @@ export type Database = {
           quantity: number
           quote_line_id: string
           sort: number
+          source_currency: string | null
+          source_unit_cost: number | null
           unit: string
           unit_cost: number
         }
         Insert: {
           cost_item_id?: string | null
           created_at?: string
+          fx_as_of?: string | null
+          fx_rate?: number | null
           id?: string
           is_active?: boolean
           label?: string | null
@@ -683,12 +689,16 @@ export type Database = {
           quantity: number
           quote_line_id: string
           sort?: number
+          source_currency?: string | null
+          source_unit_cost?: number | null
           unit?: string
           unit_cost: number
         }
         Update: {
           cost_item_id?: string | null
           created_at?: string
+          fx_as_of?: string | null
+          fx_rate?: number | null
           id?: string
           is_active?: boolean
           label?: string | null
@@ -696,6 +706,8 @@ export type Database = {
           quantity?: number
           quote_line_id?: string
           sort?: number
+          source_currency?: string | null
+          source_unit_cost?: number | null
           unit?: string
           unit_cost?: number
         }
@@ -882,6 +894,8 @@ export type Database = {
           quantity: number
           service_id: string
           sort: number
+          source_currency: string | null
+          source_unit_cost: number | null
           unit: string
           unit_cost: number
         }
@@ -895,6 +909,8 @@ export type Database = {
           quantity: number
           service_id: string
           sort?: number
+          source_currency?: string | null
+          source_unit_cost?: number | null
           unit?: string
           unit_cost: number
         }
@@ -908,6 +924,8 @@ export type Database = {
           quantity?: number
           service_id?: string
           sort?: number
+          source_currency?: string | null
+          source_unit_cost?: number | null
           unit?: string
           unit_cost?: number
         }

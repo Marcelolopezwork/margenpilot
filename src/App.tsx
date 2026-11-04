@@ -26,6 +26,7 @@ import Impuestos from './pages/settings/Impuestos';
 import Marcas from './pages/settings/Marcas';
 import Monedas from './pages/settings/Monedas';
 import Settings from './pages/settings/Settings';
+import TiposDeCambio from './pages/settings/TiposDeCambio';
 
 /** Pantalla de espera sobria: ni logotipo animado ni barra falsa de progreso. */
 function Esperando({ que }: { que: string }) {
@@ -120,6 +121,7 @@ function ConOrganizacion() {
           <Route path="impuestos" element={<Impuestos />} />
           <Route path="cuentas" element={<Cuentas />} />
           <Route path="categorias" element={<Categorias />} />
+          <Route path="tipos-de-cambio" element={<TiposDeCambio />} />
         </Route>
       </Route>
       {/* Con sesión, /entrar no tiene sentido. */}

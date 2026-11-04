@@ -7,6 +7,7 @@ const SUBSECCIONES = [
   { ruta: 'impuestos', nombre: 'Impuestos' },
   { ruta: 'cuentas', nombre: 'Cuentas' },
   { ruta: 'categorias', nombre: 'Categorías' },
+  { ruta: 'tipos-de-cambio', nombre: 'Tipo de cambio' },
 ] as const;
 
 /**

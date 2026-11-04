@@ -22,6 +22,10 @@ export type Costo = {
   quantity: number;
   unit_cost: number;
   unit: string;
+  /** Lo que factura el proveedor, cuando no es en la moneda de la cotización. */
+  source_currency: string | null;
+  source_unit_cost: number | null;
+  fx_rate: number | null;
 };
 
 /**
@@ -50,6 +54,9 @@ export default function LineaCostos({
   const [cantidad, setCantidad] = useState('1');
   const [unitario, setUnitario] = useState('');
   const [unidad, setUnidad] = useState('hora');
+  // La moneda en que factura el proveedor. Si no es la de la cotización, el
+  // disparador de la base convierte y deja escrita la tasa.
+  const [monedaOrigen, setMonedaOrigen] = useState<string>(moneda);
 
   const catalogo = useQuery({
     queryKey: ['costos', organizacionId],
@@ -82,6 +89,7 @@ export default function LineaCostos({
     setEtiqueta(item.name);
     setUnidad(item.unit);
     setUnitario(String(item.unit_cost));
+    setMonedaOrigen(item.currency_code);
   }
 
   const agregar = useMutation({
@@ -95,6 +103,8 @@ export default function LineaCostos({
           label: etiqueta.trim() || null,
           quantity: Number(cantidad.replace(',', '.')),
           unit_cost: Number(unitario.replace(',', '.')),
+          source_unit_cost: Number(unitario.replace(',', '.')),
+          source_currency: monedaOrigen,
           unit: unidad.trim() || 'unidad',
           sort: costos.length * 10 + 10,
         });
@@ -105,6 +115,7 @@ export default function LineaCostos({
       setEtiqueta('');
       setCantidad('1');
       setUnitario('');
+      setMonedaOrigen(moneda);
       alCambiar();
     },
   });
@@ -135,8 +146,17 @@ export default function LineaCostos({
             <li key={c.id} className="flex items-center justify-between gap-3">
               <span>{c.label ?? 'Ítem del catálogo'}</span>
               <span className="flex items-center gap-3">
-                <span className="num text-muted">
+                <span className="num text-right text-muted">
                   {String(c.quantity)} {c.unit} × {format(fromRow(c.unit_cost, moneda))}
+                  {c.fx_rate !== null && c.source_currency && (
+                    <>
+                      <br />
+                      <span className="text-xs text-subtle">
+                        facturado {String(c.source_unit_cost)} {c.source_currency} ×{' '}
+                        {String(c.fx_rate)}
+                      </span>
+                    </>
+                  )}
                 </span>
                 <span className="num">{format(importe(c))}</span>
                 <Boton
@@ -206,7 +226,7 @@ export default function LineaCostos({
             maxLength={40}
           />
           <Campo
-            etiqueta={`Costo unitario (${moneda})`}
+            etiqueta={`Costo unitario (${monedaOrigen})`}
             type="number"
             inputMode="decimal"
             step="0.01"
@@ -218,6 +238,13 @@ export default function LineaCostos({
         </div>
 
         {agregar.error && <Aviso tipo="error">{mensajeDeError(agregar.error)}</Aviso>}
+
+        {monedaOrigen !== moneda && (
+          <p className="text-xs text-subtle">
+            Se factura en {monedaOrigen} y la cotización va en {moneda}: se convertirá con el tipo
+            de cambio registrado, y la tasa quedará escrita en la línea.
+          </p>
+        )}
 
         <Boton
           type="submit"

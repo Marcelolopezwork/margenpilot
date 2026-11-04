@@ -106,7 +106,7 @@ export default function Cotizacion() {
     queryFn: async (): Promise<Costo[]> => {
       const { data, error } = await requireSupabase()
         .from('quote_line_costs')
-        .select('id, quote_line_id, label, cost_item_id, quantity, unit_cost, unit')
+        .select('id, quote_line_id, label, cost_item_id, quantity, unit_cost, unit, source_currency, source_unit_cost, fx_rate')
         .eq('organization_id', organizacion.id)
         .eq('is_active', true)
         .order('sort');
