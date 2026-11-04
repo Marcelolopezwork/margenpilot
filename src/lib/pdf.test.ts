@@ -23,12 +23,15 @@ const base: DatosPdf = {
     telefono: '+51 999 888 777',
     email: 'hola@nlima.pe',
   },
-  marca: { nombre: 'Nlima', color: '#E8001D', logoUrl: null },
+  marca: { nombre: 'Nlima', color: '#E8001D', logoUrl: null, portadaUrl: null },
   cliente: { nombre: 'EJ Deportes', taxId: '20987654321' },
   lineas: [
     {
       descripcion: 'Creación de marca',
-      detalle: 'Naming, logotipo, paleta y manual de uso.',
+      resumen: 'Identidad verbal y visual completa, lista para usar.',
+      detalle: null,
+      incluye: ['Naming y territorio verbal', 'Logotipo y sus variantes', 'Manual de uso'],
+      noIncluye: ['Registro de marca ante Indecopi'],
       cantidad: '1',
       precioUnitario: 'S/ 9,583.00',
       importe: 'S/ 9,583.00',
@@ -75,7 +78,10 @@ describe('la cotización en PDF', () => {
     expect(claves).not.toContain('costos');
     expect(Object.keys(base.lineas[0] ?? {})).toEqual([
       'descripcion',
+      'resumen',
       'detalle',
+      'incluye',
+      'noIncluye',
       'cantidad',
       'precioUnitario',
       'importe',
@@ -101,7 +107,10 @@ describe('la cotización en PDF', () => {
   it('aguanta una cotización larga sin romperse', async () => {
     const muchas = Array.from({ length: 40 }, (_, i) => ({
       descripcion: `Línea número ${i + 1}`,
-      detalle: 'Un detalle razonablemente largo para que la tabla tenga que partir páginas.',
+      resumen: 'Un resumen razonablemente largo para que el bloque ocupe su sitio.',
+      detalle: null,
+      incluye: ['Primer entregable', 'Segundo entregable', 'Tercer entregable'],
+      noIncluye: [],
       cantidad: '2',
       precioUnitario: 'S/ 1,000.00',
       importe: 'S/ 2,000.00',
@@ -113,7 +122,26 @@ describe('la cotización en PDF', () => {
   it('no se cae si el color de la marca es basura', async () => {
     const doc = await construirCotizacionPdf({
       ...base,
-      marca: { nombre: 'Nlima', color: 'azul bonito', logoUrl: null },
+      marca: { nombre: 'Nlima', color: 'azul bonito', logoUrl: null, portadaUrl: null },
+    });
+    expect(doc.output('arraybuffer').byteLength).toBeGreaterThan(1000);
+  });
+
+  it('se genera con una línea sin entregables ni resumen', async () => {
+    const doc = await construirCotizacionPdf({
+      ...base,
+      lineas: [
+        {
+          descripcion: 'Algo suelto',
+          resumen: null,
+          detalle: null,
+          incluye: [],
+          noIncluye: [],
+          cantidad: '1',
+          precioUnitario: 'S/ 100.00',
+          importe: 'S/ 100.00',
+        },
+      ],
     });
     expect(doc.output('arraybuffer').byteLength).toBeGreaterThan(1000);
   });

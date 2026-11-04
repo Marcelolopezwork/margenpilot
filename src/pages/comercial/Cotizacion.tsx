@@ -32,6 +32,7 @@ type Linea = {
   id: string;
   description: string;
   public_detail: string | null;
+  public_summary: string | null;
   quantity: number;
   unit_price: number;
   fee_pct: number | null;
@@ -90,7 +91,7 @@ export default function Cotizacion() {
     queryFn: async (): Promise<Linea[]> => {
       const { data, error } = await requireSupabase()
         .from('quote_lines')
-        .select('id, description, public_detail, quantity, unit_price, fee_pct, sort')
+        .select('id, description, public_detail, public_summary, quantity, unit_price, fee_pct, sort')
         .eq('quote_id', id)
         .eq('is_active', true)
         .order('sort');
@@ -108,6 +109,19 @@ export default function Cotizacion() {
         .select('id, quote_line_id, label, cost_item_id, quantity, unit_cost, unit')
         .eq('organization_id', organizacion.id)
         .eq('is_active', true)
+        .order('sort');
+      if (error) throw error;
+      return data ?? [];
+    },
+  });
+
+  const entregables = useQuery({
+    queryKey: ['cotizacion', id, 'entregables'],
+    queryFn: async () => {
+      const { data, error } = await requireSupabase()
+        .from('quote_line_terms')
+        .select('id, quote_line_id, kind, content, sort')
+        .eq('organization_id', organizacion.id)
         .order('sort');
       if (error) throw error;
       return data ?? [];
@@ -133,7 +147,7 @@ export default function Cotizacion() {
     queryFn: async () => {
       const { data, error } = await requireSupabase()
         .from('brands')
-        .select('id, name, accent_color, logo_path, legal_entity_id, is_active')
+        .select('id, name, accent_color, logo_path, cover_path, legal_entity_id, is_active')
         .eq('organization_id', organizacion.id)
         .eq('is_active', true)
         .order('name');
@@ -342,22 +356,35 @@ export default function Cotizacion() {
         email: entidad?.email ?? null,
       },
       marca: marca
-        ? { nombre: marca.name, color: marca.accent_color, logoUrl: urlDelLogo(marca.logo_path) }
+        ? {
+            nombre: marca.name,
+            color: marca.accent_color,
+            logoUrl: urlDelLogo(marca.logo_path),
+            portadaUrl: urlDelLogo(marca.cover_path),
+          }
         : null,
       cliente: { nombre: cliente.data?.name ?? '', taxId: cliente.data?.tax_id ?? null },
       // Ni un costo cruza esta frontera: el tipo de DatosPdf no los admite.
-      lineas: filas.map((l) => ({
-        descripcion: l.description,
-        detalle: l.public_detail,
-        cantidad: String(l.quantity),
-        precioUnitario: format(fromRow(l.unit_price, moneda)),
-        importe: format(netoDe(l)),
-      })),
+      lineas: filas.map((l) => {
+        const suyos = (entregables.data ?? []).filter((e) => e.quote_line_id === l.id);
+        return {
+          descripcion: l.description,
+          resumen: l.public_summary,
+          detalle: l.public_detail,
+          incluye: suyos.filter((e) => e.kind === 'include').map((e) => e.content),
+          noIncluye: suyos.filter((e) => e.kind === 'exclude').map((e) => e.content),
+          cantidad: String(l.quantity),
+          precioUnitario: format(fromRow(l.unit_price, moneda)),
+          importe: format(netoDe(l)),
+        };
+      }),
       neto: format(neto),
       impuesto:
         q.tax_included && Number(q.tax_rate_pct) > 0
           ? {
-              etiqueta: `${q.tax_label ?? 'Impuesto'} ${formatoTasa(q.tax_rate_pct)}`,
+              // La etiqueta guardada suele traer ya el porcentaje («IGV 18%»).
+              // Añadírselo otra vez producía «IGV 18% 18 %» en el documento.
+              etiqueta: q.tax_label ?? `Impuesto ${formatoTasa(q.tax_rate_pct)}`,
               importe: format(impuesto),
             }
           : null,
@@ -738,7 +765,7 @@ export default function Cotizacion() {
           {q.tax_included && Number(q.tax_rate_pct) > 0 ? (
             <div className="flex justify-between">
               <dt className="text-muted">
-                {q.tax_label ?? 'Impuesto'} {formatoTasa(q.tax_rate_pct)}
+                {q.tax_label ?? `Impuesto ${formatoTasa(q.tax_rate_pct)}`}
               </dt>
               <dd>{format(impuesto)}</dd>
             </div>

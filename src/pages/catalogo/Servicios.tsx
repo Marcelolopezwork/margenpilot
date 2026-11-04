@@ -10,6 +10,7 @@ import type { Enums } from '../../types/database';
 import { Aviso, Boton, Campo, Cargando, Etiqueta, Selector, Vacio } from '../../components/ui';
 import { Alta, Fila, Lista, Seccion } from '../../components/piezas';
 import { useRecargar } from '../../components/recargar';
+import ServicioTerminos from './ServicioTerminos';
 
 const TIPOS: Record<Enums<'service_kind'>, string> = {
   one_off: 'Puntual',
@@ -141,6 +142,11 @@ export default function Servicios() {
                   ]
                     .filter(Boolean)
                     .join(' · ')}
+                  <ServicioTerminos
+                    servicioId={s.id}
+                    organizacionId={organizacion.id}
+                    nombre={s.name}
+                  />
                 </>
               }
               extremo={

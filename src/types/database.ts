@@ -54,6 +54,7 @@ export type Database = {
       brands: {
         Row: {
           accent_color: string | null
+          cover_path: string | null
           created_at: string
           id: string
           is_active: boolean
@@ -65,6 +66,7 @@ export type Database = {
         }
         Insert: {
           accent_color?: string | null
+          cover_path?: string | null
           created_at?: string
           id?: string
           is_active?: boolean
@@ -76,6 +78,7 @@ export type Database = {
         }
         Update: {
           accent_color?: string | null
+          cover_path?: string | null
           created_at?: string
           id?: string
           is_active?: boolean
@@ -695,6 +698,39 @@ export type Database = {
         }
         Relationships: []
       }
+      quote_line_terms: {
+        Row: {
+          content: string
+          created_at: string
+          id: string
+          is_active: boolean
+          kind: Database["public"]["Enums"]["term_kind"]
+          organization_id: string
+          quote_line_id: string
+          sort: number
+        }
+        Insert: {
+          content: string
+          created_at?: string
+          id?: string
+          is_active?: boolean
+          kind: Database["public"]["Enums"]["term_kind"]
+          organization_id: string
+          quote_line_id: string
+          sort?: number
+        }
+        Update: {
+          content?: string
+          created_at?: string
+          id?: string
+          is_active?: boolean
+          kind?: Database["public"]["Enums"]["term_kind"]
+          organization_id?: string
+          quote_line_id?: string
+          sort?: number
+        }
+        Relationships: []
+      }
       quote_lines: {
         Row: {
           created_at: string
@@ -704,6 +740,7 @@ export type Database = {
           is_active: boolean
           organization_id: string
           public_detail: string | null
+          public_summary: string | null
           quantity: number
           quote_id: string
           service_id: string | null
@@ -718,6 +755,7 @@ export type Database = {
           is_active?: boolean
           organization_id: string
           public_detail?: string | null
+          public_summary?: string | null
           quantity: number
           quote_id: string
           service_id?: string | null
@@ -732,6 +770,7 @@ export type Database = {
           is_active?: boolean
           organization_id?: string
           public_detail?: string | null
+          public_summary?: string | null
           quantity?: number
           quote_id?: string
           service_id?: string | null
@@ -905,6 +944,7 @@ export type Database = {
           content: string
           created_at: string
           id: string
+          is_active: boolean
           kind: Database["public"]["Enums"]["term_kind"]
           organization_id: string
           service_id: string
@@ -914,6 +954,7 @@ export type Database = {
           content: string
           created_at?: string
           id?: string
+          is_active?: boolean
           kind: Database["public"]["Enums"]["term_kind"]
           organization_id: string
           service_id: string
@@ -923,6 +964,7 @@ export type Database = {
           content?: string
           created_at?: string
           id?: string
+          is_active?: boolean
           kind?: Database["public"]["Enums"]["term_kind"]
           organization_id?: string
           service_id?: string

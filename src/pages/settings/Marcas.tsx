@@ -22,7 +22,7 @@ export default function Marcas() {
     queryFn: async () => {
       let q = requireSupabase()
         .from('brands')
-        .select('id, name, is_active, legal_entity_id, accent_color, logo_path')
+        .select('id, name, is_active, legal_entity_id, accent_color, logo_path, cover_path')
         .eq('organization_id', organizacion.id)
         .order('name');
       if (entidad) q = q.eq('legal_entity_id', entidad.id);
@@ -109,6 +109,7 @@ export default function Marcas() {
                     nombre={m.name}
                     color={m.accent_color}
                     logoPath={m.logo_path}
+                    portadaPath={m.cover_path}
                     alCambiar={recargar}
                   />
                 </>
