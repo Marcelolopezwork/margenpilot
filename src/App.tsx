@@ -16,6 +16,7 @@ import Clientes from './pages/comercial/Clientes';
 import Comercial from './pages/comercial/Comercial';
 import Cotizacion from './pages/comercial/Cotizacion';
 import Cotizaciones from './pages/comercial/Cotizaciones';
+import Propuesta from './pages/comercial/Propuesta';
 import CategoriasServicio from './pages/catalogo/CategoriasServicio';
 import Costos from './pages/catalogo/Costos';
 import Servicios from './pages/catalogo/Servicios';
@@ -124,6 +125,11 @@ function ConOrganizacion() {
           <Route path="tipos-de-cambio" element={<TiposDeCambio />} />
         </Route>
       </Route>
+      {/*
+        La propuesta va fuera del armazón: ocupa la pantalla entera y se
+        imprime tal cual, sin menú lateral ni cabecera que estorben en el PDF.
+      */}
+      <Route path="comercial/cotizaciones/:id/propuesta" element={<Propuesta />} />
       {/* Con sesión, /entrar no tiene sentido. */}
       <Route path="/entrar" element={<Navigate to="/" replace />} />
       <Route path="*" element={<Navigate to="/" replace />} />

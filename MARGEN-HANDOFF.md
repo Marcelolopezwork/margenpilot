@@ -59,7 +59,7 @@ que la clave sea secreta.
 Todo esto está **en producción y verificado contra la base real**, no solo
 compilado.
 
-### Base de datos · veintidós migraciones aplicadas
+### Base de datos · veintitrés migraciones aplicadas
 
 ```
 20261028120000 foundations      esquema, tablas, disparadores, auditoría
@@ -84,6 +84,7 @@ compilado.
 20261104200000 conversion_declarada  la tasa se escribe en la línea, no se supone
 20261104210000 ficha_convierte_costos  la ficha convierte al copiar
 20261104220000 segundo_color   el color de acento de la marca
+20261105120000 propuesta_a_medida  biblioteca de fotos y diseño por cotización
 ```
 
 ### Pantallas
@@ -95,9 +96,10 @@ compilado.
 - **Comercial** · clientes, cotizaciones, y el editor: líneas desde una ficha
   de servicio con sus costos y precio derivado del fee, costos por línea
   agrupados en personal y herramientas, casilla de IGV, marca que firma, y
-  **descarga en dos formatos**: la propuesta en láminas (el formato que
-  Marcelo ya mandaba: portada con foto, índice, una portadilla y una lámina
-  por servicio, condiciones y cierre) y el documento A4 sobrio para archivar
+  dos salidas: **la propuesta** (pantalla propia donde se elige la variante
+  de portada, la pareja tipográfica, los colores y una foto por lámina, y se
+  imprime a PDF desde el navegador) y **el documento A4** sobrio, que se
+  descarga de una
 - **Finanzas, Pipeline, Análisis** · todavía son marcadores honestos que dicen
   en qué fase llegan
 
@@ -109,7 +111,7 @@ caja (BCP soles en PEN, Mercury en USD), un cliente y una cotización de prueba.
 
 ### Verificación
 
-- **84 pruebas** de Vitest: dinero, errores, formato, armazón, altas, los dos PDF
+- **74 pruebas** de Vitest: dinero, errores, formato, armazón, altas, el A4 y la propuesta
 - **37 aserciones** SQL en `supabase/tests/invariants.sql`
 - CI en GitHub Actions: tipos, lint, pruebas, build, y las migraciones
   reaplicadas desde cero en cada push
@@ -146,7 +148,7 @@ caja (BCP soles en PEN, Mercury en USD), un cliente y una cotización de prueba.
 
 ### Deuda técnica anotada
 
-- El bundle principal va por 561 kB en crudo (≈161 kB comprimidos). jsPDF y
+- El bundle principal va por 575 kB en crudo (≈164 kB comprimidos). jsPDF y
   sus dependencias ya van en trozos aparte, cargados solo al descargar; falta
   dividir las rutas con `React.lazy` antes de que entre F3.
 - El PDF se genera en el navegador desde el estado actual de la cotización.
@@ -155,11 +157,14 @@ caja (BCP soles en PEN, Mercury en USD), un cliente y una cotización de prueba.
   documento distinto del que se envió.
 - Las transiciones de estado de una cotización no están validadas por trigger
   (F2-10): hoy se puede pasar de `draft` a `approved` saltándose `sent`.
-- La propuesta en láminas se dibuja con Helvetica, no con las tipografías de
-  su presentación (Bebas Neue para los títulos, Lato para el texto). jsPDF
-  solo trae las suyas; meter las reales es cargar los `.ttf` como recurso
-  aparte, que se descargaría la primera vez que alguien genera una propuesta.
-  Está decidido a medias a propósito: el formato ya es el suyo, la letra no.
+- La propuesta carga sus tipografías de Google Fonts. Sin red salen las del
+  sistema, que es feo pero no roto. Si alguna vez molesta, se sirven los
+  `.woff2` desde el propio dominio.
+- El PDF de la propuesta sale de la ventana de impresión del navegador, no de
+  un botón que lo genere solo. Es lo que permite que se vea bien; el precio es
+  que hay que elegir «Guardar como PDF» y márgenes «Ninguno» una vez. Un
+  servicio que imprima en el servidor (Chrome headless) lo automatizaría, y no
+  toca hasta que haya envío por correo.
 
 ---
 

@@ -513,6 +513,44 @@ export type Database = {
           },
         ]
       }
+      org_media: {
+        Row: {
+          created_at: string
+          created_by: string | null
+          id: string
+          is_active: boolean
+          label: string | null
+          organization_id: string
+          path: string
+        }
+        Insert: {
+          created_at?: string
+          created_by?: string | null
+          id?: string
+          is_active?: boolean
+          label?: string | null
+          organization_id: string
+          path: string
+        }
+        Update: {
+          created_at?: string
+          created_by?: string | null
+          id?: string
+          is_active?: boolean
+          label?: string | null
+          organization_id?: string
+          path?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "org_media_organization_id_fkey"
+            columns: ["organization_id"]
+            isOneToOne: false
+            referencedRelation: "organizations"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       organization_currencies: {
         Row: {
           currency_code: string
@@ -803,6 +841,7 @@ export type Database = {
           client_id: string
           created_at: string
           currency_code: string
+          design: Json
           id: string
           legal_entity_id: string
           notes: string | null
@@ -820,6 +859,7 @@ export type Database = {
           client_id: string
           created_at?: string
           currency_code: string
+          design?: Json
           id?: string
           legal_entity_id: string
           notes?: string | null
@@ -837,6 +877,7 @@ export type Database = {
           client_id?: string
           created_at?: string
           currency_code?: string
+          design?: Json
           id?: string
           legal_entity_id?: string
           notes?: string | null

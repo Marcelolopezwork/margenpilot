@@ -5,7 +5,6 @@ import { puedeVerCostos, useOrg, useOrgElegida } from '../../app/org-context';
 import { mensajeDeError } from '../../lib/errors';
 import { formatoFecha, formatoMesAño, formatoTasa } from '../../lib/format';
 import {
-  add,
   currencyOf,
   format,
   fromRow,
@@ -14,13 +13,11 @@ import {
   multiplyByQuantity,
   subtract,
   sumLines,
-  taxOn,
   zero,
 } from '../../lib/money';
 import type { CurrencyCode, Money } from '../../lib/money';
 import { descargarCotizacionPdf } from '../../lib/pdf';
 import type { DatosPdf } from '../../lib/pdf';
-import { descargarPropuestaPdf } from '../../lib/propuesta';
 import { requireSupabase } from '../../lib/supabase';
 import { Constants } from '../../types/database';
 import type { Enums } from '../../types/database';
@@ -29,6 +26,7 @@ import { useRecargar } from '../../components/recargar';
 import LineaCostos from './LineaCostos';
 import type { Costo } from './LineaCostos';
 import { ESTADOS } from './estados';
+import { netoDeLinea, notaDeImpuesto, totalesDe } from './totales';
 
 type Linea = {
   id: string;
@@ -303,8 +301,7 @@ export default function Cotizacion() {
 
   // R-4.2: se redondea al cerrar cada línea y el total es la suma de líneas ya
   // redondeadas. R-4.3: el impuesto va sobre el neto ya redondeado de la línea.
-  const netoDe = (l: Linea): Money =>
-    multiplyByQuantity(fromRow(l.unit_price, moneda), String(l.quantity));
+  const netoDe = (l: Linea): Money => netoDeLinea(l, moneda);
   const costosDe = (lineaId: string) =>
     (costos.data ?? []).filter((c) => c.quote_line_id === lineaId);
   const costoDe = (l: Linea): Money =>
@@ -318,14 +315,7 @@ export default function Cotizacion() {
       String(l.quantity),
     );
 
-  const neto = sumLines(filas.map(netoDe), moneda);
-  // La casilla manda: sin ella la tasa sigue guardada pero no se aplica.
-  const tasaAplicada = q.tax_included ? String(q.tax_rate_pct) : '0';
-  const impuesto = sumLines(
-    filas.map((l) => taxOn(netoDe(l), tasaAplicada)),
-    moneda,
-  );
-  const total = add(neto, impuesto);
+  const { neto, impuesto, total } = totalesDe(filas, moneda, q.tax_rate_pct, q.tax_included);
   const costo = conCostos ? sumLines(filas.map(costoDe), moneda) : zero(moneda);
   const utilidad = subtract(neto, costo);
   const margen = marginPercent(neto, costo);
@@ -400,11 +390,7 @@ export default function Cotizacion() {
       // Una entidad sin impuesto no tiene nada que excluir: decirle a un
       // cliente de Estados Unidos que el precio «no incluye IGV» sería
       // mentirle con buenos modales.
-      notaImpuesto: conImpuesto
-        ? `Precio incluye ${etiquetaImpuesto}.`
-        : Number(q.tax_rate_pct) > 0
-          ? `Precio no incluye ${etiquetaImpuesto}.`
-          : 'Precio final. No se aplica impuesto.',
+      notaImpuesto: notaDeImpuesto(q.tax_included, q.tax_rate_pct, etiquetaImpuesto),
       total: format(total, { showCode: true }),
       notas: q.notes,
       condiciones: entidad?.quote_terms ?? null,
@@ -479,25 +465,27 @@ export default function Cotizacion() {
         </div>
 
         {/*
-          Dos formatos del mismo contenido: la propuesta en láminas es la que
-          se manda a vender y el documento A4 la que se archiva o se adjunta a
-          una factura. Por eso la primera manda y la segunda es un enlace
-          discreto al lado.
+          Dos salidas del mismo contenido: la propuesta es una pantalla donde
+          se elige foto, color y tipografía antes de imprimirla a PDF, y el
+          A4 es el documento sobrio que se descarga de una. Por eso la primera
+          es un enlace a su pantalla y la segunda un botón.
         */}
         <div className="flex flex-wrap items-center gap-3">
-          <Boton
-            variante="primario"
-            onClick={() => void descargarPropuestaPdf(datosDelPdf())}
-            disabled={filas.length === 0}
-          >
-            Descargar propuesta
-          </Boton>
+          {filas.length === 0 ? (
+            <Boton variante="primario" disabled>
+              Armar propuesta
+            </Boton>
+          ) : (
+            <Link to={`/comercial/cotizaciones/${id}/propuesta`}>
+              <Boton variante="primario">Armar propuesta</Boton>
+            </Link>
+          )}
           <Boton
             variante="secundario"
             onClick={() => void descargarCotizacionPdf(datosDelPdf())}
             disabled={filas.length === 0}
           >
-            Versión A4
+            Descargar A4
           </Boton>
         </div>
       </Tarjeta>

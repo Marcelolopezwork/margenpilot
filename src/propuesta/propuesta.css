@@ -1,0 +1,662 @@
+/*
+ * La propuesta impresa.
+ *
+ * Se mide en milímetros porque acaba en papel —o en un PDF, que es lo mismo
+ * para el navegador— y en puntos para la letra. Así lo que se ve en pantalla
+ * es exactamente lo que sale impreso, sin factores de conversión que ajustar
+ * a ojo.
+ *
+ * La lámina es de 254 × 143 mm: la proporción 16:9 de una presentación, que
+ * es como se mira esto, a pantalla completa en el portátil de un cliente.
+ */
+
+@page {
+  size: 254mm 143mm;
+  margin: 0;
+}
+
+.propuesta {
+  --primario: #012dff;
+  --secundario: #fd3659;
+  --titulo: 'Bebas Neue', Impact, sans-serif;
+  --texto: 'Lato', system-ui, sans-serif;
+  --escala: 1;
+  --caja: 18mm;
+  --tinta: #15151a;
+  --apagado: #6b6b73;
+  --filete: #e4e2dd;
+}
+
+.lamina {
+  position: relative;
+  width: 254mm;
+  height: 143mm;
+  overflow: hidden;
+  background: #fff;
+  color: var(--tinta);
+  font-family: var(--texto);
+  font-size: 10pt;
+  line-height: 1.45;
+}
+
+/* ------------------------------------------------------------------ piezas */
+
+.display {
+  font-family: var(--titulo);
+  font-weight: 700;
+  line-height: 0.88;
+  margin: 0;
+}
+
+.propuesta[data-mayusculas='si'] .display {
+  text-transform: uppercase;
+  letter-spacing: 0.012em;
+}
+
+.cejilla {
+  font-family: var(--texto);
+  font-size: 8pt;
+  font-weight: 700;
+  letter-spacing: 0.32em;
+  text-transform: uppercase;
+  margin: 0;
+}
+
+.fondo {
+  position: absolute;
+  inset: 0;
+  background-color: var(--primario);
+  background-size: cover;
+  background-position: center;
+}
+
+/* El velo es lo que hace legible un título blanco sobre cualquier foto. Sin
+   él hay que elegir fotos oscuras, y eso es decidir por quien diseña. */
+.velo {
+  position: absolute;
+  inset: 0;
+  background:
+    linear-gradient(90deg, rgba(10, 10, 14, 0.62) 0%, rgba(10, 10, 14, 0) 58%),
+    linear-gradient(
+      180deg,
+      rgba(10, 10, 14, 0.34) 0%,
+      rgba(10, 10, 14, 0.1) 32%,
+      rgba(10, 10, 14, 0.66) 74%,
+      rgba(10, 10, 14, 0.9) 100%
+    );
+}
+
+.velo-plano {
+  position: absolute;
+  inset: 0;
+  background: rgba(10, 10, 14, 0.46);
+}
+
+.sobre-foto {
+  position: absolute;
+  inset: 0;
+  color: #fff;
+  padding: var(--caja);
+  display: flex;
+  flex-direction: column;
+}
+
+.logo-lamina {
+  height: 11mm;
+  width: auto;
+  max-width: 54mm;
+  object-fit: contain;
+  object-position: left center;
+}
+
+.pie-lamina {
+  position: absolute;
+  left: var(--caja);
+  right: var(--caja);
+  bottom: 7mm;
+  display: flex;
+  justify-content: space-between;
+  font-size: 7pt;
+  letter-spacing: 0.08em;
+  color: var(--apagado);
+}
+
+/* ----------------------------------------------------------------- portada */
+
+.portada-completa .contenido {
+  margin-top: auto;
+}
+
+.portada-completa .nombre {
+  font-size: calc(72pt * var(--escala));
+  margin: 4mm 0 0;
+}
+
+.portada-completa .meta {
+  margin-top: 6mm;
+  display: flex;
+  align-items: baseline;
+  gap: 8mm;
+  font-size: 10pt;
+  color: rgba(255, 255, 255, 0.86);
+}
+
+.portada-completa .meta strong {
+  font-size: 13pt;
+  font-weight: 700;
+  color: #fff;
+}
+
+.regla-corta {
+  width: 22mm;
+  height: 1.2mm;
+  background: var(--secundario);
+  margin: 5mm 0;
+}
+
+.portada-dividida {
+  display: grid;
+  grid-template-columns: 108mm 1fr;
+}
+
+.portada-dividida .columna {
+  position: relative;
+  background: var(--primario);
+  color: #fff;
+  padding: var(--caja);
+  display: flex;
+  flex-direction: column;
+}
+
+.portada-dividida .columna .contenido {
+  margin-top: auto;
+}
+
+.portada-dividida .nombre {
+  font-size: calc(54pt * var(--escala));
+  margin: 4mm 0 0;
+}
+
+.portada-dividida .foto {
+  position: relative;
+}
+
+.portada-banda .banda {
+  position: relative;
+  height: 88mm;
+}
+
+.portada-banda .contenido {
+  padding: 10mm var(--caja);
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 10mm;
+}
+
+.portada-banda .nombre {
+  font-size: calc(46pt * var(--escala));
+  color: var(--primario);
+  margin: 3mm 0 0;
+}
+
+.portada-banda .derecha {
+  text-align: right;
+  font-size: 9.5pt;
+  color: var(--apagado);
+}
+
+.portada-banda .derecha strong {
+  display: block;
+  font-size: 13pt;
+  color: var(--tinta);
+}
+
+/* ------------------------------------------------------------------ índice */
+
+.indice {
+  display: grid;
+  grid-template-columns: 1fr 84mm;
+}
+
+.indice .cuerpo {
+  position: relative;
+  padding: 18mm 12mm 14mm var(--caja);
+  display: flex;
+  flex-direction: column;
+}
+
+.indice h2 {
+  font-size: calc(38pt * var(--escala));
+  color: var(--primario);
+}
+
+.indice .lista {
+  margin-top: auto;
+  margin-bottom: auto;
+}
+
+.indice .fila {
+  display: grid;
+  grid-template-columns: 16mm 1fr auto;
+  align-items: baseline;
+  gap: 4mm;
+  padding: 4.2mm 0;
+  border-top: 0.3mm solid var(--filete);
+}
+
+.indice .fila:last-child {
+  border-bottom: 0.3mm solid var(--filete);
+}
+
+.indice .numero {
+  font-family: var(--titulo);
+  font-size: calc(20pt * var(--escala));
+  color: var(--secundario);
+  line-height: 1;
+}
+
+.indice .titulo {
+  font-size: 13pt;
+  font-weight: 700;
+}
+
+.indice .nota {
+  font-size: 8.5pt;
+  color: var(--apagado);
+}
+
+.indice .lateral {
+  position: relative;
+}
+
+.indice .lateral .marca {
+  position: absolute;
+  left: 10mm;
+  right: 10mm;
+  bottom: 12mm;
+  color: #fff;
+}
+
+.indice .lateral .marca .nombre {
+  font-family: var(--titulo);
+  font-size: calc(26pt * var(--escala));
+  line-height: 0.9;
+}
+
+/* -------------------------------------------------------------- portadilla */
+
+/* A la derecha y no detrás del título: con un nombre de servicio largo se
+   convertían en una mancha ilegible. */
+.portadilla .numero {
+  position: absolute;
+  right: 10mm;
+  bottom: 4mm;
+  font-family: var(--titulo);
+  font-size: calc(150pt * var(--escala));
+  line-height: 0.76;
+  color: rgba(255, 255, 255, 0.2);
+}
+
+.portadilla .contenido {
+  margin-top: auto;
+  position: relative;
+}
+
+.portadilla .nombre {
+  font-size: calc(46pt * var(--escala));
+  margin: 3mm 0 0;
+  max-width: 180mm;
+}
+
+/* ---------------------------------------------------------------- servicio */
+
+.servicio {
+  display: grid;
+  grid-template-columns: 1fr 84mm;
+}
+
+.servicio .cuerpo {
+  position: relative;
+  padding: 16mm 11mm 12mm var(--caja);
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.servicio .nombre {
+  font-size: calc(32pt * var(--escala));
+  margin: 2.5mm 0 0;
+}
+
+.servicio .resumen {
+  margin: 5mm 0 0;
+  font-size: 9.5pt;
+  color: var(--apagado);
+  max-width: 130mm;
+}
+
+.servicio .detalle {
+  margin: 2.5mm 0 0;
+  font-size: 9pt;
+  font-style: italic;
+  color: var(--apagado);
+}
+
+.rotulo {
+  margin: 7mm 0 3mm;
+  font-size: 7.5pt;
+  font-weight: 700;
+  letter-spacing: 0.28em;
+  text-transform: uppercase;
+  color: var(--secundario);
+}
+
+.entregables {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  font-size: 9.5pt;
+}
+
+.entregables.doble {
+  columns: 2;
+  column-gap: 9mm;
+}
+
+.entregables li {
+  position: relative;
+  padding-left: 5.5mm;
+  margin-bottom: 2.2mm;
+  break-inside: avoid;
+  line-height: 1.4;
+}
+
+.entregables li::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  top: 2.1mm;
+  width: 3mm;
+  height: 0.6mm;
+  background: var(--secundario);
+}
+
+.entregables.sobran li::before {
+  background: var(--filete);
+}
+
+.entregables.sobran {
+  font-size: 8.5pt;
+  color: var(--apagado);
+}
+
+.precio {
+  margin-top: auto;
+  padding-top: 5mm;
+  border-top: 0.4mm solid var(--primario);
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 8mm;
+}
+
+.precio .importe {
+  font-family: var(--titulo);
+  font-size: calc(36pt * var(--escala));
+  line-height: 0.85;
+  color: var(--primario);
+}
+
+.precio .nota {
+  font-size: 7.5pt;
+  color: var(--apagado);
+  text-align: right;
+  max-width: 60mm;
+}
+
+.servicio .lateral {
+  position: relative;
+  background: var(--primario);
+}
+
+/* Sin foto, el lateral no se queda en blanco: lleva el número del servicio
+   en grande y apagado, que es un recurso de maqueta, no un parche. */
+.servicio .lateral .ghost {
+  position: absolute;
+  right: 6mm;
+  bottom: 2mm;
+  font-family: var(--titulo);
+  font-size: calc(130pt * var(--escala));
+  line-height: 0.76;
+  color: rgba(255, 255, 255, 0.22);
+}
+
+/* --------------------------------------------------------------- inversión */
+
+.inversion {
+  display: grid;
+  grid-template-columns: 1fr 80mm;
+}
+
+.inversion .cuerpo {
+  position: relative;
+  padding: 18mm 12mm 12mm var(--caja);
+  display: flex;
+  flex-direction: column;
+}
+
+.inversion h2 {
+  font-size: calc(38pt * var(--escala));
+  color: var(--tinta);
+}
+
+.inversion .tabla {
+  margin-top: 9mm;
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 10pt;
+}
+
+.inversion .tabla td {
+  padding: 3.4mm 0;
+  border-bottom: 0.3mm solid var(--filete);
+  vertical-align: baseline;
+}
+
+.inversion .tabla .orden {
+  width: 12mm;
+  font-family: var(--titulo);
+  font-size: calc(15pt * var(--escala));
+  color: var(--secundario);
+}
+
+.inversion .tabla .cifra {
+  text-align: right;
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+.inversion .sumas {
+  margin-top: auto;
+  padding-bottom: 7mm;
+  font-size: 9.5pt;
+  color: var(--apagado);
+}
+
+.inversion .sumas div {
+  display: flex;
+  justify-content: space-between;
+  gap: 10mm;
+  max-width: 86mm;
+  padding: 1.6mm 0;
+}
+
+.inversion .lateral {
+  background: var(--primario);
+  color: #fff;
+  padding: var(--caja) 10mm;
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-end;
+}
+
+.inversion .lateral .total {
+  font-family: var(--titulo);
+  font-size: calc(32pt * var(--escala));
+  line-height: 0.92;
+  margin-top: 3mm;
+  white-space: nowrap;
+}
+
+.inversion .lateral .nota {
+  margin-top: 5mm;
+  font-size: 7.5pt;
+  color: rgba(255, 255, 255, 0.78);
+}
+
+/* -------------------------------------------------------------- condiciones */
+
+.condiciones {
+  display: grid;
+  grid-template-columns: 14mm 1fr;
+}
+
+.condiciones .barra {
+  background: var(--secundario);
+}
+
+.condiciones .cuerpo {
+  position: relative;
+  padding: 16mm var(--caja) 12mm 12mm;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+
+.condiciones h2 {
+  font-size: calc(34pt * var(--escala));
+  color: var(--primario);
+}
+
+.condiciones .lista {
+  margin: 8mm 0 0;
+  padding: 0;
+  list-style: none;
+  columns: 2;
+  column-gap: 11mm;
+  font-size: 8.5pt;
+  line-height: 1.45;
+}
+
+.condiciones .lista li {
+  break-inside: avoid;
+  margin-bottom: 3.2mm;
+  padding-left: 7mm;
+  position: relative;
+}
+
+.condiciones .lista li span {
+  position: absolute;
+  left: 0;
+  top: 0;
+  font-family: var(--titulo);
+  font-size: calc(12pt * var(--escala));
+  color: var(--secundario);
+}
+
+/* ------------------------------------------------------------------ cierre */
+
+.cierre .contenido {
+  margin-top: auto;
+}
+
+.cierre .gracias {
+  font-size: calc(80pt * var(--escala));
+}
+
+.cierre .contacto {
+  margin-top: 5mm;
+  font-size: 12pt;
+  color: #fff;
+}
+
+.cierre .contacto .separador {
+  color: rgba(255, 255, 255, 0.5);
+  margin: 0 3.5mm;
+}
+
+.cierre .emisor {
+  margin-top: 2.5mm;
+  font-size: 8.5pt;
+  color: rgba(255, 255, 255, 0.7);
+}
+
+/* ---------------------------------------------------------------- pantalla */
+
+/* El marco deja sitio al panel de ajustes en pantalla y ninguno al imprimir.
+   Va aquí y no en clases de utilidad para no depender del orden en que se
+   generen las variantes. */
+.marco-propuesta {
+  margin-left: 0;
+}
+
+@media screen and (min-width: 1024px) {
+  .marco-propuesta {
+    margin-left: 310px;
+  }
+}
+
+@media screen {
+  .lienzo {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 7mm;
+    padding: 7mm;
+  }
+
+  .lamina {
+    box-shadow: 0 2mm 9mm rgba(10, 10, 20, 0.18);
+    zoom: var(--zoom, 1);
+  }
+}
+
+/* ----------------------------------------------------------------- impreso */
+
+@media print {
+  .no-imprime {
+    display: none !important;
+  }
+
+  html,
+  body {
+    background: #fff;
+    margin: 0;
+    padding: 0;
+  }
+
+  .lienzo {
+    display: block;
+    padding: 0;
+    gap: 0;
+  }
+
+  .lamina {
+    box-shadow: none;
+    break-after: page;
+    page-break-after: always;
+  }
+
+  .lamina:last-child {
+    break-after: auto;
+    page-break-after: auto;
+  }
+
+  /* Sin esto el navegador quita los fondos al imprimir y la propuesta sale
+     en blanco y negro con las fotos ausentes. */
+  * {
+    -webkit-print-color-adjust: exact !important;
+    print-color-adjust: exact !important;
+  }
+}

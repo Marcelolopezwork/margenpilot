@@ -20,5 +20,5 @@ supabase/.branches/
 # paquetes de despliegue
 *.zip
 
-# muestras del PDF, no son del proyecto
-muestra-*.pdf
+# muestras para revisar el formato, no son del proyecto
+muestra-propuesta.*
