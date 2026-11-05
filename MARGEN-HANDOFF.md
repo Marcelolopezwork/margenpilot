@@ -46,7 +46,13 @@ Son **dos libros contables**, no dos vistas del mismo. Ninguna cifra los mezcla.
 | Base de datos | Supabase, proyecto `veocqvmywodeizuvnssn`, organización `margen pilot`, plan free, Postgres 17 |
 | Producción | `https://crm.thepublisherlab.com`, SiteGround, carpeta `crm.thepublisherlab.com/public_html` |
 | Desarrollo | `npm run dev` → `http://localhost:5173` |
+| Entregas | `entregas/`, dentro del proyecto. Los zips se quedan fuera de git por `*.zip` |
 | Acceso de Marcelo | `info@thepublisherlab.com` **con contraseña** (ADR-32) |
+
+Mientras el despliegue automático no tenga sus secretos, cada cambio viaja
+como un zip que Marcelo sube a mano. Ese zip se escribe en `entregas/` y no en
+un directorio temporal: él trabaja con la carpeta del proyecto abierta, y un
+archivo fuera de ella es un archivo que no vuelve a encontrar.
 
 El `.env` local está en `.gitignore` y lleva la URL del proyecto y la clave
 publicable. Esa clave es pública por diseño: lo que protege la base es RLS, no
@@ -238,6 +244,16 @@ curl -sS -o /dev/null -w '%{http_code} %{content_type} %{size_download}\n' \
   https://crm.thepublisherlab.com/assets/index-XXXX.js
 ```
 
+Solo que hoy **ese bloque no funciona**, y conviene saberlo antes de confiar
+en él: SiteGround tiene antibot delante del dominio y le contesta a `curl`
+un `202` de `text/html` apuntando a `/.well-known/sgcaptcha/`, en cualquier
+ruta, también en los assets. Un navegador automatizado recibe el «Robot
+Challenge Screen», y resolver eso no se hace. Así que, mientras el despliegue
+siga siendo manual, **desde aquí no se puede comprobar qué hay publicado**: lo
+sabe Marcelo mirando su propia pantalla. La señal que le sirve es si el
+desplegable de estado está o no está. Cuando el despliegue automático tenga
+sus secretos, la verificación la hará la CI desde dentro del propio FTP.
+
 ---
 
 ## 7. Trampas en las que ya se cayó
@@ -277,6 +293,14 @@ Cada una costó tiempo. Están aquí para no repetirlas.
    fuera de su propia aplicación (ADR-32).
 9. **Construir cimientos en orden perfecto no es avance si el usuario no ve
    nada.** Conviene intercalar algo usable en cada tramo.
+10. **Una migración que quita permisos rompe el sitio publicado hasta que se
+    sube el build.** La base es una sola y la comparte lo que está en
+    producción. El 4/11 se revocó `update(status)` sobre `quotes` mientras
+    arriba seguía el build con el desplegable de estado: durante un día,
+    cambiar el estado en el sitio devolvía `permission denied`. El orden es
+    **primero sube el build, después aplica la migración**, y cuando el cambio
+    no admite convivencia —como este, que era justamente cerrar una puerta—
+    hay que decírselo a Marcelo antes de tocar la base, no después.
 
 ---
 
