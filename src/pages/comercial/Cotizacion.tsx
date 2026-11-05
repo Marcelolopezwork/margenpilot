@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
 import { useMutation, useQuery } from '@tanstack/react-query';
-import { puedeVerCostos, useOrg, useOrgElegida } from '../../app/org-context';
+import { puedeEscribirDinero, puedeVerCostos, useOrg, useOrgElegida } from '../../app/org-context';
 import { mensajeDeError } from '../../lib/errors';
 import { formatoFecha, formatoMesAño, formatoTasa } from '../../lib/format';
 import {
@@ -24,6 +24,7 @@ import { useRecargar } from '../../components/recargar';
 import LineaCostos from './LineaCostos';
 import type { Costo } from './LineaCostos';
 import Emision from './Emision';
+import Cronograma from './Cronograma';
 import { ESTADOS, TONOS } from './estados';
 import { netoDeLinea, notaDeImpuesto, totalesDe } from './totales';
 
@@ -43,6 +44,7 @@ export default function Cotizacion() {
   const { organizacion } = useOrgElegida();
   const { entidades } = useOrg();
   const conCostos = puedeVerCostos(organizacion.rol);
+  const conDinero = puedeEscribirDinero(organizacion.rol);
   const recargar = useRecargar(['cotizacion', 'cotizaciones']);
 
   const [abierta, setAbierta] = useState<string | null>(null);
@@ -468,6 +470,14 @@ export default function Cotizacion() {
         estado={q.status}
         conCostos={conCostos}
         hayLineas={filas.length > 0}
+      />
+
+      <Cronograma
+        cotizacion={id}
+        estado={q.status}
+        moneda={moneda}
+        entidad={q.legal_entity_id}
+        puedeEditar={conDinero}
       />
 
       {cambiarMarca.error && <Aviso tipo="error">{mensajeDeError(cambiarMarca.error)}</Aviso>}

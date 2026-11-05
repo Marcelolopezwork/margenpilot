@@ -28,6 +28,18 @@ export function puedeVerCostos(rol: Enums<'membership_role'>): boolean {
   return ROLES_CON_COSTOS.includes(rol);
 }
 
+/**
+ * Quién escribe dinero. Hoy son los mismos roles que ven costos, y aun así
+ * son dos funciones, porque en la base son dos: `app.can_write_money()` y
+ * `app.can_see_costs()`. El día que una de las dos cambie, el sitio donde
+ * cambiarla ya está escrito.
+ */
+const ROLES_CON_DINERO: readonly Enums<'membership_role'>[] = ['owner', 'admin', 'finance'];
+
+export function puedeEscribirDinero(rol: Enums<'membership_role'>): boolean {
+  return ROLES_CON_DINERO.includes(rol);
+}
+
 export const OrgContext = createContext<ContextoOrg | null>(null);
 
 export function useOrg(): ContextoOrg {

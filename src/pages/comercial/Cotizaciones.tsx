@@ -1,23 +1,40 @@
 import { useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { useMutation, useQuery } from '@tanstack/react-query';
-import { useOrg, useOrgElegida } from '../../app/org-context';
+import { puedeVerCostos, useOrg, useOrgElegida } from '../../app/org-context';
 import { mensajeDeError } from '../../lib/errors';
 import { formatoFecha } from '../../lib/format';
+import { format } from '../../lib/money';
 import { requireSupabase } from '../../lib/supabase';
-import { Aviso, Boton, Cargando, Etiqueta, Selector, Vacio } from '../../components/ui';
+import { Aviso, Boton, Cargando, Etiqueta, Selector, Tarjeta, Vacio } from '../../components/ui';
 import { Alta, Fila, Lista, Seccion } from '../../components/piezas';
 import { useRecargar } from '../../components/recargar';
 import { ESTADOS } from './estados';
+import type { Estado } from './estados';
+import { margenPorMoneda, ultimaPorCotizacion } from './margen-agregado';
+import type { VersionConCosto } from './margen-agregado';
+
+const ORDEN_ESTADOS: Estado[] = [
+  'draft',
+  'sent',
+  'negotiation',
+  'approved',
+  'rejected',
+  'expired',
+  'void',
+];
 
 export default function Cotizaciones() {
   const { organizacion, entidad } = useOrgElegida();
   const { entidades } = useOrg();
   const navegar = useNavigate();
   const recargar = useRecargar(['cotizaciones']);
+  const conCostos = puedeVerCostos(organizacion.rol);
 
   const [entidadId, setEntidadId] = useState(entidad?.id ?? '');
   const [clienteId, setClienteId] = useState('');
+  const [filtroEstado, setFiltroEstado] = useState('');
+  const [filtroCliente, setFiltroCliente] = useState('');
 
   const clientes = useQuery({
     queryKey: ['clientes', organizacion.id],
@@ -33,7 +50,13 @@ export default function Cotizaciones() {
   });
 
   const consulta = useQuery({
-    queryKey: ['cotizaciones', organizacion.id, entidad?.id ?? null],
+    queryKey: [
+      'cotizaciones',
+      organizacion.id,
+      entidad?.id ?? null,
+      filtroEstado || null,
+      filtroCliente || null,
+    ],
     queryFn: async () => {
       let q = requireSupabase()
         .from('quotes')
@@ -41,9 +64,60 @@ export default function Cotizaciones() {
         .eq('organization_id', organizacion.id)
         .order('created_at', { ascending: false });
       if (entidad) q = q.eq('legal_entity_id', entidad.id);
+      if (filtroEstado) q = q.eq('status', filtroEstado as Estado);
+      if (filtroCliente) q = q.eq('client_id', filtroCliente);
       const { data, error } = await q;
       if (error) throw error;
       return data ?? [];
+    },
+  });
+
+  const ids = (consulta.data ?? []).map((q) => q.id);
+
+  /**
+   * El margen de lo que se está viendo.
+   *
+   * Sale de las versiones emitidas y no de las líneas de hoy: el margen que
+   * importa es el del papel que recibió el cliente. Son dos consultas y no un
+   * join porque el costo vive en su propia tabla, que un rol comercial no lee
+   * (ADR-34); con el join, esa consulta devolvería cero filas y parecería que
+   * no hay cotizaciones.
+   */
+  const resumen = useQuery({
+    queryKey: ['cotizaciones', organizacion.id, 'margen', ids.join(',')],
+    enabled: conCostos && ids.length > 0,
+    queryFn: async (): Promise<VersionConCosto[]> => {
+      const supabase = requireSupabase();
+      const versiones = await supabase
+        .from('quote_versions')
+        .select('id, quote_id, version_no, totals')
+        .in('quote_id', ids);
+      if (versiones.error) throw versiones.error;
+      const filas = versiones.data ?? [];
+      if (filas.length === 0) return [];
+
+      const costos = await supabase
+        .from('quote_version_costs')
+        .select('quote_version_id, cost')
+        .in(
+          'quote_version_id',
+          filas.map((v) => v.id),
+        );
+      if (costos.error) throw costos.error;
+      const porVersion = new Map(
+        (costos.data ?? []).map((c) => [c.quote_version_id, String(c.cost)]),
+      );
+
+      return filas.flatMap((v) => {
+        const totales = v.totals as Record<string, unknown> | null;
+        const neto = totales?.['neto'];
+        const moneda = totales?.['moneda'];
+        const costo = porVersion.get(v.id);
+        if (typeof neto !== 'string' || typeof moneda !== 'string' || costo === undefined) {
+          return [];
+        }
+        return [{ quote_id: v.quote_id, version_no: v.version_no, moneda, neto, costo }];
+      });
     },
   });
 
@@ -99,6 +173,8 @@ export default function Cotizaciones() {
   const cotizaciones = consulta.data ?? [];
   const activos = (clientes.data ?? []).filter((c) => c.is_active);
   const entidadesActivas = entidades.filter((e) => e.is_active);
+  const hayFiltro = filtroEstado !== '' || filtroCliente !== '';
+  const margenes = margenPorMoneda(ultimaPorCotizacion(resumen.data ?? []));
 
   return (
     <Seccion
@@ -121,11 +197,91 @@ export default function Cotizaciones() {
         />
       )}
 
+      {activos.length > 0 && !consulta.isPending && (cotizaciones.length > 0 || hayFiltro) && (
+        <div className="flex flex-wrap items-end gap-3">
+          <Selector
+            etiqueta="Estado"
+            value={filtroEstado}
+            onChange={(e) => setFiltroEstado(e.target.value)}
+          >
+            <option value="">Todos los estados</option>
+            {ORDEN_ESTADOS.map((e) => (
+              <option key={e} value={e}>
+                {ESTADOS[e]}
+              </option>
+            ))}
+          </Selector>
+          <Selector
+            etiqueta="Cliente"
+            value={filtroCliente}
+            onChange={(e) => setFiltroCliente(e.target.value)}
+          >
+            <option value="">Todos los clientes</option>
+            {(clientes.data ?? []).map((c) => (
+              <option key={c.id} value={c.id}>
+                {c.name}
+              </option>
+            ))}
+          </Selector>
+          {hayFiltro && (
+            <Boton
+              variante="sutil"
+              onClick={() => {
+                setFiltroEstado('');
+                setFiltroCliente('');
+              }}
+            >
+              Quitar filtros
+            </Boton>
+          )}
+        </div>
+      )}
+
+      {conCostos && margenes.length > 0 && (
+        <Tarjeta className="p-5">
+          <h2 className="text-sm font-semibold">Margen de lo que estás viendo</h2>
+          <p className="mt-1 max-w-xl text-xs text-subtle">
+            Ponderado: la utilidad de todas dividida entre el precio de todas, no el
+            promedio de los porcentajes. Sale de la última versión emitida de cada
+            cotización. Filtra por «Aprobada» para ver el de lo que ganaste.
+          </p>
+          <div className="mt-4 flex flex-wrap gap-x-10 gap-y-4">
+            {margenes.map((m) => (
+              <div key={m.moneda}>
+                <p className="text-xs text-subtle">
+                  {m.moneda} · {m.cuantas} {m.cuantas === 1 ? 'cotización' : 'cotizaciones'}
+                </p>
+                <p className="num mt-0.5 text-2xl font-semibold">
+                  {m.margen === null ? '—' : `${m.margen.toFixed(1)} %`}
+                </p>
+                <p className="num mt-0.5 text-xs text-muted">
+                  {format(m.utilidad)} de utilidad sobre {format(m.neto)}
+                </p>
+              </div>
+            ))}
+          </div>
+          {margenes.length > 1 && (
+            <p className="mt-3 text-xs text-subtle">
+              Son dos cifras y no una porque las monedas no se suman. Para verlas juntas
+              hará falta el consolidado referencial, con su tasa a la vista.
+            </p>
+          )}
+        </Tarjeta>
+      )}
+
       {activos.length > 0 && !consulta.isPending && cotizaciones.length === 0 && (
         <Vacio
-          titulo="Todavía no has cotizado nada"
-          explicacion="Una cotización nace en borrador: puedes añadirle líneas, ver su margen real y cambiarla las veces que quieras antes de enviarla."
-          siguiente="Elige entidad y cliente aquí abajo y entra al editor."
+          titulo={hayFiltro ? 'Nada con este filtro' : 'Todavía no has cotizado nada'}
+          explicacion={
+            hayFiltro
+              ? 'Hay cotizaciones, pero ninguna cumple lo que has pedido arriba.'
+              : 'Una cotización nace en borrador: puedes añadirle líneas, ver su margen real y cambiarla las veces que quieras antes de enviarla.'
+          }
+          siguiente={
+            hayFiltro
+              ? 'Quita el filtro para volver a verlas todas.'
+              : 'Elige entidad y cliente aquí abajo y entra al editor.'
+          }
         />
       )}
 

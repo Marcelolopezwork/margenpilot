@@ -385,19 +385,41 @@ create table billing_documents (
  or (direction = 'purchase' and supplier_id is not null and client_id   is null))
 );
 
+-- Construida en la migración 20261105170000. Dos diferencias con lo que decía
+-- este documento, las dos deliberadas:
+--   · `status` es un enum y no un `text` con `check`, porque los tipos que
+--     genera Supabase convierten un enum en una unión de literales y eso hace
+--     que un estado nuevo rompa la compilación en vez de colarse;
+--   · lleva `legal_entity_id` y claves compuestas, para que cruzar los dos
+--     libros no sea algo que se comprueba sino algo que no existe (ADR-16).
+-- `billing_document_id` llega con F3, que es cuando habrá documentos.
+create type schedule_status as enum ('planned','documented','settled','cancelled');
+
 create table payment_schedule_items (
-  id uuid primary key, organization_id uuid not null,
-  quote_id uuid references quotes(id),
-  billing_document_id uuid references billing_documents(id),
-  direction text not null check (direction in ('in','out')),
-  label text not null,                       -- 'Anticipo 50%', 'Cuota 1/3'
+  id uuid primary key default gen_random_uuid(),
+  organization_id uuid not null references organizations(id) on delete cascade,
+  legal_entity_id uuid not null,
+  quote_id uuid, quote_version_id uuid,
+  direction text not null default 'in' check (direction in ('in','out')),
+  label text not null check (btrim(label) <> ''),   -- 'Anticipo 50 %', 'Cuota 1 de 3'
   due_date date not null,
-  amount numeric(18,2) not null, currency_code char(3) not null,
-  expected_cash_account_id uuid references cash_accounts(id),
-  status text not null default 'planned'
-      check (status in ('planned','documented','settled','cancelled'))
+  amount numeric(18,2) not null check (amount > 0),
+  currency_code char(3) not null references currencies(code),
+  expected_cash_account_id uuid,
+  status schedule_status not null default 'planned',
+  sort int not null default 0,
+  foreign key (quote_id, organization_id, legal_entity_id, currency_code)
+    references quotes(id, organization_id, legal_entity_id, currency_code) on delete cascade,
+  foreign key (expected_cash_account_id, organization_id, legal_entity_id, currency_code)
+    references cash_accounts(id, organization_id, legal_entity_id, currency_code)
 );
 ```
+
+La tabla no se escribe desde el cliente: `authenticated` solo tiene `select`.
+La única puerta es `guardar_cronograma(p_quote, p_items)`, que recibe la lista
+**entera** y exige que sume el total de la versión aprobada. Fila a fila el
+cronograma estaría descuadrado entre una escritura y la siguiente, y entonces
+cuadrar sería una costumbre de la pantalla en vez de una regla de la base.
 
 `payment_schedule_items.status` es la respuesta al hueco §4.5 de la revisión: `planned` entra solo en la proyección de 13 semanas; `documented` entra en "Por cobrar"; `settled` sale de ambos.
 

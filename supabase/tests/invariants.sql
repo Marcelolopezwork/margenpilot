@@ -430,4 +430,52 @@ begin
     'anulada es terminal');
 end $$;
 
-select 'TODAS LAS PRUEBAS DE F1 Y F2 PASARON · 45 aserciones' as resultado;
+-- ---------------------------------------------------------------------------
+-- F2-15 · El cronograma de cobro no mueve dinero, y no se escribe a mano
+-- ---------------------------------------------------------------------------
+--
+-- La trampa que estas aserciones vigilan es la de §4.5: que una cuota
+-- prevista acabe contando como cuenta por cobrar. Mientras nazca `planned` y
+-- la única puerta de escritura compruebe la suma, la proyección y la cartera
+-- siguen siendo cosas distintas.
+
+do $$
+begin
+  perform assert_true(
+    not has_table_privilege('authenticated', 'payment_schedule_items', 'insert')
+    and not has_table_privilege('authenticated', 'payment_schedule_items', 'update')
+    and not has_table_privilege('authenticated', 'payment_schedule_items', 'delete'),
+    'una cuota no se escribe a mano: la única puerta es guardar_cronograma');
+
+  perform assert_true(
+    has_table_privilege('authenticated', 'payment_schedule_items', 'select'),
+    'el cronograma se lee');
+
+  perform assert_true(
+    (select relrowsecurity and relforcerowsecurity
+       from pg_class where oid = 'payment_schedule_items'::regclass),
+    'el cronograma tiene RLS, y forzada también para el dueño de la tabla');
+
+  -- Nace como proyección. Si algún día el valor por defecto cambiara a
+  -- 'documented', «Por cobrar» empezaría a contar dinero que nadie facturó.
+  perform assert_true(
+    (select column_default from information_schema.columns
+      where table_name = 'payment_schedule_items' and column_name = 'status')
+    like '%planned%',
+    'una cuota nace prevista, no documentada (revisión §4.5)');
+
+  -- Las claves que impiden cruzar los dos libros (ADR-16). Se comprueban por
+  -- existencia y no por nombre de columna: lo que importa es que estén.
+  perform assert_true(
+    (select count(*) from pg_constraint
+      where conrelid = 'payment_schedule_items'::regclass and contype = 'f') >= 4,
+    'la cuota ata su entidad, su cotización, su versión y su cuenta de destino');
+
+  perform assert_true(
+    exists (select 1 from pg_constraint
+             where conrelid = 'cash_accounts'::regclass and contype = 'u'
+               and pg_get_constraintdef(oid) like '%legal_entity_id, currency_code)'),
+    'una cuenta de destino solo se puede referenciar con su entidad y su moneda');
+end $$;
+
+select 'TODAS LAS PRUEBAS DE F1 Y F2 PASARON · 51 aserciones' as resultado;

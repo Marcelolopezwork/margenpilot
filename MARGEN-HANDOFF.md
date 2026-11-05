@@ -65,7 +65,7 @@ que la clave sea secreta.
 Todo esto está **en producción y verificado contra la base real**, no solo
 compilado.
 
-### Base de datos · veintisiete migraciones aplicadas
+### Base de datos · veintiocho migraciones aplicadas
 
 ```
 20261028120000 foundations      esquema, tablas, disparadores, auditoría
@@ -95,6 +95,7 @@ compilado.
 20261105140000 estado_en_negociacion  el estado que faltaba en la máquina
 20261105150000 estados_con_bitacora   transiciones válidas; `status` deja de ser escribible
 20261105160000 emision_inmutable      emitir congela el documento en una versión
+20261105170000 cronograma_de_cobro    al aprobar nacen las cuotas previstas
 ```
 
 ### Pantallas
@@ -116,6 +117,14 @@ compilado.
   motivo, y cada hecho queda en la bitácora. Cada versión emitida se puede
   reimprimir —A4 y propuesta en láminas— **desde su copia**, no desde la
   cotización de hoy
+- **Cronograma de cobro** · aparece en el editor cuando la cotización se
+  aprueba. Reparte el total de la versión aceptada en cuotas con fecha y
+  cuenta de destino, con botones para pago único, 50/50 o tres cuotas. Una
+  cuota prevista entra en la proyección de caja y **no** en «Por cobrar»
+  (revisión §4.5). Se manda entera: o suma el total o no se guarda nada
+- **Listado de cotizaciones** · filtros por estado y por cliente, y el
+  **margen agregado ponderado** de lo que se está viendo, una cifra por
+  moneda. Σ utilidad / Σ precio, nunca el promedio de porcentajes (§2.3)
 - **Finanzas, Pipeline, Análisis** · todavía son marcadores honestos que dicen
   en qué fase llegan
 
@@ -127,10 +136,11 @@ caja (BCP soles en PEN, Mercury en USD), un cliente y una cotización de prueba.
 
 ### Verificación
 
-- **101 pruebas** de Vitest: dinero, errores, formato, armazón, altas, el A4,
-  la propuesta, la aritmética de la cotización, el panel de emisión y la
-  reimpresión de una versión emitida
-- **45 aserciones** SQL en `supabase/tests/invariants.sql`
+- **127 pruebas** de Vitest: dinero, errores, formato, armazón, altas, el A4,
+  la propuesta, la aritmética de la cotización, el panel de emisión, la
+  reimpresión de una versión emitida, el reparto en cuotas y el margen
+  agregado
+- **51 aserciones** SQL en `supabase/tests/invariants.sql`
 - CI en GitHub Actions: tipos, lint, pruebas, build, y las migraciones
   reaplicadas desde cero en cada push
 
@@ -140,18 +150,27 @@ caja (BCP soles en PEN, Mercury en USD), un cliente y una cotización de prueba.
 
 ### Lo siguiente de F2
 
-Hechos en la sesión del 4/11: F2-10 (estados con bitácora), F2-11 (versiones
-inmutables), F2-13 (reemisión) y F2-14 (anulación con motivo).
+Hechos el 4/11: F2-10 (estados con bitácora), F2-11 (versiones inmutables),
+F2-13 (reemisión) y F2-14 (anulación con motivo). Hechos el 5/11: F2-15
+(cronograma de cobro al aprobar) y F2-17 (listado con filtros y margen
+agregado ponderado).
 
-1. **Listado con margen agregado** (F2-17). Ojo: el margen de un grupo es
-   Σutilidad / Σneto, **nunca** el promedio de porcentajes. Los sumandos están
-   en `quote_versions.totals` y `quote_version_costs`.
-2. **Cronograma de cobro al aprobar** (F2-15 a F2-17), que es la bisagra con F3.
-   Falta el wireframe del paso del medio (H-2 del backlog).
-3. **PDF en el servidor con su propia huella** (F2-12). Hoy la reproducibilidad
+Quedan dos, y ninguno de los dos se puede terminar todavía:
+
+1. **Cuota → documento → cobro** (F2-16). Está en F2 en el backlog, pero
+   necesita `billing_documents`, `cash_movements` y `payment_allocations`, que
+   son de F3. Lo que ya está puesto es la puerta: los estados `documented` y
+   `settled` existen en el enum, `guardar_cronograma` no toca una cuota que
+   esté en ellos y las cuenta aparte al cuadrar la suma. Falta quien las
+   mueva.
+2. **PDF en el servidor con su propia huella** (F2-12). Hoy la reproducibilidad
    la da `snapshot_sha256`: el documento sale de la copia, pero lo dibuja el
    navegador. Un servicio que imprima con Chrome headless lo cerraría, y no
    toca hasta que haya envío por correo.
+
+El wireframe H-2 del backlog («aprobación → cronograma → documento») se cubrió
+a medias: el paso del medio ya existe en pantalla, el de la derecha llega con
+F3.
 
 ### Después
 
@@ -174,7 +193,7 @@ inmutables), F2-13 (reemisión) y F2-14 (anulación con motivo).
 
 ### Deuda técnica anotada
 
-- El bundle principal va por 575 kB en crudo (≈164 kB comprimidos). jsPDF y
+- El bundle principal va por 606 kB en crudo (≈172 kB comprimidos). jsPDF y
   sus dependencias ya van en trozos aparte, cargados solo al descargar; falta
   dividir las rutas con `React.lazy` antes de que entre F3.
 - La aritmética de la cotización está escrita dos veces: en
@@ -186,6 +205,11 @@ inmutables), F2-13 (reemisión) y F2-14 (anulación con motivo).
   ofrecer un botón que vaya a fallar. La que manda es
   `app.transicion_de_cotizacion`; si se separan, la base rechaza y la pantalla
   muestra el motivo, nunca al contrario.
+- El margen agregado del listado se arma con dos consultas desde el navegador:
+  todas las versiones de las cotizaciones que se ven, y sus costos. Con las
+  decenas de cotizaciones de un piloto va sobrado; con miles habrá que
+  bajarlo a una vista con `security_invoker`, para que el costo lo siga
+  filtrando la política de `quote_version_costs` y no el cliente.
 - La propuesta carga sus tipografías de Google Fonts. Sin red salen las del
   sistema, que es feo pero no roto. Si alguna vez molesta, se sirven los
   `.woff2` desde el propio dominio.
@@ -301,6 +325,12 @@ Cada una costó tiempo. Están aquí para no repetirlas.
     **primero sube el build, después aplica la migración**, y cuando el cambio
     no admite convivencia —como este, que era justamente cerrar una puerta—
     hay que decírselo a Marcelo antes de tocar la base, no después.
+11. **Un módulo y un componente no pueden llamarse igual cambiando la
+    mayúscula.** `cronograma.ts` junto a `Cronograma.tsx` compila en Linux y
+    falla en el Mac, porque su sistema de archivos no distingue mayúsculas y
+    TypeScript ve dos nombres para el mismo archivo. El ayudante se llama
+    `cuotas.ts`. La convención del proyecto ya era esa —`totales.ts`,
+    `estados.ts`, `snapshot.ts`— y conviene no romperla.
 
 ---
 

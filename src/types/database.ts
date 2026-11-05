@@ -271,6 +271,13 @@ export type Database = {
             referencedColumns: ["code"]
           },
           {
+            foreignKeyName: "cost_items_entidad_fkey"
+            columns: ["legal_entity_id", "organization_id"]
+            isOneToOne: false
+            referencedRelation: "legal_entities"
+            referencedColumns: ["id", "organization_id"]
+          },
+          {
             foreignKeyName: "cost_items_organization_id_fkey"
             columns: ["organization_id"]
             isOneToOne: false
@@ -623,6 +630,123 @@ export type Database = {
         }
         Relationships: []
       }
+      payment_schedule_items: {
+        Row: {
+          amount: number
+          created_at: string
+          currency_code: string
+          direction: string
+          due_date: string
+          expected_cash_account_id: string | null
+          id: string
+          label: string
+          legal_entity_id: string
+          organization_id: string
+          quote_id: string | null
+          quote_version_id: string | null
+          sort: number
+          status: Database["public"]["Enums"]["schedule_status"]
+          updated_at: string
+        }
+        Insert: {
+          amount: number
+          created_at?: string
+          currency_code: string
+          direction?: string
+          due_date: string
+          expected_cash_account_id?: string | null
+          id?: string
+          label: string
+          legal_entity_id: string
+          organization_id: string
+          quote_id?: string | null
+          quote_version_id?: string | null
+          sort?: number
+          status?: Database["public"]["Enums"]["schedule_status"]
+          updated_at?: string
+        }
+        Update: {
+          amount?: number
+          created_at?: string
+          currency_code?: string
+          direction?: string
+          due_date?: string
+          expected_cash_account_id?: string | null
+          id?: string
+          label?: string
+          legal_entity_id?: string
+          organization_id?: string
+          quote_id?: string | null
+          quote_version_id?: string | null
+          sort?: number
+          status?: Database["public"]["Enums"]["schedule_status"]
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "payment_schedule_items_currency_code_fkey"
+            columns: ["currency_code"]
+            isOneToOne: false
+            referencedRelation: "currencies"
+            referencedColumns: ["code"]
+          },
+          {
+            foreignKeyName: "payment_schedule_items_expected_cash_account_id_organizati_fkey"
+            columns: [
+              "expected_cash_account_id",
+              "organization_id",
+              "legal_entity_id",
+              "currency_code",
+            ]
+            isOneToOne: false
+            referencedRelation: "cash_accounts"
+            referencedColumns: [
+              "id",
+              "organization_id",
+              "legal_entity_id",
+              "currency_code",
+            ]
+          },
+          {
+            foreignKeyName: "payment_schedule_items_legal_entity_id_organization_id_fkey"
+            columns: ["legal_entity_id", "organization_id"]
+            isOneToOne: false
+            referencedRelation: "legal_entities"
+            referencedColumns: ["id", "organization_id"]
+          },
+          {
+            foreignKeyName: "payment_schedule_items_organization_id_fkey"
+            columns: ["organization_id"]
+            isOneToOne: false
+            referencedRelation: "organizations"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "payment_schedule_items_quote_id_organization_id_legal_enti_fkey"
+            columns: [
+              "quote_id",
+              "organization_id",
+              "legal_entity_id",
+              "currency_code",
+            ]
+            isOneToOne: false
+            referencedRelation: "quotes"
+            referencedColumns: [
+              "id",
+              "organization_id",
+              "legal_entity_id",
+              "currency_code",
+            ]
+          },
+          {
+            foreignKeyName: "payment_schedule_items_quote_version_id_organization_id_fkey"
+            columns: ["quote_version_id", "organization_id"]
+            isOneToOne: false
+            referencedRelation: "quote_versions"
+            referencedColumns: ["id", "organization_id"]
+          },
+        ]
+      }
       plan_entitlements: {
         Row: {
           key: string
@@ -734,7 +858,22 @@ export type Database = {
           quote_id?: string
           to_status?: Database["public"]["Enums"]["quote_status"] | null
         }
-        Relationships: []
+        Relationships: [
+          {
+            foreignKeyName: "quote_events_organization_id_fkey"
+            columns: ["organization_id"]
+            isOneToOne: false
+            referencedRelation: "organizations"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "quote_events_quote_id_fkey"
+            columns: ["quote_id"]
+            isOneToOne: false
+            referencedRelation: "quotes"
+            referencedColumns: ["id"]
+          },
+        ]
       }
       quote_line_costs: {
         Row: {
@@ -788,7 +927,36 @@ export type Database = {
           unit?: string
           unit_cost?: number
         }
-        Relationships: []
+        Relationships: [
+          {
+            foreignKeyName: "quote_line_costs_cost_item_id_organization_id_fkey"
+            columns: ["cost_item_id", "organization_id"]
+            isOneToOne: false
+            referencedRelation: "cost_items"
+            referencedColumns: ["id", "organization_id"]
+          },
+          {
+            foreignKeyName: "quote_line_costs_organization_id_fkey"
+            columns: ["organization_id"]
+            isOneToOne: false
+            referencedRelation: "organizations"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "quote_line_costs_quote_line_id_organization_id_fkey"
+            columns: ["quote_line_id", "organization_id"]
+            isOneToOne: false
+            referencedRelation: "quote_lines"
+            referencedColumns: ["id", "organization_id"]
+          },
+          {
+            foreignKeyName: "quote_line_costs_source_currency_fkey"
+            columns: ["source_currency"]
+            isOneToOne: false
+            referencedRelation: "currencies"
+            referencedColumns: ["code"]
+          },
+        ]
       }
       quote_line_terms: {
         Row: {
@@ -821,7 +989,22 @@ export type Database = {
           quote_line_id?: string
           sort?: number
         }
-        Relationships: []
+        Relationships: [
+          {
+            foreignKeyName: "quote_line_terms_organization_id_fkey"
+            columns: ["organization_id"]
+            isOneToOne: false
+            referencedRelation: "organizations"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "quote_line_terms_quote_line_id_organization_id_fkey"
+            columns: ["quote_line_id", "organization_id"]
+            isOneToOne: false
+            referencedRelation: "quote_lines"
+            referencedColumns: ["id", "organization_id"]
+          },
+        ]
       }
       quote_lines: {
         Row: {
@@ -869,7 +1052,29 @@ export type Database = {
           sort?: number
           unit_price?: number
         }
-        Relationships: []
+        Relationships: [
+          {
+            foreignKeyName: "quote_lines_organization_id_fkey"
+            columns: ["organization_id"]
+            isOneToOne: false
+            referencedRelation: "organizations"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "quote_lines_quote_id_organization_id_fkey"
+            columns: ["quote_id", "organization_id"]
+            isOneToOne: false
+            referencedRelation: "quotes"
+            referencedColumns: ["id", "organization_id"]
+          },
+          {
+            foreignKeyName: "quote_lines_service_id_organization_id_fkey"
+            columns: ["service_id", "organization_id"]
+            isOneToOne: false
+            referencedRelation: "services"
+            referencedColumns: ["id", "organization_id"]
+          },
+        ]
       }
       quote_version_costs: {
         Row: {
@@ -896,7 +1101,22 @@ export type Database = {
           profit?: number
           quote_version_id?: string
         }
-        Relationships: []
+        Relationships: [
+          {
+            foreignKeyName: "quote_version_costs_organization_id_fkey"
+            columns: ["organization_id"]
+            isOneToOne: false
+            referencedRelation: "organizations"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "quote_version_costs_quote_version_id_fkey"
+            columns: ["quote_version_id"]
+            isOneToOne: true
+            referencedRelation: "quote_versions"
+            referencedColumns: ["id"]
+          },
+        ]
       }
       quote_versions: {
         Row: {
@@ -932,7 +1152,22 @@ export type Database = {
           totals?: Json
           version_no?: number
         }
-        Relationships: []
+        Relationships: [
+          {
+            foreignKeyName: "quote_versions_organization_id_fkey"
+            columns: ["organization_id"]
+            isOneToOne: false
+            referencedRelation: "organizations"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "quote_versions_quote_id_organization_id_fkey"
+            columns: ["quote_id", "organization_id"]
+            isOneToOne: false
+            referencedRelation: "quotes"
+            referencedColumns: ["id", "organization_id"]
+          },
+        ]
       }
       quotes: {
         Row: {
@@ -989,7 +1224,43 @@ export type Database = {
           updated_at?: string
           valid_until?: string | null
         }
-        Relationships: []
+        Relationships: [
+          {
+            foreignKeyName: "quotes_brand_id_organization_id_fkey"
+            columns: ["brand_id", "organization_id"]
+            isOneToOne: false
+            referencedRelation: "brands"
+            referencedColumns: ["id", "organization_id"]
+          },
+          {
+            foreignKeyName: "quotes_client_id_organization_id_fkey"
+            columns: ["client_id", "organization_id"]
+            isOneToOne: false
+            referencedRelation: "clients"
+            referencedColumns: ["id", "organization_id"]
+          },
+          {
+            foreignKeyName: "quotes_currency_code_fkey"
+            columns: ["currency_code"]
+            isOneToOne: false
+            referencedRelation: "currencies"
+            referencedColumns: ["code"]
+          },
+          {
+            foreignKeyName: "quotes_legal_entity_id_organization_id_fkey"
+            columns: ["legal_entity_id", "organization_id"]
+            isOneToOne: false
+            referencedRelation: "legal_entities"
+            referencedColumns: ["id", "organization_id"]
+          },
+          {
+            foreignKeyName: "quotes_organization_id_fkey"
+            columns: ["organization_id"]
+            isOneToOne: false
+            referencedRelation: "organizations"
+            referencedColumns: ["id"]
+          },
+        ]
       }
       service_categories: {
         Row: {
@@ -1101,6 +1372,13 @@ export type Database = {
             referencedRelation: "services"
             referencedColumns: ["id", "organization_id"]
           },
+          {
+            foreignKeyName: "service_cost_lines_source_currency_fkey"
+            columns: ["source_currency"]
+            isOneToOne: false
+            referencedRelation: "currencies"
+            referencedColumns: ["code"]
+          },
         ]
       }
       service_terms: {
@@ -1210,6 +1488,13 @@ export type Database = {
             isOneToOne: false
             referencedRelation: "service_categories"
             referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "services_entidad_fkey"
+            columns: ["legal_entity_id", "organization_id"]
+            isOneToOne: false
+            referencedRelation: "legal_entities"
+            referencedColumns: ["id", "organization_id"]
           },
           {
             foreignKeyName: "services_organization_id_fkey"
@@ -1331,25 +1616,9 @@ export type Database = {
       [_ in never]: never
     }
     Functions: {
-      create_organization: {
-        Args: { p_currency?: string; p_name: string }
-        Returns: string
-      }
       add_quote_line_from_service: {
         Args: { p_quantity?: number; p_quote: string; p_service: string }
         Returns: string
-      }
-      next_quote_number: {
-        Args: { p_entity: string }
-        Returns: string
-      }
-      recalc_quote_line_price: {
-        Args: { p_line: string }
-        Returns: number
-      }
-      set_quote_design: {
-        Args: { p_patch: Json; p_quote: string }
-        Returns: Json
       }
       cambiar_estado_cotizacion: {
         Args: {
@@ -1359,9 +1628,48 @@ export type Database = {
         }
         Returns: Database["public"]["Enums"]["quote_status"]
       }
+      create_organization: {
+        Args: { p_currency?: string; p_name: string }
+        Returns: string
+      }
       emitir_cotizacion: {
         Args: { p_note?: string; p_quote: string }
-        Returns: { snapshot_sha256: string; version_no: number }[]
+        Returns: {
+          snapshot_sha256: string
+          version_no: number
+        }[]
+      }
+      guardar_cronograma: {
+        Args: { p_items: Json; p_quote: string }
+        Returns: {
+          amount: number
+          created_at: string
+          currency_code: string
+          direction: string
+          due_date: string
+          expected_cash_account_id: string | null
+          id: string
+          label: string
+          legal_entity_id: string
+          organization_id: string
+          quote_id: string | null
+          quote_version_id: string | null
+          sort: number
+          status: Database["public"]["Enums"]["schedule_status"]
+          updated_at: string
+        }[]
+        SetofOptions: {
+          from: "*"
+          to: "payment_schedule_items"
+          isOneToOne: false
+          isSetofReturn: true
+        }
+      }
+      next_quote_number: { Args: { p_entity: string }; Returns: string }
+      recalc_quote_line_price: { Args: { p_line: string }; Returns: number }
+      set_quote_design: {
+        Args: { p_patch: Json; p_quote: string }
+        Returns: Json
       }
     }
     Enums: {
@@ -1379,6 +1687,7 @@ export type Database = {
         | "rejected"
         | "expired"
         | "void"
+      schedule_status: "planned" | "documented" | "settled" | "cancelled"
       service_kind: "one_off" | "recurring" | "retainer"
       term_kind: "include" | "exclude" | "condition" | "note"
     }
@@ -1523,6 +1832,7 @@ export const Constants = {
         "expired",
         "void",
       ],
+      schedule_status: ["planned", "documented", "settled", "cancelled"],
       service_kind: ["one_off", "recurring", "retainer"],
       term_kind: ["include", "exclude", "condition", "note"],
     },
