@@ -1,4 +1,12 @@
 // Generado desde el proyecto real con `npm run db:types`. No editar a mano.
+//
+// EXCEPCIÓN del 6/11/2026: las tres tablas de F3 (`billing_documents`,
+// `cash_movements`, `payment_allocations`), la vista `account_balances`, sus
+// cuatro funciones y sus cinco enums se escribieron a mano, porque el token
+// del CLI no tiene permiso para el endpoint de tipos y `npm run db:types`
+// contesta `LegacyGenTypesUnexpectedStatusError`. Están copiados del esquema
+// real, verificado el mismo día. En cuanto el CLI pueda, hay que regenerar el
+// archivo entero y esta nota se cae.
 export type Json =
   | string
   | number
@@ -50,6 +58,114 @@ export type Database = {
           organization_id?: string | null
         }
         Relationships: []
+      }
+      billing_documents: {
+        Row: {
+          amount_net: number
+          amount_tax: number
+          amount_total: number
+          client_id: string
+          created_at: string
+          created_by: string
+          currency_code: string
+          direction: string
+          doc_type: Database["public"]["Enums"]["document_type"]
+          due_date: string | null
+          id: string
+          is_opening: boolean
+          issue_date: string
+          legal_entity_id: string
+          organization_id: string
+          quote_version_id: string | null
+          series_number: string | null
+          status: Database["public"]["Enums"]["document_status"]
+          tax_rate: number | null
+          updated_at: string
+          void_reason: string | null
+        }
+        Insert: {
+          amount_net: number
+          amount_tax?: number
+          amount_total: number
+          client_id: string
+          created_at?: string
+          created_by?: string
+          currency_code: string
+          direction?: string
+          doc_type?: Database["public"]["Enums"]["document_type"]
+          due_date?: string | null
+          id?: string
+          is_opening?: boolean
+          issue_date?: string
+          legal_entity_id: string
+          organization_id: string
+          quote_version_id?: string | null
+          series_number?: string | null
+          status?: Database["public"]["Enums"]["document_status"]
+          tax_rate?: number | null
+          updated_at?: string
+          void_reason?: string | null
+        }
+        Update: {
+          amount_net?: number
+          amount_tax?: number
+          amount_total?: number
+          client_id?: string
+          created_at?: string
+          created_by?: string
+          currency_code?: string
+          direction?: string
+          doc_type?: Database["public"]["Enums"]["document_type"]
+          due_date?: string | null
+          id?: string
+          is_opening?: boolean
+          issue_date?: string
+          legal_entity_id?: string
+          organization_id?: string
+          quote_version_id?: string | null
+          series_number?: string | null
+          status?: Database["public"]["Enums"]["document_status"]
+          tax_rate?: number | null
+          updated_at?: string
+          void_reason?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "billing_documents_client_id_organization_id_fkey"
+            columns: ["client_id", "organization_id"]
+            isOneToOne: false
+            referencedRelation: "clients"
+            referencedColumns: ["id", "organization_id"]
+          },
+          {
+            foreignKeyName: "billing_documents_currency_code_fkey"
+            columns: ["currency_code"]
+            isOneToOne: false
+            referencedRelation: "currencies"
+            referencedColumns: ["code"]
+          },
+          {
+            foreignKeyName: "billing_documents_legal_entity_id_organization_id_fkey"
+            columns: ["legal_entity_id", "organization_id"]
+            isOneToOne: false
+            referencedRelation: "legal_entities"
+            referencedColumns: ["id", "organization_id"]
+          },
+          {
+            foreignKeyName: "billing_documents_organization_id_fkey"
+            columns: ["organization_id"]
+            isOneToOne: false
+            referencedRelation: "organizations"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "billing_documents_quote_version_id_organization_id_fkey"
+            columns: ["quote_version_id", "organization_id"]
+            isOneToOne: false
+            referencedRelation: "quote_versions"
+            referencedColumns: ["id", "organization_id"]
+          },
+        ]
       }
       brands: {
         Row: {
@@ -168,6 +284,128 @@ export type Database = {
           },
           {
             foreignKeyName: "cash_accounts_organization_id_fkey"
+            columns: ["organization_id"]
+            isOneToOne: false
+            referencedRelation: "organizations"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      cash_movements: {
+        Row: {
+          amount: number
+          amount_net: number | null
+          amount_tax: number | null
+          booked_at: string
+          cash_account_id: string
+          category_id: string | null
+          client_id: string | null
+          counterparty_kind: string | null
+          created_at: string
+          created_by: string
+          currency_code: string
+          description: string
+          direction: Database["public"]["Enums"]["cash_direction"]
+          external_ref: string | null
+          flow_class: Database["public"]["Enums"]["flow_class"]
+          id: string
+          is_void: boolean
+          kind: Database["public"]["Enums"]["cash_kind"]
+          legal_entity_id: string
+          organization_id: string
+          source: string
+          value_date: string
+          void_reason: string | null
+        }
+        Insert: {
+          amount: number
+          amount_net?: number | null
+          amount_tax?: number | null
+          booked_at?: string
+          cash_account_id: string
+          category_id?: string | null
+          client_id?: string | null
+          counterparty_kind?: string | null
+          created_at?: string
+          created_by?: string
+          currency_code: string
+          description: string
+          direction: Database["public"]["Enums"]["cash_direction"]
+          external_ref?: string | null
+          id?: string
+          is_void?: boolean
+          kind?: Database["public"]["Enums"]["cash_kind"]
+          legal_entity_id: string
+          organization_id: string
+          source?: string
+          value_date: string
+          void_reason?: string | null
+        }
+        Update: {
+          amount?: number
+          amount_net?: number | null
+          amount_tax?: number | null
+          booked_at?: string
+          cash_account_id?: string
+          category_id?: string | null
+          client_id?: string | null
+          counterparty_kind?: string | null
+          created_at?: string
+          created_by?: string
+          currency_code?: string
+          description?: string
+          direction?: Database["public"]["Enums"]["cash_direction"]
+          external_ref?: string | null
+          id?: string
+          is_void?: boolean
+          kind?: Database["public"]["Enums"]["cash_kind"]
+          legal_entity_id?: string
+          organization_id?: string
+          source?: string
+          value_date?: string
+          void_reason?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "cash_movements_cash_account_id_organization_id_legal_entit_fkey"
+            columns: [
+              "cash_account_id",
+              "organization_id",
+              "legal_entity_id",
+              "currency_code",
+            ]
+            isOneToOne: false
+            referencedRelation: "cash_accounts"
+            referencedColumns: [
+              "id",
+              "organization_id",
+              "legal_entity_id",
+              "currency_code",
+            ]
+          },
+          {
+            foreignKeyName: "cash_movements_category_id_organization_id_fkey"
+            columns: ["category_id", "organization_id"]
+            isOneToOne: false
+            referencedRelation: "financial_categories"
+            referencedColumns: ["id", "organization_id"]
+          },
+          {
+            foreignKeyName: "cash_movements_client_id_organization_id_fkey"
+            columns: ["client_id", "organization_id"]
+            isOneToOne: false
+            referencedRelation: "clients"
+            referencedColumns: ["id", "organization_id"]
+          },
+          {
+            foreignKeyName: "cash_movements_currency_code_fkey"
+            columns: ["currency_code"]
+            isOneToOne: false
+            referencedRelation: "currencies"
+            referencedColumns: ["code"]
+          },
+          {
+            foreignKeyName: "cash_movements_organization_id_fkey"
             columns: ["organization_id"]
             isOneToOne: false
             referencedRelation: "organizations"
@@ -630,9 +868,115 @@ export type Database = {
         }
         Relationships: []
       }
+      payment_allocations: {
+        Row: {
+          amount: number
+          billing_document_id: string | null
+          cash_movement_id: string
+          created_at: string
+          created_by: string
+          currency_code: string
+          id: string
+          legal_entity_id: string
+          organization_id: string
+          payment_schedule_item_id: string | null
+        }
+        Insert: {
+          amount: number
+          billing_document_id?: string | null
+          cash_movement_id: string
+          created_at?: string
+          created_by?: string
+          currency_code: string
+          id?: string
+          legal_entity_id: string
+          organization_id: string
+          payment_schedule_item_id?: string | null
+        }
+        Update: {
+          amount?: number
+          billing_document_id?: string | null
+          cash_movement_id?: string
+          created_at?: string
+          created_by?: string
+          currency_code?: string
+          id?: string
+          legal_entity_id?: string
+          organization_id?: string
+          payment_schedule_item_id?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "payment_allocations_billing_document_id_organization_id_le_fkey"
+            columns: [
+              "billing_document_id",
+              "organization_id",
+              "legal_entity_id",
+              "currency_code",
+            ]
+            isOneToOne: false
+            referencedRelation: "billing_documents"
+            referencedColumns: [
+              "id",
+              "organization_id",
+              "legal_entity_id",
+              "currency_code",
+            ]
+          },
+          {
+            foreignKeyName: "payment_allocations_cash_movement_id_organization_id_legal_fkey"
+            columns: [
+              "cash_movement_id",
+              "organization_id",
+              "legal_entity_id",
+              "currency_code",
+            ]
+            isOneToOne: false
+            referencedRelation: "cash_movements"
+            referencedColumns: [
+              "id",
+              "organization_id",
+              "legal_entity_id",
+              "currency_code",
+            ]
+          },
+          {
+            foreignKeyName: "payment_allocations_currency_code_fkey"
+            columns: ["currency_code"]
+            isOneToOne: false
+            referencedRelation: "currencies"
+            referencedColumns: ["code"]
+          },
+          {
+            foreignKeyName: "payment_allocations_organization_id_fkey"
+            columns: ["organization_id"]
+            isOneToOne: false
+            referencedRelation: "organizations"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "payment_allocations_payment_schedule_item_id_organization__fkey"
+            columns: [
+              "payment_schedule_item_id",
+              "organization_id",
+              "legal_entity_id",
+              "currency_code",
+            ]
+            isOneToOne: false
+            referencedRelation: "payment_schedule_items"
+            referencedColumns: [
+              "id",
+              "organization_id",
+              "legal_entity_id",
+              "currency_code",
+            ]
+          },
+        ]
+      }
       payment_schedule_items: {
         Row: {
           amount: number
+          billing_document_id: string | null
           created_at: string
           currency_code: string
           direction: string
@@ -650,6 +994,7 @@ export type Database = {
         }
         Insert: {
           amount: number
+          billing_document_id?: string | null
           created_at?: string
           currency_code: string
           direction?: string
@@ -667,6 +1012,7 @@ export type Database = {
         }
         Update: {
           amount?: number
+          billing_document_id?: string | null
           created_at?: string
           currency_code?: string
           direction?: string
@@ -683,6 +1029,23 @@ export type Database = {
           updated_at?: string
         }
         Relationships: [
+          {
+            foreignKeyName: "payment_schedule_items_billing_document_id_organization_i_fkey"
+            columns: [
+              "billing_document_id",
+              "organization_id",
+              "legal_entity_id",
+              "currency_code",
+            ]
+            isOneToOne: false
+            referencedRelation: "billing_documents"
+            referencedColumns: [
+              "id",
+              "organization_id",
+              "legal_entity_id",
+              "currency_code",
+            ]
+          },
           {
             foreignKeyName: "payment_schedule_items_currency_code_fkey"
             columns: ["currency_code"]
@@ -1613,12 +1976,57 @@ export type Database = {
       }
     }
     Views: {
-      [_ in never]: never
+      account_balances: {
+        Row: {
+          balance: number | null
+          cash_account_id: string | null
+          currency_code: string | null
+          legal_entity_id: string | null
+          movimientos: number | null
+          organization_id: string | null
+          ultimo_movimiento: string | null
+        }
+        Relationships: []
+      }
     }
     Functions: {
       add_quote_line_from_service: {
         Args: { p_quantity?: number; p_quote: string; p_service: string }
         Returns: string
+      }
+      anular_movimiento: {
+        Args: { p_motivo: string; p_movement: string }
+        Returns: {
+          amount: number
+          amount_net: number | null
+          amount_tax: number | null
+          booked_at: string
+          cash_account_id: string
+          category_id: string | null
+          client_id: string | null
+          counterparty_kind: string | null
+          created_at: string
+          created_by: string
+          currency_code: string
+          description: string
+          direction: Database["public"]["Enums"]["cash_direction"]
+          external_ref: string | null
+          flow_class: Database["public"]["Enums"]["flow_class"]
+          id: string
+          is_void: boolean
+          kind: Database["public"]["Enums"]["cash_kind"]
+          legal_entity_id: string
+          organization_id: string
+          source: string
+          value_date: string
+          void_reason: string | null
+        }[]
+        SetofOptions: {
+          from: "*"
+          to: "cash_movements"
+          isOneToOne: false
+          isSetofReturn: true
+        }
       }
       cambiar_estado_cotizacion: {
         Args: {
@@ -1639,10 +2047,49 @@ export type Database = {
           version_no: number
         }[]
       }
+      emitir_documento: {
+        Args: {
+          p_doc_type?: Database["public"]["Enums"]["document_type"]
+          p_due_date?: string
+          p_issue_date?: string
+          p_item: string
+          p_series?: string
+        }
+        Returns: {
+          amount_net: number
+          amount_tax: number
+          amount_total: number
+          client_id: string
+          created_at: string
+          created_by: string
+          currency_code: string
+          direction: string
+          doc_type: Database["public"]["Enums"]["document_type"]
+          due_date: string | null
+          id: string
+          is_opening: boolean
+          issue_date: string
+          legal_entity_id: string
+          organization_id: string
+          quote_version_id: string | null
+          series_number: string | null
+          status: Database["public"]["Enums"]["document_status"]
+          tax_rate: number | null
+          updated_at: string
+          void_reason: string | null
+        }[]
+        SetofOptions: {
+          from: "*"
+          to: "billing_documents"
+          isOneToOne: false
+          isSetofReturn: true
+        }
+      }
       guardar_cronograma: {
         Args: { p_items: Json; p_quote: string }
         Returns: {
           amount: number
+          billing_document_id: string | null
           created_at: string
           currency_code: string
           direction: string
@@ -1667,6 +2114,93 @@ export type Database = {
       }
       next_quote_number: { Args: { p_entity: string }; Returns: string }
       recalc_quote_line_price: { Args: { p_line: string }; Returns: number }
+      registrar_cobro: {
+        Args: {
+          p_account: string
+          p_amount: number
+          p_description?: string
+          p_document: string
+          p_external_ref?: string
+          p_value_date?: string
+        }
+        Returns: {
+          amount: number
+          amount_net: number | null
+          amount_tax: number | null
+          booked_at: string
+          cash_account_id: string
+          category_id: string | null
+          client_id: string | null
+          counterparty_kind: string | null
+          created_at: string
+          created_by: string
+          currency_code: string
+          description: string
+          direction: Database["public"]["Enums"]["cash_direction"]
+          external_ref: string | null
+          flow_class: Database["public"]["Enums"]["flow_class"]
+          id: string
+          is_void: boolean
+          kind: Database["public"]["Enums"]["cash_kind"]
+          legal_entity_id: string
+          organization_id: string
+          source: string
+          value_date: string
+          void_reason: string | null
+        }[]
+        SetofOptions: {
+          from: "*"
+          to: "cash_movements"
+          isOneToOne: false
+          isSetofReturn: true
+        }
+      }
+      registrar_movimiento: {
+        Args: {
+          p_account: string
+          p_amount: number
+          p_amount_net?: number
+          p_amount_tax?: number
+          p_category?: string
+          p_client?: string
+          p_description: string
+          p_direction: Database["public"]["Enums"]["cash_direction"]
+          p_external_ref?: string
+          p_kind?: Database["public"]["Enums"]["cash_kind"]
+          p_value_date?: string
+        }
+        Returns: {
+          amount: number
+          amount_net: number | null
+          amount_tax: number | null
+          booked_at: string
+          cash_account_id: string
+          category_id: string | null
+          client_id: string | null
+          counterparty_kind: string | null
+          created_at: string
+          created_by: string
+          currency_code: string
+          description: string
+          direction: Database["public"]["Enums"]["cash_direction"]
+          external_ref: string | null
+          flow_class: Database["public"]["Enums"]["flow_class"]
+          id: string
+          is_void: boolean
+          kind: Database["public"]["Enums"]["cash_kind"]
+          legal_entity_id: string
+          organization_id: string
+          source: string
+          value_date: string
+          void_reason: string | null
+        }[]
+        SetofOptions: {
+          from: "*"
+          to: "cash_movements"
+          isOneToOne: false
+          isSetofReturn: true
+        }
+      }
       set_quote_design: {
         Args: { p_patch: Json; p_quote: string }
         Returns: Json
@@ -1674,8 +2208,30 @@ export type Database = {
     }
     Enums: {
       account_kind: "bank" | "cash" | "wallet" | "card"
+      cash_direction: "in" | "out"
+      cash_kind:
+        | "operating"
+        | "transfer"
+        | "opening"
+        | "owner_draw"
+        | "owner_contribution"
+        | "loan_in"
+        | "loan_repayment"
+        | "bank_fee"
+        | "tax_payment"
+        | "fx_adjustment"
+        | "refund"
       category_direction: "in" | "out" | "both"
       cost_item_kind: "role" | "tool" | "external" | "other"
+      document_status: "draft" | "open" | "partially_paid" | "paid" | "void"
+      document_type:
+        | "invoice"
+        | "boleta"
+        | "receipt"
+        | "note"
+        | "credit_note"
+        | "other"
+      flow_class: "operating" | "non_operating" | "internal_transfer" | "opening"
       fx_rate_kind: "closing" | "official" | "manual"
       membership_role: "owner" | "admin" | "finance" | "commercial" | "viewer"
       membership_status: "invited" | "active" | "suspended"
@@ -1818,8 +2374,32 @@ export const Constants = {
   public: {
     Enums: {
       account_kind: ["bank", "cash", "wallet", "card"],
+      cash_direction: ["in", "out"],
+      cash_kind: [
+        "operating",
+        "transfer",
+        "opening",
+        "owner_draw",
+        "owner_contribution",
+        "loan_in",
+        "loan_repayment",
+        "bank_fee",
+        "tax_payment",
+        "fx_adjustment",
+        "refund",
+      ],
       category_direction: ["in", "out", "both"],
       cost_item_kind: ["role", "tool", "external", "other"],
+      document_status: ["draft", "open", "partially_paid", "paid", "void"],
+      document_type: [
+        "invoice",
+        "boleta",
+        "receipt",
+        "note",
+        "credit_note",
+        "other",
+      ],
+      flow_class: ["operating", "non_operating", "internal_transfer", "opening"],
       fx_rate_kind: ["closing", "official", "manual"],
       membership_role: ["owner", "admin", "finance", "commercial", "viewer"],
       membership_status: ["invited", "active", "suspended"],

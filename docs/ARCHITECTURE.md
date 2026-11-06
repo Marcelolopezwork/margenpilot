@@ -88,6 +88,18 @@ Leído en palabras:
 Esta es la decisión arquitectónica principal y la respuesta a §4 del plan ("definir si `receipts_payments` es el libro de caja", "evitar duplicar el libro de caja"). Tres tablas hermanas para cobros, gastos y transferencias serían tres libros de caja. Hay uno.
 
 ```sql
+-- Construido en la migración 20261106120000. Lo que se levantó es esto menos
+-- tres cosas, las tres porque dependen de tablas que todavía no existen y
+-- media tabla es peor que ninguna:
+--   · `transfer_id` y la tabla `transfers` (§3.1), que necesitan su cabecera
+--     y su tasa efectiva;
+--   · `supplier_id`, que necesita la tabla de proveedores;
+--   · `void_of_id`, que se cae por la corrección de INV-7 en
+--     `FINANCIAL_RULES.md`: con la vista de saldos excluyendo los anulados,
+--     una contrapartida restaría el dinero dos veces.
+-- `billing_documents` admite solo `direction = 'sale'` por lo mismo: una
+-- compra necesita proveedor.
+
 create type cash_direction as enum ('in','out');
 
 create type cash_kind as enum (
@@ -215,7 +227,9 @@ create table payment_allocations (
 );
 ```
 
-n:m en ambos sentidos: un cobro cubre varias facturas, y una factura recibe varios cobros parciales. Los límites (`Σ asignado ≤ monto del movimiento`, `Σ asignado ≤ total del documento`, monedas iguales) se imponen con triggers `AFTER INSERT/UPDATE DEFERRABLE`; están especificados como INV-2 a INV-4 en `FINANCIAL_RULES.md`.
+n:m en ambos sentidos: un cobro cubre varias facturas, y una factura recibe varios cobros parciales. Los límites (`Σ asignado ≤ monto del movimiento`, `Σ asignado ≤ total del documento`) se imponen con un trigger `AFTER INSERT/UPDATE DEFERRABLE`; están especificados como INV-2 e INV-3 en `FINANCIAL_RULES.md`.
+
+Construido en la migración 20261106120000 con una diferencia que conviene subrayar, porque es el patrón que más veces se repite en esta base: **INV-4 (las monedas no se cruzan) no se comprueba, no tiene camino.** La asignación lleva organización, entidad y moneda, y las tres claves foráneas que la atan al movimiento, al documento y a la cuota son compuestas sobre esas cuatro columnas. Cobrar en dólares una factura en soles no es un error que un disparador rechace: es una fila que Postgres no puede escribir. Por eso INV-4 no tiene disparador y las otras dos sí.
 
 ---
 

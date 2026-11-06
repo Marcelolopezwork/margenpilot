@@ -75,6 +75,7 @@ const cuota = (extra: Record<string, unknown>) => ({
   expected_cash_account_id: null,
   status: 'planned',
   sort: 1,
+  billing_document_id: null,
   ...extra,
 });
 
@@ -177,7 +178,13 @@ describe('el cronograma de cobro', () => {
 
   it('una cuota documentada no se edita y sigue contando para el total', async () => {
     CUOTAS.push(
-      cuota({ id: 'q-1', label: 'Anticipo 50 %', amount: '5653.97', status: 'documented' }),
+      cuota({
+        id: 'q-1',
+        label: 'Anticipo 50 %',
+        amount: '5653.97',
+        status: 'documented',
+        billing_document_id: 'doc-1',
+      }),
       cuota({ id: 'q-2', label: 'Contra entrega', amount: '5653.97', due_date: '2026-12-05' }),
     );
     await montar();
@@ -185,13 +192,106 @@ describe('el cronograma de cobro', () => {
 
     // La documentada se lee, no se teclea.
     expect(screen.queryByLabelText('Importe de la cuota 1')).toBeNull();
-    expect(screen.getByText('documentada')).toBeTruthy();
-    // Y la segunda sí.
+    // Y lo que ofrece es el paso siguiente: cobrarla.
+    expect(screen.getByRole('button', { name: 'Cobrar' })).toBeTruthy();
+    // Y la segunda sí se edita.
     expect((screen.getByLabelText('Importe de la cuota 2') as HTMLInputElement).value).toBe(
       '5653.97',
     );
     // Las dos juntas cuadran con el total.
     expect(screen.getByText(/cuadra con la versión aceptada/)).toBeTruthy();
+  });
+
+  it('una cuota prevista y guardada ofrece emitir su documento', async () => {
+    CUOTAS.push(cuota({}));
+    await montar();
+    await screen.findByText('Cronograma de cobro');
+
+    const boton = screen.getByRole('button', { name: 'Emitir' }) as HTMLButtonElement;
+    expect(boton.disabled).toBe(false);
+  });
+
+  it('no deja emitir mientras haya cambios sin guardar', async () => {
+    const usuario = userEvent.setup();
+    CUOTAS.push(cuota({}));
+    await montar();
+    await screen.findByText('Cronograma de cobro');
+
+    // Tocar un importe deja un borrador en pantalla: el documento se emitiría
+    // por una cifra que todavía no está en la base.
+    const importe = screen.getByLabelText('Importe de la cuota 1');
+    await usuario.clear(importe);
+    await usuario.type(importe, '11307.94');
+
+    expect((screen.getByRole('button', { name: 'Emitir' }) as HTMLButtonElement).disabled).toBe(
+      true,
+    );
+  });
+
+  it('emitir manda el tipo, la serie y la fecha, y nada más', async () => {
+    const usuario = userEvent.setup();
+    CUOTAS.push(cuota({}));
+    await montar();
+    await screen.findByText('Cronograma de cobro');
+
+    await usuario.click(screen.getByRole('button', { name: 'Emitir' }));
+    await usuario.type(screen.getByLabelText('Serie y número'), 'F001-00000123');
+    await usuario.click(screen.getByRole('button', { name: 'Emitir documento' }));
+
+    await waitFor(() => expect(llamadas).toHaveLength(1));
+    expect(llamadas[0]?.nombre).toBe('emitir_documento');
+    const args = llamadas[0]?.args as Record<string, unknown>;
+    expect(args.p_item).toBe('q-1');
+    expect(args.p_doc_type).toBe('invoice');
+    expect(args.p_series).toBe('F001-00000123');
+    // El importe no viaja: lo pone la base desde la cuota, para que el
+    // documento no pueda decir otra cifra que el cronograma.
+    expect(args).not.toHaveProperty('p_amount');
+  });
+
+  it('el cobro llega prellenado con lo que queda de la cuota', async () => {
+    const usuario = userEvent.setup();
+    CUOTAS.push(
+      cuota({
+        id: 'q-1',
+        label: 'Anticipo 50 %',
+        amount: '5653.97',
+        status: 'documented',
+        billing_document_id: 'doc-1',
+        expected_cash_account_id: 'cta-1',
+      }),
+      cuota({ id: 'q-2', label: 'Contra entrega', amount: '5653.97', due_date: '2026-12-05' }),
+    );
+    await montar();
+    await screen.findByText('Cronograma de cobro');
+
+    await usuario.click(screen.getByRole('button', { name: 'Cobrar' }));
+
+    expect((screen.getByLabelText(/Importe en PEN/) as HTMLInputElement).value).toBe('5653.97');
+    // Y en la cuenta que el cronograma ya tenía apuntada.
+    expect((screen.getByLabelText('Entra en') as HTMLSelectElement).value).toBe('cta-1');
+
+    await usuario.click(screen.getByRole('button', { name: 'Registrar cobro' }));
+
+    await waitFor(() => expect(llamadas).toHaveLength(1));
+    expect(llamadas[0]?.nombre).toBe('registrar_cobro');
+    expect(llamadas[0]?.args).toMatchObject({
+      p_document: 'doc-1',
+      p_account: 'cta-1',
+      p_amount: 5653.97,
+    });
+  });
+
+  it('un rol sin finanzas ve que está documentada y no la cobra', async () => {
+    CUOTAS.push(
+      cuota({ status: 'documented', billing_document_id: 'doc-1' }),
+    );
+    await montar('approved', false);
+    await screen.findByText('Cronograma de cobro');
+
+    expect(screen.getByText('documentada')).toBeTruthy();
+    expect(screen.queryByRole('button', { name: 'Cobrar' })).toBeNull();
+    expect(screen.queryByRole('button', { name: 'Emitir' })).toBeNull();
   });
 
   it('un rol sin finanzas lo ve y no lo toca', async () => {

@@ -60,7 +60,9 @@ Es decir: si el movimiento está asignado a un documento, **el documento manda**
 ### INV-7 — Nada financiero se borra
 `DELETE` está revocado para `authenticated` en: `cash_movements`, `billing_documents`, `payment_allocations`, `transfers`, `quote_versions`, `statement_imports`, `statement_lines`, `reconciliation_matches`, `reconciliation_decisions`, `audit_log`.
 
-Anular un movimiento = marcar `is_void=true` **y** crear el movimiento contrapartida con `void_of_id` apuntando al original y `void_reason` obligatorio. El saldo se corrige solo (INV-1) y la historia queda completa.
+Anular un movimiento = marcar `is_void=true` con `void_reason` obligatorio. El saldo se corrige solo, porque la fórmula de INV-1 no cuenta lo anulado, y la fila se queda donde estaba, que es lo que esta regla protege.
+
+**Corregido el 6/11/2026.** Esta regla pedía además crear el movimiento contrapartida con `void_of_id` apuntando al original. Las dos cosas juntas son incompatibles con INV-1 tal como está escrita: si la fórmula del saldo excluye los anulados **y** además existe una contrapartida, el dinero se resta dos veces. Hay dos diseños coherentes —marcar y excluir, o no excluir y compensar— y se elige el primero, porque es el que INV-1 escribe literalmente y el que deja una sola fórmula de saldo. `void_of_id` deja de existir; la trazabilidad de quién anuló y cuándo la da `audit_log`, que guarda la fila antes y después.
 
 ### INV-8 — Conciliar no crea dinero
 Confirmar una coincidencia solo escribe en `reconciliation_matches`. El único camino que crea un `cash_movement` desde la conciliación es la acción explícita `create_movement`, que pasa por las mismas validaciones que el alta manual y queda marcada `source='bank_import'`.

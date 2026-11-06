@@ -65,7 +65,7 @@ que la clave sea secreta.
 Todo esto está **en producción y verificado contra la base real**, no solo
 compilado.
 
-### Base de datos · veintiocho migraciones aplicadas
+### Base de datos · treinta migraciones aplicadas
 
 ```
 20261028120000 foundations      esquema, tablas, disparadores, auditoría
@@ -136,11 +136,11 @@ caja (BCP soles en PEN, Mercury en USD), un cliente y una cotización de prueba.
 
 ### Verificación
 
-- **127 pruebas** de Vitest: dinero, errores, formato, armazón, altas, el A4,
+- **149 pruebas** de Vitest: dinero, errores, formato, armazón, altas, el A4,
   la propuesta, la aritmética de la cotización, el panel de emisión, la
-  reimpresión de una versión emitida, el reparto en cuotas y el margen
-  agregado
-- **53 aserciones** SQL en `supabase/tests/invariants.sql`
+  reimpresión de una versión emitida, el reparto en cuotas, el margen
+  agregado, la cartera y la pantalla de finanzas
+- **65 aserciones** SQL en `supabase/tests/invariants.sql`
 - CI en GitHub Actions: tipos, lint, pruebas, build, y las migraciones
   reaplicadas desde cero en cada push. El Postgres de la CI es pelado y no
   trae lo que Supabase pone encima, así que `supabase/stubs/auth.sql` y
@@ -158,27 +158,47 @@ F2-13 (reemisión) y F2-14 (anulación con motivo). Hechos el 5/11: F2-15
 (cronograma de cobro al aprobar) y F2-17 (listado con filtros y margen
 agregado ponderado).
 
-Quedan dos, y ninguno de los dos se puede terminar todavía:
+Hecho el 6/11: **F2-16 (cuota → documento → cobro)**, que esperaba a las
+tablas de F3. El wireframe H-2 del backlog («aprobación → cronograma →
+documento») queda cubierto entero.
 
-1. **Cuota → documento → cobro** (F2-16). Está en F2 en el backlog, pero
-   necesita `billing_documents`, `cash_movements` y `payment_allocations`, que
-   son de F3. Lo que ya está puesto es la puerta: los estados `documented` y
-   `settled` existen en el enum, `guardar_cronograma` no toca una cuota que
-   esté en ellos y las cuenta aparte al cuadrar la suma. Falta quien las
-   mueva.
-2. **PDF en el servidor con su propia huella** (F2-12). Hoy la reproducibilidad
+Queda uno:
+
+1. **PDF en el servidor con su propia huella** (F2-12). Hoy la reproducibilidad
    la da `snapshot_sha256`: el documento sale de la copia, pero lo dibuja el
    navegador. Un servicio que imprima con Chrome headless lo cerraría, y no
    toca hasta que haya envío por correo.
 
-El wireframe H-2 del backlog («aprobación → cronograma → documento») se cubrió
-a medias: el paso del medio ya existe en pantalla, el de la derecha llega con
-F3.
+### F3 · Finanzas
+
+Hecho el 6/11, **F3-1**: el libro de caja existe. `cash_movements` como única
+fuente del dinero (INV-1), `billing_documents` como cartera,
+`payment_allocations` uniendo las dos, la vista `account_balances` con la única
+fórmula de saldo que hay, y cuatro puertas de escritura: `emitir_documento`,
+`registrar_cobro`, `registrar_movimiento` y `anular_movimiento`. Pantalla
+`/finanzas` con saldos por moneda, por cobrar con vencimientos, el libro y el
+alta manual.
+
+Lo que falta de F3, por orden:
+
+1. **Transferencias entre cuentas** (INV-5). Necesitan su cabecera `transfers`,
+   que ata las dos o tres patas, y la tasa **efectivamente aplicada por el
+   banco**, no una de referencia. Por eso «transferencia» no está entre los
+   tipos que ofrece el alta manual: elegirlo ahí dejaría media transferencia
+   sin crear.
+2. **Proveedores y compras.** `billing_documents` solo admite
+   `direction = 'sale'` porque no hay tabla de proveedores. Con ella llegan los
+   gastos con documento y el IGV soportado.
+3. **Los dos lentes: Caja y Resultado.** El flujo de 13 semanas (que ya tiene
+   su índice preparado en `payment_schedule_items`) y la cuenta de resultados,
+   que es donde `flow_class` deja de ser una columna y se vuelve el filtro que
+   separa lo operativo de un retiro del dueño.
+4. **Conciliación bancaria** (INV-8) e importación de extractos.
+5. **Consolidado referencial** con su tasa a la vista (ADR-16): nunca un total
+   que mezcle monedas sin decir a qué cambio.
 
 ### Después
 
-- **F3 · Finanzas:** movimientos de caja, documentos, cobros, los dos lentes
-  (Caja y Resultado), consolidado referencial con su tasa a la vista.
 - **F4 · Pipeline:** tablero de oportunidades y seguimiento.
 
 ### Pendiente de Marcelo, no de código
@@ -198,7 +218,16 @@ F3.
 
 ### Deuda técnica anotada
 
-- El bundle principal va por 606 kB en crudo (≈172 kB comprimidos). jsPDF y
+- **`src/types/database.ts` tiene tres tablas escritas a mano.** El token del
+  CLI de Supabase no tiene permiso para el endpoint de tipos:
+  `npm run db:types` contesta `LegacyGenTypesUnexpectedStatusError` y, lo peor,
+  **escribe ese error encima del archivo**. Si se ejecuta, hay que recuperarlo
+  con `git checkout -- src/types/database.ts`. Lo de F3 se copió del esquema
+  real y se verificó columna por columna, pero la regla «no editar a mano»
+  sigue siendo la buena: en cuanto el CLI pueda, regenerar el archivo entero.
+  Para arreglarlo hace falta un token de acceso personal con permiso sobre el
+  proyecto (`supabase login`), que es algo de Marcelo, no de código.
+- El bundle principal va por 628 kB en crudo (≈179 kB comprimidos). jsPDF y
   sus dependencias ya van en trozos aparte, cargados solo al descargar; falta
   dividir las rutas con `React.lazy` antes de que entre F3.
 - La aritmética de la cotización está escrita dos veces: en
@@ -352,6 +381,21 @@ Cada una costó tiempo. Están aquí para no repetirlas.
     nunca: `invariants.sql` insertaba una ficha de servicio sin empresa, que
     `20261104170000` había vuelto obligatoria. Una CI roja no esconde un
     problema: esconde todos los que vienen después del primero.
+13. **Una columna generada exige una expresión inmutable, y convertir texto a
+    enum no lo es.** `flow_class` se escribió como
+    `case kind when 'transfer' then 'internal_transfer' … end::flow_class` y
+    Postgres lo rechazó con `generation expression is not immutable`: castear
+    el `case` entero usa `enum_in`, que es `stable`. Con el cast en cada
+    literal —`'internal_transfer'::flow_class`— los reduce a constantes y
+    compila.
+14. **Un `case` que devuelve texto no se asigna a una columna enum, y el sitio
+    donde se nota es el peor posible.** El disparador que pasa una cuota a
+    `settled` reventaba con `column "status" is of type schedule_status but
+    expression is of type text` justo en el momento de registrar el cobro: la
+    migración había aplicado sin problema y el fallo solo aparecía al mover
+    dinero de verdad. Lo cazó la comprobación contra la base real, no la
+    revisión del código. Un cast que falta no se ve leyendo; se ve
+    ejecutando.
 
 ---
 

@@ -37,6 +37,32 @@ function demasiadasOrganizaciones(partes: string[]): string | null {
   return `Ya tienes ${tiene} organizaciones, que es el máximo por cuenta. Archiva una antes de crear otra.`;
 }
 
+/**
+ * Códigos cuyo mensaje ya viene escrito para leerse y con la cifra concreta
+ * dentro. Aquí una traducción fija sería peor: perdería el número, que es lo
+ * único que le dice al usuario qué tiene que corregir. Lo único que sobra es
+ * el código delante.
+ */
+const CON_CIFRAS: readonly string[] = [
+  'cronograma_descuadrado',
+  'cobro_excede_documento',
+  'asignacion_excede_movimiento',
+  'desglose_descuadrado',
+  'documento_cerrado',
+  'cuenta_de_otro_libro',
+];
+
+function conCifras(bruto: string): string | null {
+  const corte = bruto.indexOf(':');
+  if (corte < 0) return null;
+  if (!CON_CIFRAS.includes(bruto.slice(0, corte).trim())) return null;
+
+  const resto = bruto.slice(corte + 1).trim();
+  if (!resto) return null;
+  const frase = resto.charAt(0).toUpperCase() + resto.slice(1);
+  return /[.!?]$/.test(frase) ? frase : `${frase}.`;
+}
+
 /** Prefijos con traducción fija. Son exclusivos entre sí, el orden no importa. */
 const FIJOS: readonly (readonly [string, string])[] = [
   [
@@ -78,6 +104,51 @@ const FIJOS: readonly (readonly [string, string])[] = [
   ['Invalid login credentials', 'Correo o contraseña incorrectos.'],
   ['Email not confirmed', 'Ese usuario existe pero su correo no está confirmado. Confírmalo desde el panel de Supabase, en Authentication → Users.'],
   ['email rate limit exceeded', 'Supabase no deja enviar más correos por ahora: su servicio de cortesía tiene un límite bajo por hora. Entra con contraseña o espera un rato (D-7).'],
+  // F2-15 · el cronograma de cobro
+  [
+    'cotizacion_no_aprobada',
+    'El cronograma de cobro se arma cuando el cliente acepta la cotización. Mientras no esté aprobada no hay nada que repartir.',
+  ],
+  [
+    'sin_version',
+    'Esta cotización no tiene ninguna versión emitida, así que no hay un total aceptado que repartir. Emítela primero.',
+  ],
+  [
+    'cronograma_invalido',
+    'El cronograma llegó mal formado o con demasiadas cuotas. Recarga la pantalla y vuelve a repartir.',
+  ],
+  // F3 · documentos, cobros y el libro de caja
+  [
+    'cuota_no_encontrada',
+    'Esa cuota ya no existe, o no tienes permiso de finanzas en esta organización. El cronograma lo arma quien lleva el dinero.',
+  ],
+  [
+    'cuota_no_prevista',
+    'Esta cuota ya tiene documento emitido o ya se cobró. Para cambiarla hay que anular lo que haya detrás, no volver a emitir.',
+  ],
+  [
+    'cuota_sin_cotizacion',
+    'Esta cuota no cuelga de ninguna cotización, así que no se sabe a qué cliente facturarla.',
+  ],
+  [
+    'documento_no_encontrado',
+    'Ese documento ya no existe, o no tienes permiso de finanzas en esta organización.',
+  ],
+  [
+    'cuenta_no_encontrada',
+    'Esa cuenta ya no existe, o no tienes permiso de finanzas en esta organización.',
+  ],
+  ['importe_invalido', 'El importe tiene que ser mayor que cero.'],
+  [
+    'descripcion_obligatoria',
+    'Un movimiento necesita concepto. Sin él, dentro de tres meses no se puede conciliar con el extracto del banco.',
+  ],
+  ['motivo_obligatorio', 'Anular algo exige decir por qué. Queda escrito y no se borra.'],
+  [
+    'movimiento_no_encontrado',
+    'Ese movimiento ya no existe, o no tienes permiso de finanzas en esta organización.',
+  ],
+  ['movimiento_ya_anulado', 'Este movimiento ya estaba anulado.'],
   ['invalid_name', 'Hace falta un nombre.'],
   ['unknown_currency', 'Esa moneda no existe en el catálogo.'],
 ];
@@ -111,7 +182,8 @@ export function mensajeDeError(error: ErrorLike): string {
   const bruto = (error.message ?? '').trim();
   const partes = bruto.split(':');
 
-  const conDatos = limiteDePlan(partes) ?? demasiadasOrganizaciones(partes);
+  const conDatos =
+    limiteDePlan(partes) ?? demasiadasOrganizaciones(partes) ?? conCifras(bruto);
   if (conDatos) return conDatos;
 
   for (const [prefijo, texto] of FIJOS) {

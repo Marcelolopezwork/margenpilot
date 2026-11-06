@@ -16,6 +16,7 @@ import Clientes from './pages/comercial/Clientes';
 import Comercial from './pages/comercial/Comercial';
 import Cotizacion from './pages/comercial/Cotizacion';
 import Cotizaciones from './pages/comercial/Cotizaciones';
+import Finanzas from './pages/finanzas/Finanzas';
 import Propuesta from './pages/comercial/Propuesta';
 import PropuestaEmitida from './pages/comercial/PropuestaEmitida';
 import CategoriasServicio from './pages/catalogo/CategoriasServicio';
@@ -112,7 +113,7 @@ function ConOrganizacion() {
           <Route path="costos" element={<Costos />} />
           <Route path="categorias" element={<CategoriasServicio />} />
         </Route>
-        <Route path="finanzas" element={<Pendiente ruta="/finanzas" fase="F3" />} />
+        <Route path="finanzas" element={<Finanzas />} />
         <Route path="pipeline" element={<Pendiente ruta="/pipeline" fase="F4" />} />
         <Route path="analisis" element={<Pendiente ruta="/analisis" fase="F3" />} />
         <Route path="configuracion" element={<Settings />}>

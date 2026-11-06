@@ -2,12 +2,15 @@ import { useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Aviso, Boton, Cargando, Tarjeta } from '../../components/ui';
 import { mensajeDeError } from '../../lib/errors';
-import { format, fromRow, subtract, zero } from '../../lib/money';
+import { format, fromRow, subtract, toDb, zero } from '../../lib/money';
 import type { CurrencyCode, Money } from '../../lib/money';
 import { requireSupabase } from '../../lib/supabase';
 import { diferencia, estaCongelada, hoyIso, reparto, sumaDe } from './cuotas';
 import type { EstadoCuota, FilaCuota } from './cuotas';
 import type { Estado } from './estados';
+import { cobradoPorDocumento } from '../finanzas/cobrado';
+import { TIPOS_DE_VENTA, nombreTipoDocumento } from '../finanzas/cartera';
+import type { Enums } from '../../types/database';
 
 /**
  * El cronograma de cobro de una cotización aprobada.
@@ -40,13 +43,27 @@ export default function Cronograma({
   const cliente = useQueryClient();
   const [borrador, setBorrador] = useState<FilaCuota[] | null>(null);
 
+  // Qué se está haciendo con una cuota: nada, emitir su documento, o
+  // registrar un cobro. Una sola a la vez, porque son acciones que mueven
+  // dinero y abrir dos formularios invita a confundirlas.
+  const [accion, setAccion] = useState<{ tipo: 'emitir' | 'cobrar'; cuota: string } | null>(null);
+  const [tipoDoc, setTipoDoc] = useState<Enums<'document_type'>>('invoice');
+  const [serie, setSerie] = useState('');
+  const [fechaEmision, setFechaEmision] = useState(hoyIso());
+  const [cuentaCobro, setCuentaCobro] = useState('');
+  const [importeCobro, setImporteCobro] = useState('');
+  const [fechaCobro, setFechaCobro] = useState(hoyIso());
+  const [refCobro, setRefCobro] = useState('');
+
   const cuotas = useQuery({
     queryKey: ['cotizacion', cotizacion, 'cronograma'],
     enabled: estado === 'approved',
     queryFn: async () => {
       const { data, error } = await requireSupabase()
         .from('payment_schedule_items')
-        .select('id, label, due_date, amount, expected_cash_account_id, status, sort')
+        .select(
+          'id, label, due_date, amount, expected_cash_account_id, status, sort, billing_document_id',
+        )
         .eq('quote_id', cotizacion)
         .order('due_date')
         .order('sort');
@@ -88,6 +105,68 @@ export default function Cronograma({
       if (error) throw error;
       return data ?? [];
     },
+  });
+
+  // Lo cobrado de cada documento de este cronograma, para saber cuánto queda.
+  // Depende de las cuotas, así que se declara después y se activa sola.
+  const documentos = useQuery({
+    queryKey: [
+      'cotizacion',
+      cotizacion,
+      'cobrado',
+      (cuotas.data ?? []).map((c) => c.billing_document_id ?? '').join(','),
+    ],
+    enabled: estado === 'approved' && puedeEditar,
+    queryFn: async () => {
+      const ids = (cuotas.data ?? [])
+        .map((c) => c.billing_document_id)
+        .filter((id): id is string => id !== null);
+      return cobradoPorDocumento(ids);
+    },
+  });
+
+  function cerrar() {
+    setAccion(null);
+    setSerie('');
+    setRefCobro('');
+    setImporteCobro('');
+  }
+
+  function alCambiarElDinero() {
+    cerrar();
+    void cliente.invalidateQueries({ queryKey: ['cotizacion', cotizacion] });
+    // Finanzas mira las mismas filas desde el otro lado: si no se invalida,
+    // el saldo de la cuenta se queda con la cifra de antes del cobro.
+    void cliente.invalidateQueries({ queryKey: ['saldos'] });
+    void cliente.invalidateQueries({ queryKey: ['cartera'] });
+    void cliente.invalidateQueries({ queryKey: ['movimientos'] });
+  }
+
+  const emitir = useMutation({
+    mutationFn: async (cuota: string) => {
+      const { error } = await requireSupabase().rpc('emitir_documento', {
+        p_item: cuota,
+        p_doc_type: tipoDoc,
+        p_issue_date: fechaEmision,
+        ...(serie.trim() ? { p_series: serie.trim() } : {}),
+      });
+      if (error) throw error;
+    },
+    onSuccess: alCambiarElDinero,
+  });
+
+  const cobrar = useMutation({
+    mutationFn: async ({ documento }: { documento: string }) => {
+      const { error } = await requireSupabase().rpc('registrar_cobro', {
+        p_document: documento,
+        p_account: cuentaCobro,
+        p_amount: Number(importeCobro.replace(',', '.')),
+        p_value_date: fechaCobro,
+        ...(refCobro.trim() ? { p_external_ref: refCobro.trim() } : {}),
+      });
+      if (error) throw error;
+    },
+    onSuccess: alCambiarElDinero,
   });
 
   const guardar = useMutation({
@@ -175,6 +254,43 @@ export default function Cronograma({
 
   const nombreCuenta = (id: string) =>
     (cuentas.data ?? []).find((c) => c.id === id)?.name ?? '—';
+
+  const documentoDe = (cuota: string): string | null =>
+    (cuotas.data ?? []).find((c) => c.id === cuota)?.billing_document_id ?? null;
+
+  /** Lo que queda por cobrar de la cuota, que es lo que el cobro prellena. */
+  function pendienteDeLaCuota(fila: FilaCuota): Money | null {
+    if (!fila.id) return null;
+    const doc = documentoDe(fila.id);
+    let total: Money;
+    try {
+      total = fromRow(fila.amount, moneda);
+    } catch {
+      return null;
+    }
+    const cobrado = doc ? documentos.data?.get(doc) : undefined;
+    return cobrado ? subtract(total, cobrado) : total;
+  }
+
+  function abrirEmision(fila: FilaCuota) {
+    if (!fila.id) return;
+    setTipoDoc('invoice');
+    setSerie('');
+    setFechaEmision(hoyIso());
+    setAccion({ tipo: 'emitir', cuota: fila.id });
+  }
+
+  function abrirCobro(fila: FilaCuota) {
+    if (!fila.id) return;
+    const queda = pendienteDeLaCuota(fila);
+    setCuentaCobro(fila.cash_account_id || ((cuentas.data ?? [])[0]?.id ?? ''));
+    setImporteCobro(queda ? toDb(queda) : fila.amount);
+    setFechaCobro(hoyIso());
+    setRefCobro('');
+    setAccion({ tipo: 'cobrar', cuota: fila.id });
+  }
+
+  const cuotaDeLaAccion = accion ? filas.find((f) => f.id === accion.cuota) : undefined;
 
   return (
     <Tarjeta className="p-5">
@@ -311,19 +427,51 @@ export default function Cronograma({
                     </td>
                   )}
                   <td className="py-2 text-right">
-                    {fija ? (
-                      <span className="text-xs text-subtle">
-                        {f.status === 'settled' ? 'cobrada' : 'documentada'}
-                      </span>
+                    {f.status === 'settled' ? (
+                      <span className="text-xs text-positive">cobrada</span>
+                    ) : f.status === 'documented' ? (
+                      puedeEditar && f.id ? (
+                        <Boton
+                          variante="secundario"
+                          className="min-h-0 px-2 py-1 text-xs"
+                          onClick={() => abrirCobro(f)}
+                        >
+                          Cobrar
+                        </Boton>
+                      ) : (
+                        <span className="text-xs text-subtle">documentada</span>
+                      )
+                    ) : f.status === 'cancelled' ? (
+                      <span className="text-xs text-subtle">cancelada</span>
                     ) : (
                       puedeEditar && (
-                        <Boton
-                          variante="sutil"
-                          className="min-h-0 px-2 py-1 text-xs"
-                          onClick={() => quitar(i)}
-                        >
-                          Quitar
-                        </Boton>
+                        <div className="flex flex-wrap justify-end gap-1">
+                          {/* Emitir pide que la cuota esté guardada: emitir un
+                              documento por una cifra que solo existe en la
+                              pantalla sería emitirlo por otra cantidad. */}
+                          {f.id && (
+                            <Boton
+                              variante="secundario"
+                              className="min-h-0 px-2 py-1 text-xs"
+                              onClick={() => abrirEmision(f)}
+                              disabled={borrador !== null}
+                              title={
+                                borrador !== null
+                                  ? 'Guarda el cronograma antes de emitir: el documento se emite por el importe guardado.'
+                                  : undefined
+                              }
+                            >
+                              Emitir
+                            </Boton>
+                          )}
+                          <Boton
+                            variante="sutil"
+                            className="min-h-0 px-2 py-1 text-xs"
+                            onClick={() => quitar(i)}
+                          >
+                            Quitar
+                          </Boton>
+                        </div>
                       )
                     )}
                   </td>
@@ -340,6 +488,165 @@ export default function Cronograma({
           </tbody>
         </table>
       </div>
+
+      {accion && cuotaDeLaAccion && (
+        <div className="mt-4 rounded-card border border-border bg-canvas p-4">
+          {accion.tipo === 'emitir' ? (
+            <form
+              className="flex flex-col gap-3"
+              onSubmit={(e) => {
+                e.preventDefault();
+                emitir.mutate(accion.cuota);
+              }}
+            >
+              <div>
+                <h3 className="text-sm font-semibold">
+                  Emitir el documento de «{cuotaDeLaAccion.label}»
+                </h3>
+                <p className="mt-1 max-w-xl text-xs text-subtle">
+                  Por {importeLegible(cuotaDeLaAccion.amount, moneda)}, el importe exacto de la
+                  cuota. A partir de aquí entra en «Por cobrar» y el cliente te lo debe. El neto y
+                  el impuesto los parte la base con la tasa de esta cotización.
+                </p>
+              </div>
+
+              <div className="flex flex-wrap gap-3">
+                <label className="flex flex-col gap-1 text-xs text-subtle">
+                  Tipo
+                  <select
+                    value={tipoDoc}
+                    onChange={(e) => setTipoDoc(e.target.value as Enums<'document_type'>)}
+                    className="min-h-11 rounded-control border border-border bg-surface px-2 text-sm text-text"
+                  >
+                    {TIPOS_DE_VENTA.map((t) => (
+                      <option key={t} value={t}>
+                        {nombreTipoDocumento(t)}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+
+                <label className="flex flex-col gap-1 text-xs text-subtle">
+                  Serie y número
+                  <input
+                    value={serie}
+                    onChange={(e) => setSerie(e.target.value)}
+                    placeholder="F001-00000123"
+                    className="num min-h-11 rounded-control border border-border bg-surface px-2 text-sm text-text"
+                  />
+                </label>
+
+                <label className="flex flex-col gap-1 text-xs text-subtle">
+                  Fecha de emisión
+                  <input
+                    type="date"
+                    value={fechaEmision}
+                    onChange={(e) => setFechaEmision(e.target.value)}
+                    className="num min-h-11 rounded-control border border-border bg-surface px-2 text-sm text-text"
+                  />
+                </label>
+              </div>
+
+              <p className="max-w-xl text-xs text-subtle">
+                El número lo copias del comprobante que ya emitiste en tu sistema de facturación.
+                Puede quedar vacío: aquí no se inventa, porque en Perú lo asigna SUNAT y un número
+                inventado en la cartera es peor que ninguno.
+              </p>
+
+              {emitir.error && <Aviso tipo="error">{mensajeDeError(emitir.error)}</Aviso>}
+
+              <div className="flex gap-2">
+                <Boton variante="primario" type="submit" disabled={emitir.isPending}>
+                  {emitir.isPending ? 'Emitiendo…' : 'Emitir documento'}
+                </Boton>
+                <Boton variante="sutil" type="button" onClick={cerrar}>
+                  Cancelar
+                </Boton>
+              </div>
+            </form>
+          ) : (
+            <form
+              className="flex flex-col gap-3"
+              onSubmit={(e) => {
+                e.preventDefault();
+                const doc = documentoDe(accion.cuota);
+                if (doc) cobrar.mutate({ documento: doc });
+              }}
+            >
+              <div>
+                <h3 className="text-sm font-semibold">
+                  Registrar el cobro de «{cuotaDeLaAccion.label}»
+                </h3>
+                <p className="mt-1 max-w-xl text-xs text-subtle">
+                  Esto crea el movimiento en la cuenta y lo ata al documento. Puede ser parcial: si
+                  cobras la mitad, el documento queda cobrado a medias y la cuota sigue en cartera.
+                </p>
+              </div>
+
+              <div className="flex flex-wrap gap-3">
+                <label className="flex flex-col gap-1 text-xs text-subtle">
+                  Entra en
+                  <select
+                    value={cuentaCobro}
+                    onChange={(e) => setCuentaCobro(e.target.value)}
+                    required
+                    className="min-h-11 rounded-control border border-border bg-surface px-2 text-sm text-text"
+                  >
+                    <option value="">Elige una cuenta</option>
+                    {(cuentas.data ?? []).map((c) => (
+                      <option key={c.id} value={c.id}>
+                        {c.name}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+
+                <label className="flex flex-col gap-1 text-xs text-subtle">
+                  Importe en {moneda}
+                  <input
+                    inputMode="decimal"
+                    value={importeCobro}
+                    onChange={(e) => setImporteCobro(e.target.value)}
+                    required
+                    className="num min-h-11 w-32 rounded-control border border-border bg-surface px-2 text-right text-sm text-text"
+                  />
+                </label>
+
+                <label className="flex flex-col gap-1 text-xs text-subtle">
+                  Fecha en que entró
+                  <input
+                    type="date"
+                    value={fechaCobro}
+                    onChange={(e) => setFechaCobro(e.target.value)}
+                    className="num min-h-11 rounded-control border border-border bg-surface px-2 text-sm text-text"
+                  />
+                </label>
+
+                <label className="flex flex-col gap-1 text-xs text-subtle">
+                  Referencia
+                  <input
+                    value={refCobro}
+                    onChange={(e) => setRefCobro(e.target.value)}
+                    placeholder="N.º de operación"
+                    className="min-h-11 rounded-control border border-border bg-surface px-2 text-sm text-text"
+                  />
+                </label>
+              </div>
+
+              {cobrar.error && <Aviso tipo="error">{mensajeDeError(cobrar.error)}</Aviso>}
+
+              <div className="flex gap-2">
+                <Boton variante="primario" type="submit" disabled={cobrar.isPending}>
+                  {cobrar.isPending ? 'Registrando…' : 'Registrar cobro'}
+                </Boton>
+                <Boton variante="sutil" type="button" onClick={cerrar}>
+                  Cancelar
+                </Boton>
+              </div>
+            </form>
+          )}
+        </div>
+      )}
 
       <div className="mt-4 flex flex-wrap items-center justify-between gap-3 border-t border-border pt-4">
         <p className="text-xs">

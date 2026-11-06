@@ -497,4 +497,125 @@ begin
     'un costo puede no tener empresa: eso es un costo compartido');
 end $$;
 
-select 'TODAS LAS PRUEBAS DE F1 Y F2 PASARON · 53 aserciones' as resultado;
+-- ---------------------------------------------------------------------------
+-- F3-1 · el dinero existe y tiene una sola fuente
+-- ---------------------------------------------------------------------------
+--
+-- Lo que estas aserciones vigilan es la regla de la que cuelga todo lo
+-- financiero, INV-1: el saldo de una cuenta sale de `cash_movements` y de
+-- ningún otro sitio. Si algún día alguien concede un `insert` suelto sobre la
+-- tabla, o apaga la RLS forzada, o escribe una segunda fórmula de saldo, el
+-- producto deja de poder responder «cuánto tengo» con una sola cifra.
+
+do $$
+declare
+  v_org     uuid;
+  v_entity  uuid;
+  v_cuenta  uuid;
+  v_usuario uuid := '11111111-1111-1111-1111-111111111111';
+  v_mov     uuid;
+begin
+  -- Las tres tablas del dinero se leen y no se escriben. La única puerta son
+  -- las funciones, que es donde viven las comprobaciones.
+  perform assert_true(
+    not has_table_privilege('authenticated', 'cash_movements', 'insert')
+    and not has_table_privilege('authenticated', 'cash_movements', 'update')
+    and not has_table_privilege('authenticated', 'cash_movements', 'delete'),
+    'el libro de caja no se escribe a mano');
+
+  perform assert_true(
+    not has_table_privilege('authenticated', 'billing_documents', 'insert')
+    and not has_table_privilege('authenticated', 'billing_documents', 'update')
+    and not has_table_privilege('authenticated', 'billing_documents', 'delete'),
+    'un documento no se escribe a mano: nadie se declara pagado (INV-3)');
+
+  perform assert_true(
+    not has_table_privilege('authenticated', 'payment_allocations', 'insert')
+    and not has_table_privilege('authenticated', 'payment_allocations', 'update')
+    and not has_table_privilege('authenticated', 'payment_allocations', 'delete'),
+    'una asignación no se escribe a mano: asignar no crea dinero');
+
+  perform assert_true(
+    (select bool_and(relrowsecurity and relforcerowsecurity)
+       from pg_class
+      where oid in ('cash_movements'::regclass, 'billing_documents'::regclass,
+                    'payment_allocations'::regclass)),
+    'las tres tablas del dinero tienen RLS, y forzada también para el dueño');
+
+  -- La vista filtra con las políticas de quien pregunta. Sin esto sería un
+  -- agujero: cualquiera leería el saldo de cualquier organización.
+  perform assert_true(
+    (select reloptions::text from pg_class where oid = 'account_balances'::regclass)
+      like '%security_invoker=%',
+    'la vista de saldos respeta las políticas de quien pregunta');
+
+  -- La clase de flujo se deduce del tipo y no se puede teclear. Es lo que
+  -- hace que una transferencia no pueda sumar ingreso (INV-5).
+  perform assert_true(
+    (select attgenerated <> '' from pg_attribute
+      where attrelid = 'cash_movements'::regclass and attname = 'flow_class'),
+    'la clase de flujo se deduce del tipo, no se elige (INV-5)');
+
+  -- La clave que impone a la vez INV-9 (el dinero vive en la moneda de su
+  -- cuenta) y ADR-16 (los dos libros no se mezclan), sin ningún disparador.
+  perform assert_true(
+    exists (select 1 from pg_constraint
+             where conrelid = 'cash_movements'::regclass and contype = 'f'
+               and confrelid = 'cash_accounts'::regclass
+               and array_length(conkey, 1) = 4),
+    'un movimiento ata su cuenta, su organización, su entidad y su moneda');
+
+  perform assert_true(
+    (select count(*) from pg_constraint
+      where conrelid = 'payment_allocations'::regclass and contype = 'f'
+        and array_length(conkey, 1) = 4) >= 3,
+    'una asignación no puede cruzar monedas ni libros (INV-4)');
+
+  -- Las cuatro puertas son definer con search_path fijo. Una definer sin
+  -- search_path es una escalada de privilegios esperando a que alguien cree
+  -- una función con el mismo nombre en otro esquema.
+  perform assert_true(
+    (select count(*) from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+      where n.nspname = 'public'
+        and p.proname in ('emitir_documento', 'registrar_cobro',
+                          'registrar_movimiento', 'anular_movimiento')
+        and p.prosecdef
+        and p.proconfig::text like '%search_path%') = 4,
+    'las cuatro puertas del dinero son definer con search_path fijo');
+
+  -- Y ahora el comportamiento: el saldo es la resta, y anular lo corrige.
+  select id into v_org from organizations where slug = 'org-a';
+  select id into v_entity from legal_entities
+   where organization_id = v_org and legal_name = 'Entidad Uno';
+  select id into v_cuenta from cash_accounts
+   where organization_id = v_org and name = 'BCP Soles';
+
+  insert into cash_movements (organization_id, cash_account_id, legal_entity_id,
+    direction, amount, currency_code, value_date, description, created_by)
+  values (v_org, v_cuenta, v_entity, 'in', 1000.00, 'PEN', current_date, 'Cobro', v_usuario)
+  returning id into v_mov;
+
+  insert into cash_movements (organization_id, cash_account_id, legal_entity_id,
+    direction, amount, currency_code, value_date, description, created_by)
+  values (v_org, v_cuenta, v_entity, 'out', 350.00, 'PEN', current_date, 'Hosting', v_usuario);
+
+  perform assert_true(
+    (select balance from account_balances where cash_account_id = v_cuenta) = 650.00,
+    'el saldo es la suma de entradas menos la de salidas, y nada más (INV-1)');
+
+  -- Anular no borra: marca. Y el saldo se corrige solo, porque la vista no
+  -- cuenta lo anulado. Por eso la contrapartida de INV-7 no se crea: restaría
+  -- el dinero dos veces.
+  update cash_movements set is_void = true, void_reason = 'se registró dos veces'
+   where id = v_mov;
+
+  perform assert_true(
+    (select balance from account_balances where cash_account_id = v_cuenta) = -350.00,
+    'un movimiento anulado deja de contar en el saldo sin borrarse (INV-7)');
+
+  perform assert_true(
+    (select count(*) from cash_movements where cash_account_id = v_cuenta) = 2,
+    'anular no borra la fila: la historia queda completa');
+end $$;
+
+select 'TODAS LAS PRUEBAS DE F1, F2 Y F3 PASARON · 65 aserciones' as resultado;
