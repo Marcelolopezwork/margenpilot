@@ -311,10 +311,15 @@ insert into service_categories (id, organization_id, name)
 select '44444444-4444-4444-4444-444444444444', id, 'Campañas'
 from organizations where slug = 'org-a';
 
-insert into services (id, organization_id, code, name, category_id, suggested_currency_code, default_fee_pct)
-select '55555555-5555-5555-5555-555555555555', id, 'CAMP-01', 'Campaña de lanzamiento',
+-- Una ficha pertenece a una empresa, no al grupo (ADR-16): hay que decir a
+-- cuál. El costo de abajo, en cambio, se deja sin entidad a propósito: eso es
+-- un costo compartido, y es un estado válido.
+insert into services (id, organization_id, legal_entity_id, code, name, category_id, suggested_currency_code, default_fee_pct)
+select '55555555-5555-5555-5555-555555555555', o.id, e.id, 'CAMP-01', 'Campaña de lanzamiento',
        '44444444-4444-4444-4444-444444444444', 'PEN', 80
-from organizations where slug = 'org-a';
+from organizations o
+join legal_entities e on e.organization_id = o.id and e.legal_name = 'Entidad Uno'
+where o.slug = 'org-a';
 
 insert into cost_items (id, organization_id, name, kind, unit, unit_cost, currency_code)
 select '66666666-6666-6666-6666-666666666666', id, 'Dirección creativa', 'role', 'hora', 120.0000, 'PEN'
@@ -476,6 +481,20 @@ begin
              where conrelid = 'cash_accounts'::regclass and contype = 'u'
                and pg_get_constraintdef(oid) like '%legal_entity_id, currency_code)'),
     'una cuenta de destino solo se puede referenciar con su entidad y su moneda');
+
+  -- La asimetría del catálogo, fijada para que nadie la "arregle" sin querer:
+  -- una ficha es de una empresa y un costo puede ser de las dos (ChatGPT, el
+  -- hosting). Si alguien pone la entidad obligatoria en cost_items, los costos
+  -- compartidos dejan de existir y hay que duplicarlos.
+  perform assert_true(
+    (select attnotnull from pg_attribute
+      where attrelid = 'services'::regclass and attname = 'legal_entity_id'),
+    'una ficha de servicio tiene que decir de qué empresa es');
+
+  perform assert_true(
+    not (select attnotnull from pg_attribute
+          where attrelid = 'cost_items'::regclass and attname = 'legal_entity_id'),
+    'un costo puede no tener empresa: eso es un costo compartido');
 end $$;
 
-select 'TODAS LAS PRUEBAS DE F1 Y F2 PASARON · 51 aserciones' as resultado;
+select 'TODAS LAS PRUEBAS DE F1 Y F2 PASARON · 53 aserciones' as resultado;

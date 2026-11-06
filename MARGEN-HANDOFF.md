@@ -140,7 +140,7 @@ caja (BCP soles en PEN, Mercury en USD), un cliente y una cotización de prueba.
   la propuesta, la aritmética de la cotización, el panel de emisión, la
   reimpresión de una versión emitida, el reparto en cuotas y el margen
   agregado
-- **51 aserciones** SQL en `supabase/tests/invariants.sql`
+- **53 aserciones** SQL en `supabase/tests/invariants.sql`
 - CI en GitHub Actions: tipos, lint, pruebas, build, y las migraciones
   reaplicadas desde cero en cada push. El Postgres de la CI es pelado y no
   trae lo que Supabase pone encima, así que `supabase/stubs/auth.sql` y
@@ -348,6 +348,10 @@ Cada una costó tiempo. Están aquí para no repetirlas.
     corre si la CI pasó, automatizar el despliegue habría consistido en
     activarlo y que no pasara nada. El arreglo es `supabase/stubs/storage.sql`;
     la lección es mirar `gh run list` antes de dar por bueno un commit.
+    Y detrás del primer fallo había un segundo que tampoco se había ejecutado
+    nunca: `invariants.sql` insertaba una ficha de servicio sin empresa, que
+    `20261104170000` había vuelto obligatoria. Una CI roja no esconde un
+    problema: esconde todos los que vienen después del primero.
 
 ---
 
