@@ -67,9 +67,10 @@ export const DESTINOS: readonly Destino[] = [
 
 /**
  * En móvil caben cuatro destinos más «Más». El `+` central de acciones
- * rápidas que describe el plan llega con F3: hoy no hay nada que crear, y un
- * botón que abre una hoja con tres opciones inhabilitadas es peor que no
- * tenerlo.
+ * rápidas que describe el plan sigue pendiente, pero ya no por falta de
+ * acciones: desde F3-1 hay tres cosas que se hacen de pie —anotar un
+ * movimiento, emitir el documento de una cuota, registrar un cobro—. Falta la
+ * hoja que las ofrezca.
  */
 export const RUTAS_MOVIL: readonly string[] = ['/', '/finanzas', '/comercial'];
 

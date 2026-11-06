@@ -46,7 +46,7 @@ Son **dos libros contables**, no dos vistas del mismo. Ninguna cifra los mezcla.
 | Base de datos | Supabase, proyecto `veocqvmywodeizuvnssn`, organización `margen pilot`, plan free, Postgres 17 |
 | Producción | `https://crm.thepublisherlab.com`, SiteGround, carpeta `crm.thepublisherlab.com/public_html` |
 | Desarrollo | `npm run dev` → `http://localhost:5173` |
-| Entregas | `entregas/`, dentro del proyecto. Los zips se quedan fuera de git por `*.zip` |
+| Entregas | `entregas/`, dentro del proyecto. Los zips se quedan fuera de git por `*.zip`; lo demás (como `PROMPT-DISENO-MARGEN.md`) se versiona |
 | Acceso de Marcelo | `info@thepublisherlab.com` **con contraseña** (ADR-32) |
 
 Mientras el despliegue automático no tenga sus secretos, cada cambio viaja
@@ -136,10 +136,11 @@ caja (BCP soles en PEN, Mercury en USD), un cliente y una cotización de prueba.
 
 ### Verificación
 
-- **149 pruebas** de Vitest: dinero, errores, formato, armazón, altas, el A4,
+- **168 pruebas** de Vitest: dinero, errores, formato, armazón, altas, el A4,
   la propuesta, la aritmética de la cotización, el panel de emisión, la
   reimpresión de una versión emitida, el reparto en cuotas, el margen
-  agregado, la cartera y la pantalla de finanzas
+  agregado, la cartera, la pantalla de finanzas, la proyección de caja y el
+  panel de inicio
 - **65 aserciones** SQL en `supabase/tests/invariants.sql`
 - CI en GitHub Actions: tipos, lint, pruebas, build, y las migraciones
   reaplicadas desde cero en cada push. El Postgres de la CI es pelado y no
@@ -179,23 +180,39 @@ fórmula de saldo que hay, y cuatro puertas de escritura: `emitir_documento`,
 `/finanzas` con saldos por moneda, por cobrar con vencimientos, el libro y el
 alta manual.
 
+Hecho el 6/11, **F3-2**: el lente **Caja**. `proyeccion.ts` reparte las cuotas
+esperadas en las trece semanas que vienen, e Inicio deja de ser la lista de
+puesta en marcha y pasa a ser lo que decía el wireframe §4.1: la caja arriba y
+por moneda con sus cuentas dentro, el consolidado como línea subordinada (y
+solo si hay tasa cargada), «Por cobrar» aparte, la proyección y las acciones
+próximas. La configuración baja al final y solo asoma lo que falte.
+
+Tres reglas de la proyección, que se pueden «arreglar» sin querer y están
+fijadas con pruebas: lo previsto cuenta (si no, la proyección solo vería lo
+facturado, que es lo que no sirve para decidir); lo cobrado no cuenta (ya está
+en el saldo, contarlo dos veces); y lo atrasado cae en la primera semana y se
+señala, porque dejarlo en su semana pasada lo esconde y descartarlo afirma que
+no se va a cobrar.
+
 Lo que falta de F3, por orden:
 
-1. **Transferencias entre cuentas** (INV-5). Necesitan su cabecera `transfers`,
+1. **Las salidas de la proyección.** Hoy el flujo de trece semanas solo tiene
+   entradas, así que es optimista por construcción y la pantalla lo dice. Se
+   cierra con los gastos recurrentes y las compras.
+2. **Transferencias entre cuentas** (INV-5). Necesitan su cabecera `transfers`,
    que ata las dos o tres patas, y la tasa **efectivamente aplicada por el
    banco**, no una de referencia. Por eso «transferencia» no está entre los
    tipos que ofrece el alta manual: elegirlo ahí dejaría media transferencia
    sin crear.
-2. **Proveedores y compras.** `billing_documents` solo admite
+3. **Proveedores y compras.** `billing_documents` solo admite
    `direction = 'sale'` porque no hay tabla de proveedores. Con ella llegan los
-   gastos con documento y el IGV soportado.
-3. **Los dos lentes: Caja y Resultado.** El flujo de 13 semanas (que ya tiene
-   su índice preparado en `payment_schedule_items`) y la cuenta de resultados,
-   que es donde `flow_class` deja de ser una columna y se vuelve el filtro que
-   separa lo operativo de un retiro del dueño.
-4. **Conciliación bancaria** (INV-8) e importación de extractos.
-5. **Consolidado referencial** con su tasa a la vista (ADR-16): nunca un total
-   que mezcle monedas sin decir a qué cambio.
+   gastos con documento, el IGV soportado y el «Por pagar» que hoy Inicio dice
+   que falta.
+4. **El lente Resultado.** Es donde `flow_class` deja de ser una columna y se
+   vuelve el filtro que separa lo operativo de un retiro del dueño, y donde
+   INV-6 (el hecho económico) evita contar dos veces un gasto que llegó con
+   documento y con movimiento.
+5. **Conciliación bancaria** (INV-8) e importación de extractos.
 
 ### Después
 
@@ -227,7 +244,7 @@ Lo que falta de F3, por orden:
   sigue siendo la buena: en cuanto el CLI pueda, regenerar el archivo entero.
   Para arreglarlo hace falta un token de acceso personal con permiso sobre el
   proyecto (`supabase login`), que es algo de Marcelo, no de código.
-- El bundle principal va por 628 kB en crudo (≈179 kB comprimidos). jsPDF y
+- El bundle principal va por 636 kB en crudo (≈181 kB comprimidos). jsPDF y
   sus dependencias ya van en trozos aparte, cargados solo al descargar; falta
   dividir las rutas con `React.lazy` antes de que entre F3.
 - La aritmética de la cotización está escrita dos veces: en
