@@ -48,10 +48,13 @@ jobs:
     steps:
       - uses: actions/checkout@v7
 
-      # Supabase provee el esquema auth; un Postgres pelado no. El stub lo
-      # suple para poder verificar las migraciones sin Docker ni cuenta.
-      - name: Preparar el esquema auth
-        run: psql -v ON_ERROR_STOP=1 -f supabase/stubs/auth.sql
+      # Supabase provee los esquemas auth y storage; un Postgres pelado no. Los
+      # stubs los suplen para poder verificar las migraciones sin Docker ni
+      # cuenta. En Supabase real no se aplican.
+      - name: Preparar lo que da Supabase
+        run: |
+          psql -v ON_ERROR_STOP=1 -f supabase/stubs/auth.sql
+          psql -v ON_ERROR_STOP=1 -f supabase/stubs/storage.sql
 
       - name: Aplicar migraciones en orden
         run: |
@@ -65,10 +68,15 @@ jobs:
 
       # Una migración que no se puede volver a aplicar sobre una base limpia
       # es una migración que no sirve: se comprueba en cada PR.
+      #
+      # storage también se tira: las políticas del bucket de marcas viven ahí y
+      # no en public, así que sobrevivirían al borrado y la segunda pasada
+      # fallaría por una política que ya existe.
       - name: Reaplicar desde cero
         run: |
-          psql -v ON_ERROR_STOP=1 -c 'drop schema public cascade; create schema public; drop schema app cascade;'
+          psql -v ON_ERROR_STOP=1 -c 'drop schema public cascade; create schema public; drop schema app cascade; drop schema storage cascade;'
           psql -v ON_ERROR_STOP=1 -f supabase/stubs/auth.sql
+          psql -v ON_ERROR_STOP=1 -f supabase/stubs/storage.sql
           for file in supabase/migrations/*.sql; do
             psql -v ON_ERROR_STOP=1 -f "$file"
           done

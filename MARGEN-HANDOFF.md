@@ -142,7 +142,10 @@ caja (BCP soles en PEN, Mercury en USD), un cliente y una cotización de prueba.
   agregado
 - **51 aserciones** SQL en `supabase/tests/invariants.sql`
 - CI en GitHub Actions: tipos, lint, pruebas, build, y las migraciones
-  reaplicadas desde cero en cada push
+  reaplicadas desde cero en cada push. El Postgres de la CI es pelado y no
+  trae lo que Supabase pone encima, así que `supabase/stubs/auth.sql` y
+  `supabase/stubs/storage.sql` lo suplen. Una migración que toque un esquema
+  de Supabase que no esté ahí deja la CI roja.
 
 ---
 
@@ -188,7 +191,9 @@ F3.
   activo, inerte hasta que existan los secretos `SG_HOST`, `SG_USER`,
   `SG_PASS`, `SG_REMOTE_DIR`, `VITE_SUPABASE_URL`,
   `VITE_SUPABASE_PUBLISHABLE_KEY`. Mientras tanto cada cambio viaja en un zip
-  a mano, que es exactamente como se sirve un build caducado.
+  a mano, que es exactamente como se sirve un build caducado. **Solo corre si
+  la CI del mismo commit pasó**: con la CI roja, poner los secretos no
+  despliega nada y no avisa de por qué.
 - **URL de redirección en Supabase**, solo si se quiere el acceso por enlace.
 
 ### Deuda técnica anotada
@@ -275,8 +280,12 @@ ruta, también en los assets. Un navegador automatizado recibe el «Robot
 Challenge Screen», y resolver eso no se hace. Así que, mientras el despliegue
 siga siendo manual, **desde aquí no se puede comprobar qué hay publicado**: lo
 sabe Marcelo mirando su propia pantalla. La señal que le sirve es si el
-desplegable de estado está o no está. Cuando el despliegue automático tenga
-sus secretos, la verificación la hará la CI desde dentro del propio FTP.
+desplegable de estado está o no está. El despliegue automático tampoco lo
+resuelve: su `curl` de confirmación sale de un runner de GitHub y se come el
+mismo reto, así que avisa de que no pudo comprobarlo en vez de ponerse rojo.
+Lo que sí es señal real es que `lftp` subió sin error, y que el paso se pone
+rojo si el dominio llega a servir un bundle **distinto** del recién subido,
+que es lo único que significa que `SG_REMOTE_DIR` apunta a otra carpeta.
 
 ---
 
@@ -331,6 +340,14 @@ Cada una costó tiempo. Están aquí para no repetirlas.
     TypeScript ve dos nombres para el mismo archivo. El ayudante se llama
     `cuotas.ts`. La convención del proyecto ya era esa —`totales.ts`,
     `estados.ts`, `snapshot.ts`— y conviene no romperla.
+12. **Una CI roja no duele mientras se despliega a mano, y por eso se queda
+    roja.** Desde el 4/11, la migración del bucket de marcas dejó el trabajo
+    de base de datos en rojo en cada push: inserta en `storage.buckets`, que
+    un Postgres pelado no tiene. Cuatro commits seguidos en rojo sin que se
+    notara, porque el zip a mano no necesita la CI. Y como `deploy.yml` solo
+    corre si la CI pasó, automatizar el despliegue habría consistido en
+    activarlo y que no pasara nada. El arreglo es `supabase/stubs/storage.sql`;
+    la lección es mirar `gh run list` antes de dar por bueno un commit.
 
 ---
 

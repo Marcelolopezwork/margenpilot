@@ -109,16 +109,24 @@ jobs:
             mirror -R --verbose --exclude '\.map$' dist/ '$DIR';
           "
 
+      # El dominio está detrás del antibot de SiteGround: a un curl le contesta
+      # con un reto, no con la página. Así que esto confirma cuando puede y
+      # avisa cuando no, y solo se pone rojo si el dominio sirve un bundle
+      # DISTINTO del que acabamos de subir, que es lo único que de verdad
+      # significa que SG_REMOTE_DIR apunta a la carpeta equivocada.
       - name: Confirmar qué quedó servido
         if: steps.listo.outputs.ok == 'si'
         run: |
           esperado=$(grep -oE 'assets/index-[A-Za-z0-9._-]+\.js' dist/index.html | head -1)
-          sirviendo=$(curl -sS -L --max-time 30 "https://crm.thepublisherlab.com" \
-            | grep -oE 'assets/index-[A-Za-z0-9._-]+\.js' | head -1)
+          respuesta=$(curl -sS -L --max-time 30 "https://crm.thepublisherlab.com" || true)
+          sirviendo=$(printf '%s' "$respuesta" | grep -oE 'assets/index-[A-Za-z0-9._-]+\.js' | head -1)
           echo "esperado:  $esperado"
-          echo "sirviendo: $sirviendo"
-          if [ "$esperado" != "$sirviendo" ]; then
-            echo "El dominio sigue sirviendo otro bundle. Revisa SG_REMOTE_DIR." >&2
+          echo "sirviendo: ${sirviendo:-(no se pudo leer)}"
+          if [ "$esperado" = "$sirviendo" ]; then
+            echo "Desplegado y comprobado: $esperado" >> "$GITHUB_STEP_SUMMARY"
+          elif [ -z "$sirviendo" ]; then
+            echo "Subido $esperado. El antibot de SiteGround no deja leer el dominio desde aquí, así que la comprobación no se pudo hacer." >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "El dominio sirve $sirviendo y acabamos de subir $esperado. Revisa SG_REMOTE_DIR." >&2
             exit 1
           fi
-          echo "Desplegado: $sirviendo" >> "$GITHUB_STEP_SUMMARY"
