@@ -74,7 +74,7 @@ const entidad = (id: string, legal_name: string, moneda: string): Entidad =>
   }) as Entidad;
 
 async function montar(rol: Enums<'membership_role'> = 'owner') {
-  const { default: Finanzas } = await import('./Finanzas');
+  const { default: Caja } = await import('./Caja');
   const org: ContextoOrg = {
     cargando: false,
     error: null,
@@ -101,7 +101,7 @@ async function montar(rol: Enums<'membership_role'> = 'owner') {
     <MemoryRouter>
       <QueryClientProvider client={cliente}>
         <OrgContext.Provider value={org}>
-          <Finanzas />
+          <Caja />
         </OrgContext.Provider>
       </QueryClientProvider>
     </MemoryRouter>,
@@ -114,7 +114,7 @@ beforeEach(() => {
 
 afterEach(cleanup);
 
-describe('Finanzas', () => {
+describe('Finanzas · Caja', () => {
   it('al rol comercial le explica que la base no se lo enseña', async () => {
     await montar('commercial');
     expect(await screen.findByText('Esta sección es de finanzas')).toBeTruthy();

@@ -20,6 +20,7 @@ const ASIGNACIONES: Record<string, unknown>[] = [];
 const MOVIMIENTOS: Record<string, unknown>[] = [];
 const CUOTAS: Record<string, unknown>[] = [];
 const TASAS: Record<string, unknown>[] = [];
+const GASTOS: Record<string, unknown>[] = [];
 const ENTIDADES: Record<string, unknown>[] = [{ id: 'e-1' }];
 const MONEDAS: Record<string, unknown>[] = [{ currency_code: 'PEN' }];
 const MARCAS: Record<string, unknown>[] = [{ id: 'm-1' }];
@@ -33,6 +34,7 @@ vi.mock('../lib/supabase', () => {
     if (nombre === 'cash_movements') return MOVIMIENTOS;
     if (nombre === 'payment_schedule_items') return CUOTAS;
     if (nombre === 'fx_rates') return TASAS;
+    if (nombre === 'recurring_expenses') return GASTOS;
     if (nombre === 'legal_entities') return ENTIDADES;
     if (nombre === 'organization_currencies') return MONEDAS;
     if (nombre === 'brands') return MARCAS;
@@ -45,7 +47,7 @@ vi.mock('../lib/supabase', () => {
         return Promise.resolve({ data: datos, error: null, count: datos.length }).then(r);
       },
     };
-    for (const m of ['select', 'eq', 'in', 'order', 'limit']) api[m] = () => api;
+    for (const m of ['select', 'eq', 'in', 'order', 'limit', 'not']) api[m] = () => api;
     return api;
   };
   return {
@@ -94,7 +96,7 @@ const cuenta = (id: string, name: string, moneda: string) => ({
 
 beforeEach(() => {
   vi.setSystemTime(new Date('2026-11-06T12:00:00Z'));
-  for (const a of [CUENTAS, SALDOS, DOCUMENTOS, ASIGNACIONES, MOVIMIENTOS, CUOTAS, TASAS]) {
+  for (const a of [CUENTAS, SALDOS, DOCUMENTOS, ASIGNACIONES, MOVIMIENTOS, CUOTAS, TASAS, GASTOS]) {
     a.length = 0;
   }
 });
@@ -176,11 +178,77 @@ describe('Inicio', () => {
       { id: 'q-2', label: 'Contra entrega', due_date: '2026-11-20', amount: '5000.00', currency_code: 'PEN', status: 'planned', quote_id: 'c-1', billing_document_id: null },
     );
     await montar();
-    expect(await screen.findByText(/Lo que esperas cobrar/)).toBeTruthy();
+    expect(await screen.findByText(/Flujo de caja/)).toBeTruthy();
 
-    expect(screen.getByText('S/ 8,000.00 en total')).toBeTruthy();
-    expect(screen.getByText(/incluye S\/ 3,000.00 ya vencido/)).toBeTruthy();
+    expect(screen.getByText(/incluye S\/ 3,000.00 por cobrar ya vencido/)).toBeTruthy();
+    // Sin gastos fijos cargados, lo dice en vez de disimularlo.
     expect(screen.getByText(/Solo entradas/)).toBeTruthy();
+    // Y cada semana se explica con sus conceptos (F5-2).
+    expect(screen.getByText(/cobras Anticipo/)).toBeTruthy();
+    expect(screen.getByText(/cobras Contra entrega/)).toBeTruthy();
+  });
+
+  /**
+   * Es el agujero que F3-3 cierra: con un gasto fijo cargado, la semana deja
+   * de ser solo lo que entra.
+   */
+  it('un gasto fijo sale en la proyección y resta del neto', async () => {
+    CUENTAS.push(cuenta('cta-1', 'BCP soles', 'PEN'));
+    SALDOS.push({ cash_account_id: 'cta-1', balance: '1000.00' });
+    CUOTAS.push({
+      id: 'q-1', label: 'Contra entrega', due_date: '2026-11-20', amount: '5000.00',
+      currency_code: 'PEN', status: 'planned', quote_id: 'c-1', billing_document_id: null,
+    });
+    GASTOS.push({
+      id: 'g-1', label: 'Suite de diseño', amount: '250.00', currency_code: 'PEN',
+      cadence: 'monthly', day_of_month: 18, starts_on: '2026-01-18', ends_on: null,
+      is_active: true, cash_account_id: 'cta-1', created_at: '2026-01-18T00:00:00Z',
+    });
+    await montar();
+    await screen.findByText(/Flujo de caja/);
+
+    // La semana del 16: entran 5000 y salen 250.
+    expect(screen.getAllByText('S/ 4,750.00').length).toBeGreaterThan(0);
+    expect(screen.getAllByText(/pagas Suite de diseño/).length).toBeGreaterThan(0);
+    expect(screen.getByText(/Incluye 1 gasto fijo/)).toBeTruthy();
+  });
+
+  it('avisa de la semana en que el saldo proyectado cruza el cero', async () => {
+    CUENTAS.push(cuenta('cta-1', 'BCP soles', 'PEN'));
+    SALDOS.push({ cash_account_id: 'cta-1', balance: '300.00' });
+    GASTOS.push({
+      id: 'g-1', label: 'Hosting', amount: '400.00', currency_code: 'PEN',
+      cadence: 'monthly', day_of_month: 18, starts_on: '2026-01-18', ends_on: null,
+      is_active: true, cash_account_id: 'cta-1', created_at: '2026-01-18T00:00:00Z',
+    });
+    await montar();
+    await screen.findByText(/Flujo de caja/);
+    expect(screen.getByText(/cierras en rojo/)).toBeTruthy();
+  });
+
+  /**
+   * Un pago ya registrado tiene que sacar su mes de la proyección. Si no, el
+   * mes pagado seguiría apareciendo y la cifra estaría inflada.
+   */
+  it('el mes ya pagado deja de aparecer', async () => {
+    CUENTAS.push(cuenta('cta-1', 'BCP soles', 'PEN'));
+    GASTOS.push({
+      id: 'g-1', label: 'Hosting', amount: '400.00', currency_code: 'PEN',
+      cadence: 'monthly', day_of_month: 18, starts_on: '2026-01-18', ends_on: null,
+      is_active: true, cash_account_id: 'cta-1', created_at: '2026-11-01T00:00:00Z',
+    });
+    MOVIMIENTOS.push({
+      id: 'mov-1', recurring_expense_id: 'g-1', value_date: '2026-11-03', is_void: false,
+      description: 'Hosting noviembre', direction: 'out', amount: '400.00',
+      currency_code: 'PEN', kind: 'operating', void_reason: null,
+      cash_account_id: 'cta-1', external_ref: null, source: 'recurring',
+    });
+    await montar();
+    await screen.findByText(/Flujo de caja/);
+
+    // Noviembre está pagado. Lo que queda es diciembre y enero, en sus dos
+    // semanas; lo que no queda es noviembre.
+    expect(screen.getAllByText(/pagas Hosting/)).toHaveLength(2);
   });
 
   it('una cuota que vence pronto y sin documento es una acción', async () => {

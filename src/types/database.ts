@@ -313,6 +313,7 @@ export type Database = {
           kind: Database["public"]["Enums"]["cash_kind"]
           legal_entity_id: string
           organization_id: string
+          recurring_expense_id: string | null
           source: string
           value_date: string
           void_reason: string | null
@@ -337,6 +338,7 @@ export type Database = {
           kind?: Database["public"]["Enums"]["cash_kind"]
           legal_entity_id: string
           organization_id: string
+          recurring_expense_id?: string | null
           source?: string
           value_date: string
           void_reason?: string | null
@@ -361,6 +363,7 @@ export type Database = {
           kind?: Database["public"]["Enums"]["cash_kind"]
           legal_entity_id?: string
           organization_id?: string
+          recurring_expense_id?: string | null
           source?: string
           value_date?: string
           void_reason?: string | null
@@ -410,6 +413,23 @@ export type Database = {
             isOneToOne: false
             referencedRelation: "organizations"
             referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "cash_movements_recurrente_fkey"
+            columns: [
+              "recurring_expense_id",
+              "organization_id",
+              "legal_entity_id",
+              "currency_code",
+            ]
+            isOneToOne: false
+            referencedRelation: "recurring_expenses"
+            referencedColumns: [
+              "id",
+              "organization_id",
+              "legal_entity_id",
+              "currency_code",
+            ]
           },
         ]
       }
@@ -1625,6 +1645,122 @@ export type Database = {
           },
         ]
       }
+      recurring_expenses: {
+        Row: {
+          amount: number
+          cadence: Database["public"]["Enums"]["recurrence"]
+          cash_account_id: string | null
+          category_id: string | null
+          cost_item_id: string | null
+          created_at: string
+          created_by: string
+          currency_code: string
+          day_of_month: number | null
+          ends_on: string | null
+          id: string
+          is_active: boolean
+          label: string
+          legal_entity_id: string
+          notes: string | null
+          organization_id: string
+          starts_on: string
+          updated_at: string
+        }
+        Insert: {
+          amount: number
+          cadence?: Database["public"]["Enums"]["recurrence"]
+          cash_account_id?: string | null
+          category_id?: string | null
+          cost_item_id?: string | null
+          created_at?: string
+          created_by?: string
+          currency_code: string
+          day_of_month?: number | null
+          ends_on?: string | null
+          id?: string
+          is_active?: boolean
+          label: string
+          legal_entity_id: string
+          notes?: string | null
+          organization_id: string
+          starts_on: string
+          updated_at?: string
+        }
+        Update: {
+          amount?: number
+          cadence?: Database["public"]["Enums"]["recurrence"]
+          cash_account_id?: string | null
+          category_id?: string | null
+          cost_item_id?: string | null
+          created_at?: string
+          created_by?: string
+          currency_code?: string
+          day_of_month?: number | null
+          ends_on?: string | null
+          id?: string
+          is_active?: boolean
+          label?: string
+          legal_entity_id?: string
+          notes?: string | null
+          organization_id?: string
+          starts_on?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "recurring_expenses_cash_account_id_organization_id_legal_fkey"
+            columns: [
+              "cash_account_id",
+              "organization_id",
+              "legal_entity_id",
+              "currency_code",
+            ]
+            isOneToOne: false
+            referencedRelation: "cash_accounts"
+            referencedColumns: [
+              "id",
+              "organization_id",
+              "legal_entity_id",
+              "currency_code",
+            ]
+          },
+          {
+            foreignKeyName: "recurring_expenses_category_id_organization_id_fkey"
+            columns: ["category_id", "organization_id"]
+            isOneToOne: false
+            referencedRelation: "financial_categories"
+            referencedColumns: ["id", "organization_id"]
+          },
+          {
+            foreignKeyName: "recurring_expenses_cost_item_id_organization_id_fkey"
+            columns: ["cost_item_id", "organization_id"]
+            isOneToOne: false
+            referencedRelation: "cost_items"
+            referencedColumns: ["id", "organization_id"]
+          },
+          {
+            foreignKeyName: "recurring_expenses_currency_code_fkey"
+            columns: ["currency_code"]
+            isOneToOne: false
+            referencedRelation: "currencies"
+            referencedColumns: ["code"]
+          },
+          {
+            foreignKeyName: "recurring_expenses_legal_entity_id_organization_id_fkey"
+            columns: ["legal_entity_id", "organization_id"]
+            isOneToOne: false
+            referencedRelation: "legal_entities"
+            referencedColumns: ["id", "organization_id"]
+          },
+          {
+            foreignKeyName: "recurring_expenses_organization_id_fkey"
+            columns: ["organization_id"]
+            isOneToOne: false
+            referencedRelation: "organizations"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       service_categories: {
         Row: {
           created_at: string
@@ -2017,6 +2153,7 @@ export type Database = {
           kind: Database["public"]["Enums"]["cash_kind"]
           legal_entity_id: string
           organization_id: string
+          recurring_expense_id: string | null
           source: string
           value_date: string
           void_reason: string | null
@@ -2024,6 +2161,35 @@ export type Database = {
         SetofOptions: {
           from: "*"
           to: "cash_movements"
+          isOneToOne: false
+          isSetofReturn: true
+        }
+      }
+      archivar_gasto_recurrente: {
+        Args: { p_id: string; p_motivo?: string }
+        Returns: {
+          amount: number
+          cadence: Database["public"]["Enums"]["recurrence"]
+          cash_account_id: string | null
+          category_id: string | null
+          cost_item_id: string | null
+          created_at: string
+          created_by: string
+          currency_code: string
+          day_of_month: number | null
+          ends_on: string | null
+          id: string
+          is_active: boolean
+          label: string
+          legal_entity_id: string
+          notes: string | null
+          organization_id: string
+          starts_on: string
+          updated_at: string
+        }[]
+        SetofOptions: {
+          from: "*"
+          to: "recurring_expenses"
           isOneToOne: false
           isSetofReturn: true
         }
@@ -2112,6 +2278,49 @@ export type Database = {
           isSetofReturn: true
         }
       }
+      guardar_gasto_recurrente: {
+        Args: {
+          p_account?: string
+          p_amount: number
+          p_cadence?: Database["public"]["Enums"]["recurrence"]
+          p_category?: string
+          p_cost_item?: string
+          p_currency: string
+          p_day?: number
+          p_ends_on?: string
+          p_entity: string
+          p_id?: string
+          p_label: string
+          p_notes?: string
+          p_starts_on?: string
+        }
+        Returns: {
+          amount: number
+          cadence: Database["public"]["Enums"]["recurrence"]
+          cash_account_id: string | null
+          category_id: string | null
+          cost_item_id: string | null
+          created_at: string
+          created_by: string
+          currency_code: string
+          day_of_month: number | null
+          ends_on: string | null
+          id: string
+          is_active: boolean
+          label: string
+          legal_entity_id: string
+          notes: string | null
+          organization_id: string
+          starts_on: string
+          updated_at: string
+        }[]
+        SetofOptions: {
+          from: "*"
+          to: "recurring_expenses"
+          isOneToOne: false
+          isSetofReturn: true
+        }
+      }
       next_quote_number: { Args: { p_entity: string }; Returns: string }
       recalc_quote_line_price: { Args: { p_line: string }; Returns: number }
       registrar_cobro: {
@@ -2144,6 +2353,7 @@ export type Database = {
           kind: Database["public"]["Enums"]["cash_kind"]
           legal_entity_id: string
           organization_id: string
+          recurring_expense_id: string | null
           source: string
           value_date: string
           void_reason: string | null
@@ -2167,6 +2377,7 @@ export type Database = {
           p_direction: Database["public"]["Enums"]["cash_direction"]
           p_external_ref?: string
           p_kind?: Database["public"]["Enums"]["cash_kind"]
+          p_recurring?: string
           p_value_date?: string
         }
         Returns: {
@@ -2190,6 +2401,7 @@ export type Database = {
           kind: Database["public"]["Enums"]["cash_kind"]
           legal_entity_id: string
           organization_id: string
+          recurring_expense_id: string | null
           source: string
           value_date: string
           void_reason: string | null
@@ -2243,6 +2455,7 @@ export type Database = {
         | "rejected"
         | "expired"
         | "void"
+      recurrence: "weekly" | "monthly" | "quarterly" | "yearly"
       schedule_status: "planned" | "documented" | "settled" | "cancelled"
       service_kind: "one_off" | "recurring" | "retainer"
       term_kind: "include" | "exclude" | "condition" | "note"
@@ -2412,6 +2625,7 @@ export const Constants = {
         "expired",
         "void",
       ],
+      recurrence: ["weekly", "monthly", "quarterly", "yearly"],
       schedule_status: ["planned", "documented", "settled", "cancelled"],
       service_kind: ["one_off", "recurring", "retainer"],
       term_kind: ["include", "exclude", "condition", "note"],

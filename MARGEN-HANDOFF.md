@@ -65,7 +65,7 @@ que la clave sea secreta.
 Todo esto está **en producción y verificado contra la base real**, no solo
 compilado.
 
-### Base de datos · treinta migraciones aplicadas
+### Base de datos · treinta y una migraciones aplicadas
 
 ```
 20261028120000 foundations      esquema, tablas, disparadores, auditoría
@@ -136,12 +136,12 @@ caja (BCP soles en PEN, Mercury en USD), un cliente y una cotización de prueba.
 
 ### Verificación
 
-- **168 pruebas** de Vitest: dinero, errores, formato, armazón, altas, el A4,
+- **197 pruebas** de Vitest: dinero, errores, formato, armazón, altas, el A4,
   la propuesta, la aritmética de la cotización, el panel de emisión, la
   reimpresión de una versión emitida, el reparto en cuotas, el margen
-  agregado, la cartera, la pantalla de finanzas, la proyección de caja y el
-  panel de inicio
-- **65 aserciones** SQL en `supabase/tests/invariants.sql`
+  agregado, la cartera, la pantalla de finanzas, la proyección de caja con sus
+  salidas, los gastos fijos y el panel de inicio
+- **73 aserciones** SQL en `supabase/tests/invariants.sql`
 - CI en GitHub Actions: tipos, lint, pruebas, build, y las migraciones
   reaplicadas desde cero en cada push. El Postgres de la CI es pelado y no
   trae lo que Supabase pone encima, así que `supabase/stubs/auth.sql` y
@@ -194,25 +194,45 @@ en el saldo, contarlo dos veces); y lo atrasado cae en la primera semana y se
 señala, porque dejarlo en su semana pasada lo esconde y descartarlo afirma que
 no se va a cobrar.
 
+Hecho el 9/11, **F3-3**: las salidas fijas. `recurring_expenses` guarda la
+regla —cuánto sale y cada cuánto— y `proyeccion.ts` la expande en las fechas
+que le tocan. La proyección de trece semanas ya tiene las dos direcciones, su
+neto y el saldo acumulado, y avisa de la semana en que cruza el cero. Hay
+pantalla propia en `/finanzas/gastos-fijos`, y el alta de un movimiento puede
+decir qué gasto fijo salda.
+
+Dos reglas de esta parte, las dos fijadas con pruebas:
+
+- **Un gasto fijo no mueve dinero.** Es una regla de proyección. Si generara
+  movimientos solo, el saldo diría que pagaste algo que el banco no ha
+  cobrado, y eso rompe INV-1 por donde más duele. Se paga registrando un
+  movimiento como cualquier otro, con `p_recurring` para decir qué saldaba.
+- **No se inventa deuda hacia atrás.** `starts_on` es cuándo empezó la
+  suscripción en la vida real y puede ser de hace años; `recorded_on` es
+  cuándo se anotó aquí. Las ocurrencias no empiezan antes de lo segundo,
+  porque de los meses anteriores el sistema no tiene ninguna prueba y
+  presumir que no se pagaron sería inventar un impago. Después de anotarlo, la
+  ausencia de un pago sí significa algo.
+
 Lo que falta de F3, por orden:
 
-1. **Las salidas de la proyección.** Hoy el flujo de trece semanas solo tiene
-   entradas, así que es optimista por construcción y la pantalla lo dice. Se
-   cierra con los gastos recurrentes y las compras.
-2. **Transferencias entre cuentas** (INV-5). Necesitan su cabecera `transfers`,
+1. **Transferencias entre cuentas** (INV-5). Necesitan su cabecera `transfers`,
    que ata las dos o tres patas, y la tasa **efectivamente aplicada por el
    banco**, no una de referencia. Por eso «transferencia» no está entre los
    tipos que ofrece el alta manual: elegirlo ahí dejaría media transferencia
    sin crear.
-3. **Proveedores y compras.** `billing_documents` solo admite
+2. **Proveedores y compras.** `billing_documents` solo admite
    `direction = 'sale'` porque no hay tabla de proveedores. Con ella llegan los
    gastos con documento, el IGV soportado y el «Por pagar» que hoy Inicio dice
    que falta.
-4. **El lente Resultado.** Es donde `flow_class` deja de ser una columna y se
+3. **El lente Resultado.** Es donde `flow_class` deja de ser una columna y se
    vuelve el filtro que separa lo operativo de un retiro del dueño, y donde
    INV-6 (el hecho económico) evita contar dos veces un gasto que llegó con
    documento y con movimiento.
-5. **Conciliación bancaria** (INV-8) e importación de extractos.
+4. **Conciliación bancaria** (INV-8) e importación de extractos.
+5. **Pagos de una sola vez con fecha futura.** Hoy la proyección solo conoce
+   las cuotas de cobro y los gastos fijos; un pago grande y puntual —una
+   compra de equipo, un adelanto— no cabe en ninguna de las dos.
 
 ### Después
 
@@ -244,7 +264,7 @@ Lo que falta de F3, por orden:
   sigue siendo la buena: en cuanto el CLI pueda, regenerar el archivo entero.
   Para arreglarlo hace falta un token de acceso personal con permiso sobre el
   proyecto (`supabase login`), que es algo de Marcelo, no de código.
-- El bundle principal va por 636 kB en crudo (≈181 kB comprimidos). jsPDF y
+- El bundle principal va por 656 kB en crudo (≈186 kB comprimidos). jsPDF y
   sus dependencias ya van en trozos aparte, cargados solo al descargar; falta
   dividir las rutas con `React.lazy` antes de que entre F3.
 - La aritmética de la cotización está escrita dos veces: en

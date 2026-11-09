@@ -618,4 +618,93 @@ begin
     'anular no borra la fila: la historia queda completa');
 end $$;
 
-select 'TODAS LAS PRUEBAS DE F1, F2 Y F3 PASARON · 65 aserciones' as resultado;
+-- ---------------------------------------------------------------------------
+-- F3-3 · un gasto recurrente es una regla, no dinero
+-- ---------------------------------------------------------------------------
+--
+-- La tentación de esta tabla es que genere movimientos sola: «el día 5 sale el
+-- hosting, lo apunto yo». Eso rompería INV-1 de la peor manera posible, porque
+-- el saldo diría que pagaste algo que el banco no ha cobrado. Estas aserciones
+-- están para que nadie lo «mejore» así.
+
+-- El reclamo de permisos de abajo necesita saber quién pregunta.
+set request.jwt.claim.sub = '11111111-1111-1111-1111-111111111111';
+
+do $$
+declare
+  v_org    uuid;
+  v_entity uuid;
+  v_cuenta uuid;
+  v_saldo  numeric;
+  v_gasto  uuid;
+begin
+  perform assert_true(
+    not has_table_privilege('authenticated', 'recurring_expenses', 'insert')
+    and not has_table_privilege('authenticated', 'recurring_expenses', 'update')
+    and not has_table_privilege('authenticated', 'recurring_expenses', 'delete'),
+    'un gasto fijo no se escribe a mano: la puerta es guardar_gasto_recurrente');
+
+  perform assert_true(
+    has_table_privilege('authenticated', 'recurring_expenses', 'select'),
+    'los gastos fijos se leen');
+
+  perform assert_true(
+    (select relrowsecurity and relforcerowsecurity
+       from pg_class where oid = 'recurring_expenses'::regclass),
+    'los gastos fijos tienen RLS, y forzada también para el dueño');
+
+  -- Pagar un gasto en dólares desde la cuenta en soles no es un error que se
+  -- valide: es una fila que no existe (ADR-16).
+  perform assert_true(
+    exists (select 1 from pg_constraint
+             where conrelid = 'recurring_expenses'::regclass and contype = 'f'
+               and confrelid = 'cash_accounts'::regclass
+               and array_length(conkey, 1) = 4),
+    'un gasto fijo ata su cuenta, su organización, su entidad y su moneda');
+
+  perform assert_true(
+    exists (select 1 from pg_constraint
+             where conrelid = 'recurring_expenses'::regclass and contype = 'u'
+               and pg_get_constraintdef(oid) like '%legal_entity_id, currency_code)'),
+    'un movimiento solo puede apuntar a un gasto con su entidad y su moneda');
+
+  perform assert_true(
+    (select count(*) from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+      where n.nspname = 'public'
+        and p.proname in ('guardar_gasto_recurrente', 'archivar_gasto_recurrente')
+        and p.prosecdef
+        and p.proconfig::text like '%search_path%') = 2,
+    'las puertas de los gastos fijos son definer con search_path fijo');
+
+  -- Y lo que de verdad importa: dar de alta un gasto fijo no toca el saldo.
+  select id into v_org from organizations where slug = 'org-a';
+  select id into v_entity from legal_entities
+   where organization_id = v_org and legal_name = 'Entidad Uno';
+  select id into v_cuenta from cash_accounts
+   where organization_id = v_org and name = 'BCP Soles';
+
+  select balance into v_saldo from account_balances where cash_account_id = v_cuenta;
+
+  insert into recurring_expenses (organization_id, legal_entity_id, label, amount,
+    currency_code, cadence, day_of_month, starts_on, cash_account_id, created_by)
+  values (v_org, v_entity, 'Hosting', 350.00, 'PEN', 'monthly', 5, current_date,
+          v_cuenta, '11111111-1111-1111-1111-111111111111')
+  returning id into v_gasto;
+
+  perform assert_true(
+    (select balance from account_balances where cash_account_id = v_cuenta) = v_saldo,
+    'dar de alta un gasto fijo no mueve ni un céntimo (INV-1)');
+
+  -- Un gasto recurrente se paga; no se cobra. Marcar una entrada como pago de
+  -- una suscripción dejaría la proyección creyendo que ese mes está saldado
+  -- con dinero que entró.
+  perform assert_raises(
+    format('select registrar_movimiento(%L, ''in'', 100, ''Colado'', null, ''operating'',
+            null, null, null, null, null, %L)', v_cuenta, v_gasto),
+    'recurrente_solo_sale',
+    'un gasto recurrente no se puede cobrar');
+end $$;
+
+reset request.jwt.claim.sub;
+
+select 'TODAS LAS PRUEBAS DE F1, F2 Y F3 PASARON · 73 aserciones' as resultado;

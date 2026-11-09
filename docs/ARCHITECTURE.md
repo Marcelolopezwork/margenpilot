@@ -55,6 +55,7 @@ Partir la caja en dos tablas daría los mismos dos libros y además: dos caminos
 [4] Caja (núcleo)         cash_movements  ← única fuente de verdad del dinero
                           transfers · payment_allocations
 [5] Obligaciones          billing_documents · payment_schedule_items · recurring_expenses
+                          (las tres construidas; recurring_expenses en 20261109120000)
 [6] Conciliación          import_formats · statement_imports · statement_lines
                           reconciliation_matches · reconciliation_decisions
 [7] Sistema               alerts · api_tokens · api_access_log

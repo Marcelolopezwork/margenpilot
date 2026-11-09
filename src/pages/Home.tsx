@@ -10,8 +10,15 @@ import { FiltradoPor } from '../components/piezas';
 import { cobradoPorDocumento } from './finanzas/cobrado';
 import { diasDeAtraso, enRojo, pendienteDe, porMoneda, vencido } from './finanzas/cartera';
 import type { DocumentoEnCartera } from './finanzas/cartera';
-import { monedasConCuotas, proyeccion } from './finanzas/proyeccion';
-import type { CuotaEsperada } from './finanzas/proyeccion';
+import {
+  lunesDe,
+  monedasConMovimiento,
+  proyeccion,
+  salidasEsperadas,
+  saldoProyectado,
+  sumarSemanas,
+} from './finanzas/proyeccion';
+import type { CuotaEsperada, GastoRecurrente, PagoRegistrado } from './finanzas/proyeccion';
 
 /**
  * Inicio es la pantalla de las ocho de la mañana: cuánto tengo, quién me debe
@@ -159,6 +166,41 @@ export default function Home() {
     },
   });
 
+  const gastos = useQuery({
+    queryKey: ['gastos-fijos', organizacion.id, entidad?.id ?? null],
+    enabled: conDinero,
+    queryFn: async () => {
+      let q = requireSupabase()
+        .from('recurring_expenses')
+        .select('id, label, amount, currency_code, cadence, day_of_month, starts_on, ends_on, is_active, cash_account_id, created_at')
+        .eq('organization_id', organizacion.id)
+        .eq('is_active', true)
+        .order('label');
+      if (entidad) q = q.eq('legal_entity_id', entidad.id);
+      const { data, error } = await q;
+      if (error) throw error;
+      return data ?? [];
+    },
+  });
+
+  // Los pagos ya registrados de gastos fijos. Sirven para que el mes que ya
+  // pagaste deje de aparecer como pendiente.
+  const pagosDeGastos = useQuery({
+    queryKey: ['pagos-de-gastos', organizacion.id, entidad?.id ?? null],
+    enabled: conDinero,
+    queryFn: async () => {
+      let q = requireSupabase()
+        .from('cash_movements')
+        .select('recurring_expense_id, value_date, is_void')
+        .eq('organization_id', organizacion.id)
+        .not('recurring_expense_id', 'is', null);
+      if (entidad) q = q.eq('legal_entity_id', entidad.id);
+      const { data, error } = await q;
+      if (error) throw error;
+      return data ?? [];
+    },
+  });
+
   const tasa = useQuery({
     queryKey: ['tasa-referencial', organizacion.id],
     enabled: conDinero,
@@ -230,7 +272,48 @@ export default function Home() {
     currency_code: c.currency_code,
     status: c.status,
   }));
-  const monedasProyectadas = monedasConCuotas(esperadas);
+
+  // La ventana arranca tres meses atrás para que lo atrasado entre en la
+  // proyección: la primera semana se lo queda y lo señala.
+  const primeraSemana = lunesDe(hoy);
+  const ventanaDesde = sumarSemanas(primeraSemana, -13);
+  const ventanaHasta = sumarSemanas(primeraSemana, 13);
+
+  const gastosFijos: GastoRecurrente[] = (gastos.data ?? []).map((g) => ({
+    id: g.id,
+    label: g.label,
+    amount: String(g.amount),
+    currency_code: g.currency_code,
+    cadence: g.cadence,
+    day_of_month: g.day_of_month,
+    starts_on: g.starts_on,
+    ends_on: g.ends_on,
+    is_active: g.is_active,
+    recorded_on: g.created_at.slice(0, 10),
+  }));
+  const pagos: PagoRegistrado[] = (pagosDeGastos.data ?? []).map((p) => ({
+    recurring_expense_id: p.recurring_expense_id,
+    value_date: p.value_date,
+    is_void: p.is_void,
+  }));
+  const salidas = salidasEsperadas(gastosFijos, pagos, ventanaDesde, ventanaHasta);
+  const monedasProyectadas = monedasConMovimiento(esperadas, salidas);
+
+  // Qué concepto cae en qué semana. La aritmética la lleva `proyeccion`; esto
+  // es solo la etiqueta, para que cada semana se pueda explicar (F5-2).
+  const conceptosPorSemana = new Map<string, { entra: string[]; sale: string[] }>();
+  for (const c of cuotas.data ?? []) {
+    const lunes = c.due_date < primeraSemana ? primeraSemana : lunesDe(c.due_date);
+    const antes = conceptosPorSemana.get(lunes) ?? { entra: [], sale: [] };
+    antes.entra.push(c.label);
+    conceptosPorSemana.set(lunes, antes);
+  }
+  for (const salida of salidas) {
+    const lunes = salida.due_date < primeraSemana ? primeraSemana : lunesDe(salida.due_date);
+    const antes = conceptosPorSemana.get(lunes) ?? { entra: [], sale: [] };
+    antes.sale.push(salida.label);
+    conceptosPorSemana.set(lunes, antes);
+  }
 
   // --------------------------------------------------------------- acciones
   const acciones: Accion[] = [];
@@ -288,8 +371,19 @@ export default function Home() {
     : [];
   const faltan = pasos.filter((p) => p.cuantas === 0);
 
-  const cargando = caja.isPending || cartera.isPending || cuotas.isPending;
-  const fallo = caja.error ?? cartera.error ?? cuotas.error ?? puesta.error;
+  const cargando =
+    caja.isPending ||
+    cartera.isPending ||
+    cuotas.isPending ||
+    gastos.isPending ||
+    pagosDeGastos.isPending;
+  const fallo =
+    caja.error ??
+    cartera.error ??
+    cuotas.error ??
+    gastos.error ??
+    pagosDeGastos.error ??
+    puesta.error;
 
   return (
     <div className="flex flex-col gap-6">
@@ -350,7 +444,7 @@ export default function Home() {
             existe si hay una tasa cargada: el producto no se inventa un tipo
             de cambio, porque una conversión sin fuente no es un dato.
           */}
-          {monedasDeCaja.length > 1 && (
+          {monedasDeCaja.length > 1 && !tasa.isPending && (
             <p className="max-w-prose text-xs text-subtle">
               {tasa.data ? (
                 <>
@@ -416,68 +510,141 @@ export default function Home() {
       {!cargando && monedasProyectadas.length > 0 && (
         <section className="flex flex-col gap-3">
           <h2 className="text-xs uppercase tracking-widest text-subtle">
-            Lo que esperas cobrar · trece semanas
+            Flujo de caja · trece semanas
           </h2>
           {monedasProyectadas.map((moneda) => {
-            const semanas = proyeccion(esperadas, moneda, hoy);
-            const mayor = semanas.reduce((n, s) => (s.entra.minor > n ? s.entra.minor : n), 0n);
-            const total = semanas.reduce(
-              (acc, s) => ({ minor: acc.minor + s.entra.minor, currency: moneda }),
-              { minor: 0n, currency: moneda } as Money,
+            const semanas = proyeccion(esperadas, salidas, moneda, hoy);
+            const saldoHoy = porMonedaCaja.get(moneda)?.total ?? { minor: 0n, currency: moneda };
+            const saldos = saldoProyectado(saldoHoy, semanas);
+            const cierre = saldos[saldos.length - 1];
+            const primeraEnRojo = saldos.findIndex((x) => x.minor < 0n);
+            const conMovimiento = semanas.filter(
+              (x) => x.entra.minor > 0n || x.sale.minor > 0n,
             );
+
             return (
               <Tarjeta key={moneda} className="p-5">
-                <div className="flex flex-wrap items-baseline justify-between gap-2">
+                <div className="flex flex-wrap items-baseline justify-between gap-3">
                   <p className="text-sm font-medium">{moneda}</p>
-                  <p className="num text-sm text-muted">{format(total)} en total</p>
+                  <p className="text-sm text-muted">
+                    Hoy <span className="num">{format(saldoHoy)}</span>
+                    {cierre && (
+                      <>
+                        {' → en trece semanas '}
+                        <span className={`num ${cierre.minor < 0n ? 'text-negative' : ''}`}>
+                          {format(cierre)}
+                        </span>
+                      </>
+                    )}
+                  </p>
                 </div>
-                <ul className="mt-4 flex items-end gap-1 overflow-x-auto pb-1">
-                  {semanas.map((s) => {
-                    const alto =
-                      mayor === 0n ? 0 : Number((s.entra.minor * 100n) / mayor);
-                    return (
-                      <li key={s.desde} className="flex min-w-[2.2rem] flex-1 flex-col items-center gap-1">
-                        <span className="num text-[0.6rem] text-subtle">
-                          {s.entra.minor === 0n ? '' : format(s.entra).replace(/^[^\d-]+\s*/, '')}
-                        </span>
-                        <div
-                          className={`w-full rounded-control ${s.atrasado.minor > 0n ? 'bg-warning' : 'bg-accent'}`}
-                          style={{ height: `${Math.max(alto, s.entra.minor > 0n ? 4 : 1)}px` }}
-                          aria-hidden
-                        />
-                        <span className="num text-[0.6rem] text-subtle">
-                          {s.desde.slice(8, 10)}/{s.desde.slice(5, 7)}
-                        </span>
-                      </li>
-                    );
-                  })}
-                </ul>
-                {/* El gráfico es refuerzo; la tabla es el dato. Un lector de
-                    pantalla y alguien que no distingue los colores leen esto. */}
-                <ul className="mt-3 flex flex-col gap-1 border-t border-border pt-3 text-sm">
-                  {semanas
-                    .filter((s) => s.entra.minor > 0n)
-                    .map((s) => (
-                      <li key={s.desde} className="flex items-baseline justify-between gap-3">
-                        <span className="text-muted">
-                          Semana del {formatoFecha(s.desde)}
-                          {s.atrasado.minor > 0n && (
-                            <>
-                              {' '}
-                              <Etiqueta tono="atencion">
-                                incluye {format(s.atrasado)} ya vencido
-                              </Etiqueta>
-                            </>
+
+                {/*
+                  Si el saldo proyectado cruza el cero, eso es lo único que
+                  hay que leer de esta tarjeta. Va arriba y con palabras, no
+                  como una celda roja entre doce.
+                */}
+                {primeraEnRojo >= 0 && semanas[primeraEnRojo] && (
+                  <p className="mt-3 text-sm text-warning">
+                    Con lo que hay previsto, la semana del{' '}
+                    {formatoFecha(semanas[primeraEnRojo]!.desde)} cierras en rojo:{' '}
+                    <span className="num">{format(saldos[primeraEnRojo]!)}</span>.
+                  </p>
+                )}
+
+                <div className="mt-4 overflow-x-auto">
+                  <table className="w-full min-w-[26rem] text-sm">
+                    <thead>
+                      <tr className="border-b border-border text-left text-xs text-subtle">
+                        <th scope="col" className="pb-2 font-normal">Semana del</th>
+                        <th scope="col" className="pb-2 text-right font-normal">Entra</th>
+                        <th scope="col" className="pb-2 text-right font-normal">Sale</th>
+                        <th scope="col" className="pb-2 text-right font-normal">Saldo</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-border">
+                      {semanas.map((x, i) => {
+                        const saldo = saldos[i];
+                        const quieta = x.entra.minor === 0n && x.sale.minor === 0n;
+                        return (
+                          <tr key={x.desde} className={quieta ? 'text-subtle' : ''}>
+                            <td className="num py-2 pr-2 text-xs">
+                              {x.desde.slice(8, 10)}/{x.desde.slice(5, 7)}
+                            </td>
+                            <td className="num py-2 pr-2 text-right">
+                              {x.entra.minor === 0n ? '—' : format(x.entra)}
+                            </td>
+                            <td className="num py-2 pr-2 text-right">
+                              {x.sale.minor === 0n ? '—' : `−${format(x.sale)}`}
+                            </td>
+                            <td
+                              className={`num py-2 text-right ${saldo && saldo.minor < 0n ? 'text-negative' : ''}`}
+                            >
+                              {saldo ? format(saldo) : '—'}
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+
+                {/*
+                  «Explica de dónde sale cada semana» es la aceptación de F5-2
+                  en el backlog. Una cifra semanal sin los conceptos detrás no
+                  se puede comprobar, y una proyección que no se puede
+                  comprobar no se usa para decidir.
+                */}
+                {conMovimiento.length > 0 && (
+                  <ul className="mt-4 flex flex-col gap-2 border-t border-border pt-4 text-sm">
+                    {conMovimiento.map((x) => {
+                      const conceptos = conceptosPorSemana.get(x.desde);
+                      return (
+                        <li key={x.desde}>
+                          <div className="flex flex-wrap items-baseline justify-between gap-2">
+                            <span className="text-muted">
+                              Semana del {formatoFecha(x.desde)}
+                              {x.entraVencido.minor > 0n && (
+                                <>
+                                  {' '}
+                                  <Etiqueta tono="atencion">
+                                    incluye {format(x.entraVencido)} por cobrar ya vencido
+                                  </Etiqueta>
+                                </>
+                              )}
+                              {x.saleVencido.minor > 0n && (
+                                <>
+                                  {' '}
+                                  <Etiqueta tono="atencion">
+                                    incluye {format(x.saleVencido)} que debías haber pagado
+                                  </Etiqueta>
+                                </>
+                              )}
+                            </span>
+                            <span
+                              className={`num shrink-0 ${x.neto.minor < 0n ? 'text-negative' : ''}`}
+                            >
+                              {format(x.neto)}
+                            </span>
+                          </div>
+                          {conceptos && (
+                            <p className="mt-0.5 text-xs text-subtle">
+                              {[
+                                ...conceptos.entra.map((n) => `cobras ${n}`),
+                                ...conceptos.sale.map((n) => `pagas ${n}`),
+                              ].join(' · ')}
+                            </p>
                           )}
-                        </span>
-                        <span className="num shrink-0">{format(s.entra)}</span>
-                      </li>
-                    ))}
-                </ul>
+                        </li>
+                      );
+                    })}
+                  </ul>
+                )}
+
                 <p className="mt-3 max-w-prose text-xs text-subtle">
-                  Solo entradas. Los pagos que salen llegan con los gastos recurrentes y las
-                  compras, así que esta cifra es optimista por construcción: sirve para ver cuándo
-                  entra el dinero, no para saber si sobra.
+                  {gastosFijos.length === 0
+                    ? 'Solo entradas: todavía no hay ningún gasto fijo cargado, así que la proyección es optimista por construcción.'
+                    : `Incluye ${gastosFijos.length} ${gastosFijos.length === 1 ? 'gasto fijo' : 'gastos fijos'}. Lo que no incluye todavía son las compras con documento y los pagos de una sola vez.`}
                 </p>
               </Tarjeta>
             );
