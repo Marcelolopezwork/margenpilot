@@ -140,12 +140,13 @@ caja (BCP soles en PEN, Mercury en USD), un cliente y una cotización de prueba.
 
 ### Verificación
 
-- **209 pruebas** de Vitest: dinero, errores, formato, armazón, altas, el A4,
+- **227 pruebas** de Vitest: dinero, errores, formato, armazón, altas, el A4,
   la propuesta, la aritmética de la cotización, el panel de emisión, la
   reimpresión de una versión emitida, el reparto en cuotas, el margen
   agregado, la cartera, la pantalla de finanzas, la proyección de caja con sus
-  salidas, los gastos fijos y el panel de inicio
-- **82 aserciones** SQL en `supabase/tests/invariants.sql`
+  salidas, los gastos fijos, la tasa efectiva, los destinos de una
+  transferencia y el panel de inicio
+- **111 aserciones** SQL en `supabase/tests/invariants.sql`
 - CI en GitHub Actions: tipos, lint, pruebas, build, y las migraciones
   reaplicadas desde cero en cada push. El Postgres de la CI es pelado y no
   trae lo que Supabase pone encima, así que `supabase/stubs/auth.sql` y
@@ -228,23 +229,42 @@ el alta avisa si la empresa no tiene cuentas en esa moneda, y la empresa y la
 moneda de un gasto **se pueden cambiar mientras no tenga ningún pago**
 registrado (trampas #15 y #16).
 
+Hecho el 10/11, **F3-4**: mover dinero entre cuentas propias (INV-5). La
+cabecera `transfers` ata las dos o tres patas —la salida, la entrada y la
+comisión si la hubo— y es lo que impide que un traslado parezca un ingreso y un
+gasto del mismo tamaño. Cuatro decisiones, cada una con su estructura detrás:
+
+- **La tasa no se teclea.** `fx_rate` es columna generada, destino ÷ origen, así
+  que es la que aplicó el banco y no puede estar mal. El margen que el banco se
+  quedó entre su tasa publicada y esta queda dentro de la cifra, que es lo
+  honesto: nadie sabe cómo lo repartió.
+- **En la misma moneda, lo que sale es lo que llega** (`check
+  misma_moneda_mismo_importe`). Si llegó menos, lo que falta es una comisión y
+  se anota como comisión, que además es gasto de verdad (`bank_fee` →
+  `operating`) y aparece en el resultado en vez de desaparecer dentro de una
+  tasa falsa.
+- **Entre dos empresas no hay traslado interno.** Las dos claves compuestas
+  llevan la misma `legal_entity_id`, así que la fila no existe; y el gate lo
+  explica nombrando las dos empresas y qué anotar en su lugar: un préstamo, un
+  aporte o una venta con su factura, que son dos hechos, uno en cada libro.
+- **Anular media transferencia crea dinero.** `anular_movimiento` anula la
+  transferencia entera, y un disparador diferido comprueba al cerrar la
+  transacción que o están todas las patas o no está ninguna. Además, un
+  movimiento `kind='transfer'` sin cabecera no se puede insertar, y una pata no
+  se puede asignar a un documento: ese dinero no vino de ningún cliente.
+
 Lo que falta de F3, por orden:
 
-1. **Transferencias entre cuentas** (INV-5). Necesitan su cabecera `transfers`,
-   que ata las dos o tres patas, y la tasa **efectivamente aplicada por el
-   banco**, no una de referencia. Por eso «transferencia» no está entre los
-   tipos que ofrece el alta manual: elegirlo ahí dejaría media transferencia
-   sin crear.
-2. **Proveedores y compras.** `billing_documents` solo admite
+1. **Proveedores y compras.** `billing_documents` solo admite
    `direction = 'sale'` porque no hay tabla de proveedores. Con ella llegan los
    gastos con documento, el IGV soportado y el «Por pagar» que hoy Inicio dice
    que falta.
-3. **El lente Resultado.** Es donde `flow_class` deja de ser una columna y se
+2. **El lente Resultado.** Es donde `flow_class` deja de ser una columna y se
    vuelve el filtro que separa lo operativo de un retiro del dueño, y donde
    INV-6 (el hecho económico) evita contar dos veces un gasto que llegó con
    documento y con movimiento.
-4. **Conciliación bancaria** (INV-8) e importación de extractos.
-5. **Pagos de una sola vez con fecha futura.** Hoy la proyección solo conoce
+3. **Conciliación bancaria** (INV-8) e importación de extractos.
+4. **Pagos de una sola vez con fecha futura.** Hoy la proyección solo conoce
    las cuotas de cobro y los gastos fijos; un pago grande y puntual —una
    compra de equipo, un adelanto— no cabe en ninguna de las dos.
 
@@ -470,6 +490,24 @@ Cada una costó tiempo. Están aquí para no repetirlas.
     Ahora la regla se mide: se prohíbe cuando hay pagos, y el mensaje dice
     cuántos. Una invariante se enuncia sobre lo que de verdad protege, no sobre
     el caso más fácil de comprobar.
+17. **Una restricción diferida que nada fuerza no está probada.** El
+    disparador que impide media transferencia es `deferrable initially
+    deferred`: no corre hasta que algo cierra la transacción. La primera
+    tanda de comprobaciones creó tres transferencias, afirmó nueve cosas
+    ciertas y **no ejecutó el disparador ni una vez**. Al forzarlo con `set
+    constraints all immediate` se vio que estaba roto de raíz. Dentro de un
+    `begin … rollback` —y dentro de un bloque `do` en psql— una prueba que no
+    fuerza las restricciones está probando el camino sin red. Regla práctica:
+    toda aserción sobre algo diferido termina en `set constraints all
+    immediate`, y el camino bueno también.
+18. **PL/pgSQL prepara la expresión entera, aunque la rama no se ejecute.**
+    `case when tg_table_name = 'transfers' then new.id else new.transfer_id
+    end` falla con «record "new" has no field "transfer_id"» cuando el
+    disparador es el de `transfers`, y `case when v_com is null then null else
+    v_cf.id end` falla con «record "v_cf" is not assigned yet» aunque la
+    comisión sea nula. El plan se construye contra la fila real antes de elegir
+    la rama. Se bifurca con `if`, que prepara cada sentencia solo al
+    ejecutarla, o se saca el valor a una variable escalar aparte.
 
 ---
 

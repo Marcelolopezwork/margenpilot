@@ -297,6 +297,255 @@ end $$;
 -- ---------------------------------------------------------------------------
 
 reset role;
+-- ---------------------------------------------------------------------------
+-- F3-4 · una transferencia no es un ingreso ni un gasto
+-- ---------------------------------------------------------------------------
+--
+-- Lo que estas aserciones vigilan es que mover dinero entre cuentas propias no
+-- pueda parecer un ingreso ni un gasto en el lente Resultado, y que no pueda
+-- existir media transferencia. Las dos cosas son la misma: si las dos patas no
+-- se reconocen como un solo hecho, el dinero aparece o desaparece.
+
+-- El tope de cuentas del plan free son dos y org-a ya las tiene. Lo que se
+-- prueba aquí es INV-5, no el plan —que tiene sus propias aserciones—, así que
+-- el disparador del tope se silencia mientras se montan las cuentas.
+alter table cash_accounts disable trigger cash_accounts_limit;
+
+insert into cash_accounts (organization_id, legal_entity_id, name, currency_code)
+select o.id, e.id, 'Caja Chica PEN', 'PEN'
+  from organizations o
+  join legal_entities e on e.organization_id = o.id and e.legal_name = 'Entidad Uno'
+ where o.slug = 'org-a';
+
+insert into cash_accounts (organization_id, legal_entity_id, name, currency_code)
+select o.id, e.id, 'BCP Dolares', 'USD'
+  from organizations o
+  join legal_entities e on e.organization_id = o.id and e.legal_name = 'Entidad Uno'
+ where o.slug = 'org-a';
+
+alter table cash_accounts enable trigger cash_accounts_limit;
+
+insert into clients (organization_id, name)
+select id, 'Cliente de las pruebas' from organizations where slug = 'org-a';
+
+do $$
+declare
+  v_org     uuid;
+  v_uno     uuid;
+  v_usuario uuid := '11111111-1111-1111-1111-111111111111';
+  v_pen     uuid;
+  v_chica   uuid;
+  v_dolar   uuid;
+  v_otra    uuid;
+  v_t       uuid;
+  v_tfx     uuid;
+  v_tcom    uuid;
+  v_pata    uuid;
+  v_doc     uuid;
+  v_s0      numeric;
+  v_s1      numeric;
+begin
+  -- La cabecera se lee y no se escribe, como las otras tres tablas del dinero.
+  -- Un `insert` suelto sobre `transfers` dejaría escribir una transferencia sin
+  -- patas, que es exactamente la fila que no debe existir.
+  perform assert_true(
+    not has_table_privilege('authenticated', 'transfers', 'insert')
+    and not has_table_privilege('authenticated', 'transfers', 'update')
+    and not has_table_privilege('authenticated', 'transfers', 'delete'),
+    'una transferencia no se escribe a mano: la puerta es la función');
+
+  perform assert_true(
+    (select relrowsecurity and relforcerowsecurity
+       from pg_class where oid = 'transfers'::regclass),
+    'transfers tiene RLS, y forzada también para el dueño');
+
+  -- La tasa no se teclea. Esto es INV-5 hecho estructura: nadie puede guardar
+  -- una tasa distinta de la que sale de los dos importes.
+  perform assert_true(
+    (select attgenerated <> '' from pg_attribute
+      where attrelid = 'transfers'::regclass and attname = 'fx_rate'),
+    'la tasa aplicada se calcula, no se escribe (INV-5)');
+
+  perform assert_true(
+    (select count(*) from pg_constraint
+      where conrelid = 'transfers'::regclass and contype = 'f'
+        and confrelid = 'cash_accounts'::regclass
+        and array_length(conkey, 1) = 4) = 2,
+    'cada lado ata su cuenta, su organización, su empresa y su moneda');
+
+  perform assert_true(
+    exists (select 1 from pg_constraint
+             where conrelid = 'transfers'::regclass
+               and conname = 'misma_moneda_mismo_importe'),
+    'en la misma moneda, lo que sale es lo que llega');
+
+  perform assert_true(
+    exists (select 1 from pg_constraint
+             where conrelid = 'cash_movements'::regclass
+               and conname = 'pata_sin_transferencia'),
+    'un movimiento de tipo transferencia exige su cabecera');
+
+  perform assert_true(
+    (select p.prosecdef and p.proconfig::text like '%search_path%'
+       from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+      where n.nspname = 'public' and p.proname = 'registrar_transferencia'),
+    'la puerta de las transferencias es definer con search_path fijo');
+
+  -- Y ahora el comportamiento.
+  select id into v_org from organizations where slug = 'org-a';
+  select id into v_uno from legal_entities
+   where organization_id = v_org and legal_name = 'Entidad Uno';
+  select id into v_pen from cash_accounts
+   where organization_id = v_org and name = 'BCP Soles';
+  select id into v_chica from cash_accounts
+   where organization_id = v_org and name = 'Caja Chica PEN';
+  select id into v_dolar from cash_accounts
+   where organization_id = v_org and name = 'BCP Dolares';
+  select id into v_otra from cash_accounts
+   where organization_id = v_org and name = 'Mercury USD';
+
+  v_s0 := coalesce((select balance from account_balances where cash_account_id = v_pen), 0);
+
+  select id into v_t from registrar_transferencia(
+    v_pen, v_chica, 500, p_description => 'Paso a caja chica');
+
+  perform assert_true(
+    (select fx_rate from transfers where id = v_t) = 1,
+    'en la misma moneda la tasa sale 1 sin ningún caso especial');
+
+  perform assert_true(
+    (select count(*) from cash_movements where transfer_id = v_t) = 2,
+    'una transferencia sin comisión son dos patas atadas (INV-5)');
+
+  perform assert_true(
+    (select balance from account_balances where cash_account_id = v_pen) = v_s0 - 500,
+    'la cuenta de origen pierde exactamente lo que salió (INV-1)');
+
+  perform assert_true(
+    (select balance from account_balances where cash_account_id = v_chica) = 500,
+    'la de destino gana exactamente lo que llegó');
+
+  perform assert_true(
+    (select count(*) from cash_movements
+      where transfer_id = v_t and flow_class = 'internal_transfer') = 2,
+    'las dos patas quedan fuera del lente Resultado por su clase de flujo');
+
+  -- Lo que sale y lo que llega no pueden diferir sin una razón. En la misma
+  -- moneda no hay tasa que la dé: la razón es una comisión.
+  perform assert_raises(
+    format('select registrar_transferencia(%L, %L, 1000, 970)', v_pen, v_chica),
+    'En la misma moneda no hay ninguna tasa que explique la diferencia',
+    'en la misma moneda, una diferencia es una comisión y se anota como tal');
+
+  -- Entre monedas distintas no se adivina: lo que llegó lo dice el extracto.
+  perform assert_raises(
+    format('select registrar_transferencia(%L, %L, 100)', v_dolar, v_pen),
+    'hace falta decir cuánto llegó de verdad',
+    'un cambio de moneda exige el monto que llegó, no una tasa de referencia');
+
+  select id into v_tfx from registrar_transferencia(
+    v_dolar, v_pen, 100, 370, p_description => 'Cambio de dólares');
+
+  perform assert_true(
+    (select fx_rate from transfers where id = v_tfx) = 3.7,
+    'la tasa guardada es la que aplicó el banco: destino ÷ origen (INV-5)');
+
+  perform assert_true(
+    (select amount = 100 and currency_code = 'USD'
+       from cash_movements where transfer_id = v_tfx and direction = 'out'),
+    'la pata que sale va en la moneda de su cuenta (INV-9)');
+
+  perform assert_true(
+    (select amount = 370 and currency_code = 'PEN'
+       from cash_movements where transfer_id = v_tfx and direction = 'in'),
+    'la pata que entra va en la moneda de la suya, sin conversión escondida');
+
+  -- La comisión es la tercera pata, y es gasto de verdad.
+  v_s1 := (select balance from account_balances where cash_account_id = v_pen);
+
+  select id into v_tcom from registrar_transferencia(
+    v_pen, v_chica, 1000, null, null, 'Con comisión', 10);
+
+  perform assert_true(
+    (select count(*) from cash_movements where transfer_id = v_tcom) = 3,
+    'con comisión son tres patas, no dos con el importe retocado');
+
+  perform assert_true(
+    (select flow_class = 'operating' and direction = 'out' and amount = 10
+       from cash_movements where transfer_id = v_tcom and kind = 'bank_fee'),
+    'la comisión sí es gasto: cuenta como operating y entra en el resultado');
+
+  perform assert_true(
+    (select balance from account_balances where cash_account_id = v_chica) = 500 + 1000,
+    'el destino recibe el monto entero: la comisión la paga quien la pagó');
+
+  perform assert_true(
+    (select balance from account_balances where cash_account_id = v_pen) = v_s1 - 1010,
+    'el origen pierde el monto y la comisión, que son dos cosas distintas');
+
+  -- Entre dos empresas no hay traslado interno, y el rechazo nombra las dos.
+  perform assert_raises(
+    format('select registrar_transferencia(%L, %L, 100)', v_otra, v_pen),
+    'es de Entidad Uno. Entre dos empresas no hay traslado interno',
+    'el dinero no cruza de un libro a otro, y el error dice qué hacer en su lugar');
+
+  perform assert_raises(
+    format('select registrar_transferencia(%L, %L, 100)', v_pen, v_pen),
+    'cuentas_iguales',
+    'una cuenta no se transfiere a sí misma');
+
+  -- Anular una pata anula la transferencia entera. Si no, aparecería dinero.
+  select id into v_pata from cash_movements
+   where transfer_id = v_tcom and direction = 'in';
+  perform anular_movimiento(v_pata, 'se registró dos veces');
+
+  perform assert_true(
+    (select count(*) from cash_movements where transfer_id = v_tcom and not is_void) = 0,
+    'anular una pata anula las tres: media transferencia crearía dinero');
+
+  perform assert_true(
+    (select balance from account_balances where cash_account_id = v_chica) = 500
+    and (select balance from account_balances where cash_account_id = v_pen) = v_s1,
+    'anulada entera, los tres saldos vuelven exactamente donde estaban');
+
+  perform assert_true(
+    (select count(*) from cash_movements where transfer_id = v_tcom) = 3,
+    'y las tres filas se quedan donde estaban: nada financiero se borra (INV-7)');
+
+  -- Una pata sin cabecera sería dinero que sale del resultado sin explicación.
+  perform assert_raises(
+    format('select registrar_movimiento(%L, ''out'', 10, ''Pata suelta'', null, ''transfer'')', v_pen),
+    'pata_sin_transferencia',
+    'un movimiento de tipo transferencia sin su cabecera no se puede insertar');
+
+  -- Y media transferencia no llega al commit ni tocando la tabla a mano.
+  select id into v_pata from cash_movements
+   where transfer_id = v_tfx and direction = 'out';
+  perform assert_raises(
+    format('update cash_movements set is_void = true, void_reason = ''media''
+            where id = %L; set constraints all immediate', v_pata),
+    'transferencia_descuadrada',
+    'anular media transferencia a mano no pasa del cierre de la transacción');
+
+  -- Una pata no salda una factura: ese dinero no vino de ningún cliente.
+  insert into billing_documents (organization_id, legal_entity_id, client_id,
+    currency_code, amount_net, amount_tax, amount_total, created_by)
+  select v_org, v_uno, c.id, 'PEN', 500, 0, 500, v_usuario
+    from clients c where c.organization_id = v_org and c.name = 'Cliente de las pruebas'
+  returning id into v_doc;
+
+  select id into v_pata from cash_movements
+   where transfer_id = v_t and direction = 'in';
+
+  perform assert_raises(
+    format('insert into payment_allocations (organization_id, legal_entity_id,
+              currency_code, cash_movement_id, billing_document_id, amount)
+            values (%L, %L, ''PEN'', %L, %L, 500);
+            set constraints all immediate', v_org, v_uno, v_pata, v_doc),
+    'asignacion_de_transferencia',
+    'la pata de una transferencia no puede dar por cobrada una factura (INV-6)');
+end $$;
+
 reset request.jwt.claim.sub;
 
 -- Org A ya está en internal desde D-1, así que no hay tope de miembros.
@@ -816,4 +1065,4 @@ end $$;
 
 reset request.jwt.claim.sub;
 
-select 'TODAS LAS PRUEBAS DE F1, F2 Y F3 PASARON · 82 aserciones' as resultado;
+select 'TODAS LAS PRUEBAS DE F1, F2 Y F3 PASARON · 111 aserciones' as resultado;

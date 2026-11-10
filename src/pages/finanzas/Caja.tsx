@@ -3,7 +3,16 @@ import { useMutation, useQuery } from '@tanstack/react-query';
 import { useOrg, useOrgElegida, puedeEscribirDinero } from '../../app/org-context';
 import { mensajeDeError } from '../../lib/errors';
 import { formatoFecha } from '../../lib/format';
-import { currencyOf, format, fromRow, toDb, zero, type Money } from '../../lib/money';
+import {
+  currencyOf,
+  effectiveRate,
+  format,
+  fromDb,
+  fromRow,
+  toDb,
+  zero,
+  type Money,
+} from '../../lib/money';
 import { requireSupabase } from '../../lib/supabase';
 import type { Enums } from '../../types/database';
 import { Aviso, Boton, Campo, Cargando, Etiqueta, Selector, Tarjeta, Vacio } from '../../components/ui';
@@ -11,6 +20,11 @@ import { Alta, FiltradoPor, Fila, Lista, Seccion } from '../../components/piezas
 import { useRecargar } from '../../components/recargar';
 import { cobradoPorDocumento } from './cobrado';
 import { pagableDesde } from './proyeccion';
+import {
+  destinosPosibles,
+  haceFaltaMontoDestino,
+  porQueNoHayDestino,
+} from './transferencia';
 import {
   TIPOS_A_MANO,
   diasDeAtraso,
@@ -62,6 +76,21 @@ function PorMoneda({
   );
 }
 
+/**
+ * Lo que el usuario está tecleando, como dinero, o null si todavía no lo es.
+ * Solo para enseñar la tasa mientras escribe: la que se guarda la calcula la
+ * base con los dos importes, que es la única que no se puede teclear mal.
+ */
+function aMoney(texto: string, moneda: string | undefined): Money | null {
+  const limpio = texto.trim().replace(',', '.');
+  if (!limpio || !moneda) return null;
+  try {
+    return fromDb(limpio, currencyOf(moneda));
+  } catch {
+    return null;
+  }
+}
+
 export default function Caja() {
   const { organizacion, entidad } = useOrgElegida();
   const { entidades, elegirEntidad } = useOrg();
@@ -79,6 +108,17 @@ export default function Caja() {
   const [tipo, setTipo] = useState<Enums<'cash_kind'>>('operating');
   const [referencia, setReferencia] = useState('');
   const [gastoFijo, setGastoFijo] = useState('');
+
+  const [exitoMover, setExitoMover] = useState<string | null>(null);
+  const [origenId, setOrigenId] = useState('');
+  const [destinoId, setDestinoId] = useState('');
+  const [sale, setSale] = useState('');
+  const [llega, setLlega] = useState('');
+  const [fechaMov, setFechaMov] = useState(hoy);
+  const [conceptoMov, setConceptoMov] = useState('');
+  const [comision, setComision] = useState('');
+  const [comisionDe, setComisionDe] = useState('');
+  const [refMov, setRefMov] = useState('');
 
   const cuentas = useQuery({
     queryKey: ['saldos', organizacion.id, entidad?.id ?? null],
@@ -224,6 +264,42 @@ export default function Caja() {
     },
   });
 
+  const mover = useMutation({
+    onMutate: () => setExitoMover(null),
+    mutationFn: async () => {
+      const cuentaComision = comision.trim() ? comisionDe || origenId : null;
+      const { error } = await requireSupabase().rpc('registrar_transferencia', {
+        p_from: origenId,
+        p_to: destinoId,
+        p_amount_from: Number(sale.replace(',', '.')),
+        // Solo cuando cambia de moneda. En la misma, mandar el monto de destino
+        // sería repetir el de origen, y si no coincidieran la base lo
+        // rechazaría con razón.
+        ...(cambiaMoneda ? { p_amount_to: Number(llega.replace(',', '.')) } : {}),
+        p_value_date: fechaMov,
+        ...(conceptoMov.trim() ? { p_description: conceptoMov.trim() } : {}),
+        ...(cuentaComision
+          ? { p_fee: Number(comision.replace(',', '.')), p_fee_account: cuentaComision }
+          : {}),
+        ...(refMov.trim() ? { p_external_ref: refMov.trim() } : {}),
+      });
+      if (error) throw error;
+    },
+    onSuccess: () => {
+      setExitoMover(
+        `Transferencia anotada: salieron ${sale} de ${origen?.name ?? 'la cuenta de origen'} y ${
+          cambiaMoneda ? `llegaron ${llega}` : 'llegó lo mismo'
+        } a ${destino?.name ?? 'la de destino'}. Los dos saldos ya lo incluyen.`,
+      );
+      setSale('');
+      setLlega('');
+      setConceptoMov('');
+      setComision('');
+      setRefMov('');
+      recargar();
+    },
+  });
+
   const anular = useMutation({
     mutationFn: async ({ id, motivo }: { id: string; motivo: string }) => {
       const { error } = await requireSupabase().rpc('anular_movimiento', {
@@ -275,6 +351,21 @@ export default function Caja() {
     pagableDesde(g, cuentaElegida),
   );
   const gastosFuera = (gastosFijos.data ?? []).length - gastosDeLaCuenta.length;
+
+  // Mover dinero entre cuentas. El destino no se ofrece entero: una
+  // transferencia va entre dos cuentas de la misma empresa, porque entre dos
+  // empresas el dinero cambia de libro y eso es otro hecho (INV-5).
+  const origen = cuentasActivas.find((c) => c.id === origenId);
+  const destino = cuentasActivas.find((c) => c.id === destinoId);
+  const destinos = destinosPosibles(cuentasActivas, origen);
+  const faltaDestino = porQueNoHayDestino(cuentasActivas, origen);
+  const cambiaMoneda = haceFaltaMontoDestino(origen, destino);
+  const dineroSale = aMoney(sale, origen?.currency_code);
+  const dineroLlega = aMoney(llega, destino?.currency_code);
+  const tasa =
+    cambiaMoneda && dineroSale && dineroLlega ? effectiveRate(dineroSale, dineroLlega) : null;
+  const nombreEmpresa = (id: string | undefined) =>
+    entidades.find((e) => e.id === id)?.legal_name ?? 'Esa empresa';
 
   return (
     <Seccion
@@ -525,6 +616,149 @@ export default function Caja() {
             {crear.isPending ? 'Anotando…' : 'Anotar movimiento'}
           </Boton>
         </div>
+      </Alta>
+
+      {/* ---------------------------------------------------------------- */}
+      <Alta titulo="Mover dinero entre cuentas" exito={exitoMover} onSubmit={() => mover.mutate()}>
+        <p className="max-w-prose text-sm text-muted">
+          Un traslado entre tus propias cuentas no es un ingreso ni un gasto, así que se anota de
+          una vez: queda como un solo hecho con dos patas, lo que sale de una y lo que entra en la
+          otra. Anotado como dos movimientos sueltos, un mes en el que no pasó nada enseñaría un
+          ingreso y un gasto del mismo tamaño.
+        </p>
+
+        <Selector
+          etiqueta="Sale de"
+          value={origenId}
+          onChange={(e) => {
+            const id = e.target.value;
+            setOrigenId(id);
+            // Cambiar el origen puede dejar el destino en otra empresa. Se
+            // suelta en vez de mandarlo y que lo rechace la base.
+            const nuevo = cuentasActivas.find((c) => c.id === id);
+            const elegido = cuentasActivas.find((c) => c.id === destinoId);
+            if (elegido && !destinosPosibles(cuentasActivas, nuevo).some((c) => c.id === elegido.id))
+              setDestinoId('');
+          }}
+          required
+        >
+          <option value="">Elige la cuenta de la que sale</option>
+          {cuentasActivas.map((c) => (
+            <option key={c.id} value={c.id}>
+              {c.name} · {c.currency_code}
+            </option>
+          ))}
+        </Selector>
+
+        {faltaDestino && (
+          <Aviso tipo="atencion">
+            {faltaDestino === 'sin-origen'
+              ? 'Primero di de qué cuenta sale el dinero: como destino solo se ofrecen las otras cuentas de esa misma empresa.'
+              : `${nombreEmpresa(origen?.legal_entity_id)} solo tiene esta cuenta, así que no hay a dónde mover el dinero dentro de su libro. Si de verdad existe otra, créala en Configuración → Cuentas. Y mover dinero a una cuenta de otra empresa del grupo no es una transferencia: es un préstamo, un aporte o una venta con su factura, y entonces son dos movimientos, uno en cada libro, cada uno diciendo qué fue.`}
+          </Aviso>
+        )}
+
+        {destinos.length > 0 && (
+          <>
+            <Selector
+              etiqueta="Entra en"
+              ayuda="Solo las otras cuentas de la misma empresa: el dinero no cruza de un libro a otro."
+              value={destinoId}
+              onChange={(e) => setDestinoId(e.target.value)}
+              required
+            >
+              <option value="">Elige la cuenta que lo recibe</option>
+              {destinos.map((c) => (
+                <option key={c.id} value={c.id}>
+                  {c.name} · {c.currency_code}
+                </option>
+              ))}
+            </Selector>
+
+            <Campo
+              etiqueta={`Lo que sale${origen ? ` en ${origen.currency_code}` : ''}`}
+              ayuda="Lo que el banco quitó de la cuenta de origen."
+              inputMode="decimal"
+              value={sale}
+              onChange={(e) => setSale(e.target.value)}
+              required
+            />
+
+            {cambiaMoneda && (
+              <Campo
+                etiqueta={`Lo que llegó en ${destino?.currency_code ?? ''}`}
+                ayuda="Lo que el banco dejó de verdad en la cuenta de destino, no lo que daría la tasa del día. La diferencia entre las dos es lo que se quedó el banco, y así queda contada."
+                inputMode="decimal"
+                value={llega}
+                onChange={(e) => setLlega(e.target.value)}
+                required
+              />
+            )}
+
+            {tasa && (
+              <p className="max-w-prose text-xs text-subtle">
+                Tasa aplicada: {tasa} {destino?.currency_code} por {origen?.currency_code}. No se
+                teclea en ninguna parte: sale de lo que salió y lo que llegó, y por eso es la del
+                banco y no una de referencia.
+              </p>
+            )}
+
+            <Campo
+              etiqueta="Fecha de la transferencia"
+              ayuda="La fecha en que el banco movió el dinero."
+              type="date"
+              value={fechaMov}
+              onChange={(e) => setFechaMov(e.target.value)}
+              required
+            />
+
+            <Campo
+              etiqueta="Concepto de la transferencia"
+              ayuda={`Opcional. Si lo dejas vacío queda «Transferencia de ${origen?.name ?? 'una cuenta'} a ${destino?.name ?? 'otra'}».`}
+              value={conceptoMov}
+              onChange={(e) => setConceptoMov(e.target.value)}
+            />
+
+            <Campo
+              etiqueta="Comisión del banco"
+              ayuda="Opcional, y va aparte a propósito: la comisión sí es un gasto de verdad, así que se anota como tal en vez de desaparecer dentro del importe."
+              inputMode="decimal"
+              value={comision}
+              onChange={(e) => setComision(e.target.value)}
+            />
+
+            {comision.trim() && (
+              <Selector
+                etiqueta="La comisión sale de"
+                ayuda="La cobra el banco de una de las dos cuentas, y el extracto dice de cuál."
+                value={comisionDe || origenId}
+                onChange={(e) => setComisionDe(e.target.value)}
+              >
+                <option value={origenId}>
+                  {origen?.name} · {origen?.currency_code}
+                </option>
+                <option value={destinoId}>
+                  {destino?.name} · {destino?.currency_code}
+                </option>
+              </Selector>
+            )}
+
+            <Campo
+              etiqueta="Referencia de la operación"
+              ayuda="Opcional. El número de operación, para encontrarla después en el extracto."
+              value={refMov}
+              onChange={(e) => setRefMov(e.target.value)}
+            />
+
+            {mover.error && <Aviso tipo="error">{mensajeDeError(mover.error)}</Aviso>}
+
+            <div>
+              <Boton variante="primario" type="submit" disabled={mover.isPending}>
+                {mover.isPending ? 'Anotando…' : 'Anotar transferencia'}
+              </Boton>
+            </div>
+          </>
+        )}
       </Alta>
 
       {/* ---------------------------------------------------------------- */}

@@ -250,3 +250,25 @@ export function aggregateMarginPercent(
   );
   return marginPercent(totalNet, totalCost);
 }
+
+/**
+ * La tasa que de verdad aplicó el banco: lo que llegó entre lo que salió
+ * (INV-5). No se teclea en ninguna parte, y por eso no puede estar mal. El
+ * margen que el banco se quedó entre su tasa publicada y esta queda dentro de
+ * la cifra, y eso es lo honesto: nadie sabe cómo lo repartió, así que no se
+ * inventa.
+ *
+ * Seis decimales y aritmética entera. Una tasa que se enseña es una cifra, y
+ * las cifras de este proyecto no pasan por `number`. Devuelve null cuando no
+ * hay tasa que calcular: falta un lado, o alguno no es positivo.
+ */
+export function effectiveRate(from: Money, to: Money): string | null {
+  if (from.minor <= 0n || to.minor <= 0n) return null;
+  const escalaOrigen = 10n ** BigInt(CURRENCY[from.currency].minorUnits);
+  const escalaDestino = 10n ** BigInt(CURRENCY[to.currency].minorUnits);
+  const SEIS = 1_000_000n;
+  const bruto = divHalfUp(to.minor * escalaOrigen * SEIS, from.minor * escalaDestino);
+  const entero = bruto / SEIS;
+  const resto = (bruto % SEIS).toString().padStart(6, '0');
+  return `${entero}.${resto}`;
+}

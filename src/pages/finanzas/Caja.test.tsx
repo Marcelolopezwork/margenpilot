@@ -339,4 +339,123 @@ describe('Finanzas · Caja', () => {
     await usuario.selectOptions(screen.getByLabelText('Dirección'), 'in');
     expect(screen.queryByLabelText(/¿Paga un gasto fijo\?/)).toBeNull();
   });
+  /**
+   * F3-4. Una transferencia entre cuentas propias no es un ingreso ni un
+   * gasto, y la pantalla tiene que impedir de entrada lo que la base
+   * rechazaría: mover dinero de una empresa del grupo a la otra.
+   */
+  it('su caso real: una cuenta por empresa, así que no hay a dónde mover', async () => {
+    const usuario = userEvent.setup();
+    CUENTAS.push(
+      { id: 'cta-1', name: 'BCP soles', bank_name: 'BCP', currency_code: 'PEN', legal_entity_id: 'e-1', is_active: true },
+      { id: 'cta-2', name: 'Mercury', bank_name: null, currency_code: 'USD', legal_entity_id: 'e-2', is_active: true },
+    );
+    await montar();
+    await screen.findByText('BCP soles');
+
+    await usuario.selectOptions(screen.getByLabelText('Sale de'), 'cta-1');
+
+    expect(screen.getByText(/3 Brothers MKT SAC solo tiene esta cuenta/)).toBeTruthy();
+    expect(screen.getByText(/es un préstamo, un aporte o una venta con su factura/)).toBeTruthy();
+    // Y no se ofrece ningún destino, en vez de ofrecer Mercury y que falle.
+    expect(screen.queryByLabelText('Entra en')).toBeNull();
+    expect(screen.queryByRole('button', { name: 'Anotar transferencia' })).toBeNull();
+  });
+
+  it('como destino solo ofrece las otras cuentas de la misma empresa', async () => {
+    const usuario = userEvent.setup();
+    CUENTAS.push(
+      { id: 'cta-1', name: 'BCP soles', bank_name: 'BCP', currency_code: 'PEN', legal_entity_id: 'e-1', is_active: true },
+      { id: 'cta-3', name: 'Caja chica', bank_name: null, currency_code: 'PEN', legal_entity_id: 'e-1', is_active: true },
+      { id: 'cta-2', name: 'Mercury', bank_name: null, currency_code: 'USD', legal_entity_id: 'e-2', is_active: true },
+    );
+    await montar();
+    await screen.findByText('BCP soles');
+
+    await usuario.selectOptions(screen.getByLabelText('Sale de'), 'cta-1');
+    const destino = screen.getByLabelText('Entra en') as HTMLSelectElement;
+    const opciones = Array.from(destino.options).map((o) => o.textContent);
+    expect(opciones).toEqual(['Elige la cuenta que lo recibe', 'Caja chica · PEN']);
+  });
+
+  it('en la misma moneda no pregunta cuánto llegó: lo que sale es lo que llega', async () => {
+    const usuario = userEvent.setup();
+    CUENTAS.push(
+      { id: 'cta-1', name: 'BCP soles', bank_name: 'BCP', currency_code: 'PEN', legal_entity_id: 'e-1', is_active: true },
+      { id: 'cta-3', name: 'Caja chica', bank_name: null, currency_code: 'PEN', legal_entity_id: 'e-1', is_active: true },
+    );
+    await montar();
+    await screen.findByText('BCP soles');
+
+    await usuario.selectOptions(screen.getByLabelText('Sale de'), 'cta-1');
+    await usuario.selectOptions(screen.getByLabelText('Entra en'), 'cta-3');
+    expect(screen.queryByLabelText(/Lo que llegó/)).toBeNull();
+
+    await usuario.type(screen.getByLabelText(/Lo que sale en PEN/), '500');
+    await usuario.click(screen.getByRole('button', { name: 'Anotar transferencia' }));
+
+    await waitFor(() => expect(llamadas).toHaveLength(1));
+    expect(llamadas[0]?.nombre).toBe('registrar_transferencia');
+    expect(llamadas[0]?.args).toMatchObject({
+      p_from: 'cta-1',
+      p_to: 'cta-3',
+      p_amount_from: 500,
+    });
+    // Sin monto de destino: mandarlo repetido sería una cifra que puede
+    // discrepar de la otra.
+    expect(llamadas[0]?.args).not.toHaveProperty('p_amount_to');
+  });
+
+  it('al cambiar de moneda pide lo que llegó y enseña la tasa que sale de las dos cifras', async () => {
+    const usuario = userEvent.setup();
+    CUENTAS.push(
+      { id: 'cta-1', name: 'BCP soles', bank_name: 'BCP', currency_code: 'PEN', legal_entity_id: 'e-1', is_active: true },
+      { id: 'cta-4', name: 'BCP dólares', bank_name: 'BCP', currency_code: 'USD', legal_entity_id: 'e-1', is_active: true },
+    );
+    await montar();
+    await screen.findByText('BCP soles');
+
+    await usuario.selectOptions(screen.getByLabelText('Sale de'), 'cta-1');
+    await usuario.selectOptions(screen.getByLabelText('Entra en'), 'cta-4');
+
+    await usuario.type(screen.getByLabelText(/Lo que sale en PEN/), '3700');
+    await usuario.type(screen.getByLabelText(/Lo que llegó en USD/), '1000');
+
+    expect(screen.getByText(/Tasa aplicada: 0.270270 USD por PEN/)).toBeTruthy();
+
+    await usuario.click(screen.getByRole('button', { name: 'Anotar transferencia' }));
+    await waitFor(() => expect(llamadas).toHaveLength(1));
+    expect(llamadas[0]?.args).toMatchObject({
+      p_from: 'cta-1',
+      p_to: 'cta-4',
+      p_amount_from: 3700,
+      p_amount_to: 1000,
+    });
+  });
+
+  it('la comisión va aparte y se cobra de una de las dos cuentas', async () => {
+    const usuario = userEvent.setup();
+    CUENTAS.push(
+      { id: 'cta-1', name: 'BCP soles', bank_name: 'BCP', currency_code: 'PEN', legal_entity_id: 'e-1', is_active: true },
+      { id: 'cta-3', name: 'Caja chica', bank_name: null, currency_code: 'PEN', legal_entity_id: 'e-1', is_active: true },
+    );
+    await montar();
+    await screen.findByText('BCP soles');
+
+    await usuario.selectOptions(screen.getByLabelText('Sale de'), 'cta-1');
+    await usuario.selectOptions(screen.getByLabelText('Entra en'), 'cta-3');
+    await usuario.type(screen.getByLabelText(/Lo que sale en PEN/), '1000');
+    await usuario.type(screen.getByLabelText('Comisión del banco'), '10');
+
+    // Y solo entonces se pregunta de cuál de las dos cuentas sale.
+    await usuario.selectOptions(screen.getByLabelText('La comisión sale de'), 'cta-3');
+    await usuario.click(screen.getByRole('button', { name: 'Anotar transferencia' }));
+
+    await waitFor(() => expect(llamadas).toHaveLength(1));
+    expect(llamadas[0]?.args).toMatchObject({
+      p_amount_from: 1000,
+      p_fee: 10,
+      p_fee_account: 'cta-3',
+    });
+  });
 });

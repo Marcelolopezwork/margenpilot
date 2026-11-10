@@ -315,6 +315,7 @@ export type Database = {
           organization_id: string
           recurring_expense_id: string | null
           source: string
+          transfer_id: string | null
           value_date: string
           void_reason: string | null
         }
@@ -340,6 +341,7 @@ export type Database = {
           organization_id: string
           recurring_expense_id?: string | null
           source?: string
+          transfer_id?: string | null
           value_date: string
           void_reason?: string | null
         }
@@ -365,6 +367,7 @@ export type Database = {
           organization_id?: string
           recurring_expense_id?: string | null
           source?: string
+          transfer_id?: string | null
           value_date?: string
           void_reason?: string | null
         }
@@ -2110,6 +2113,72 @@ export type Database = {
           },
         ]
       }
+      transfers: {
+        Row: {
+          amount_from: number
+          amount_to: number
+          created_at: string
+          created_by: string
+          currency_from: string
+          currency_to: string
+          description: string
+          external_ref: string | null
+          fee_account_id: string | null
+          fee_amount: number | null
+          from_account_id: string
+          fx_rate: number | null
+          id: string
+          legal_entity_id: string
+          organization_id: string
+          to_account_id: string
+          value_date: string
+        }
+        Insert: {
+          amount_from: number
+          amount_to: number
+          created_at?: string
+          created_by?: string
+          currency_from: string
+          currency_to: string
+          description: string
+          external_ref?: string | null
+          fee_account_id?: string | null
+          fee_amount?: number | null
+          from_account_id: string
+          id?: string
+          legal_entity_id: string
+          organization_id: string
+          to_account_id: string
+          value_date: string
+        }
+        Update: {
+          amount_from?: number
+          amount_to?: number
+          created_at?: string
+          created_by?: string
+          currency_from?: string
+          currency_to?: string
+          description?: string
+          external_ref?: string | null
+          fee_account_id?: string | null
+          fee_amount?: number | null
+          from_account_id?: string
+          id?: string
+          legal_entity_id?: string
+          organization_id?: string
+          to_account_id?: string
+          value_date?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "transfers_organization_id_fkey"
+            columns: ["organization_id"]
+            isOneToOne: false
+            referencedRelation: "organizations"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
     }
     Views: {
       account_balances: {
@@ -2155,6 +2224,7 @@ export type Database = {
           organization_id: string
           recurring_expense_id: string | null
           source: string
+          transfer_id: string | null
           value_date: string
           void_reason: string | null
         }[]
@@ -2355,6 +2425,7 @@ export type Database = {
           organization_id: string
           recurring_expense_id: string | null
           source: string
+          transfer_id: string | null
           value_date: string
           void_reason: string | null
         }[]
@@ -2403,12 +2474,51 @@ export type Database = {
           organization_id: string
           recurring_expense_id: string | null
           source: string
+          transfer_id: string | null
           value_date: string
           void_reason: string | null
         }[]
         SetofOptions: {
           from: "*"
           to: "cash_movements"
+          isOneToOne: false
+          isSetofReturn: true
+        }
+      }
+      registrar_transferencia: {
+        Args: {
+          p_amount_from: number
+          p_amount_to?: number
+          p_description?: string
+          p_external_ref?: string
+          p_fee?: number
+          p_fee_account?: string
+          p_from: string
+          p_to: string
+          p_value_date?: string
+        }
+        Returns: {
+          amount_from: number
+          amount_to: number
+          created_at: string
+          created_by: string
+          currency_from: string
+          currency_to: string
+          description: string
+          external_ref: string | null
+          fee_account_id: string | null
+          fee_amount: number | null
+          from_account_id: string
+          fx_rate: number | null
+          id: string
+          legal_entity_id: string
+          organization_id: string
+          to_account_id: string
+          value_date: string
+        }[]
+        SetofOptions: {
+          from: "*"
+          to: "transfers"
           isOneToOne: false
           isSetofReturn: true
         }

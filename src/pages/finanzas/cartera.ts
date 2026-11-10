@@ -172,8 +172,8 @@ export function nombreTipoMovimiento(tipo: Enums<'cash_kind'>): string {
 /**
  * Los tipos que se ofrecen al dar de alta un movimiento a mano. La
  * transferencia no está: necesita dos patas atadas por una cabecera (INV-5) y
- * se hace desde su propia acción, no eligiendo «transferencia» en un
- * desplegable y dejando la otra mitad sin crear.
+ * se hace desde «Mover dinero entre cuentas», no eligiendo «transferencia» en
+ * un desplegable y dejando la otra mitad sin crear.
  */
 export const TIPOS_A_MANO: readonly Enums<'cash_kind'>[] = [
   'operating',

@@ -5,6 +5,7 @@ import {
   aggregateMarginPercent,
   convert,
   currencyOf,
+  effectiveRate,
   format,
   fromDb,
   fromRow,
@@ -180,5 +181,33 @@ describe('entrada desde una fila de la base', () => {
 
   it('se niega a adivinar una moneda que no conoce', () => {
     expect(() => currencyOf('XXX')).toThrow(MoneyError);
+  });
+});
+
+/**
+ * La tasa efectiva (INV-5). Lo que se guarda lo calcula la base; esto es la
+ * misma cuenta para poder enseñarla mientras se teclea, y tiene que dar lo
+ * mismo.
+ */
+describe('effectiveRate', () => {
+  it('es lo que llegó entre lo que salió', () => {
+    expect(effectiveRate(fromDb('100.00', 'USD'), fromDb('370.00', 'PEN'))).toBe('3.700000');
+  });
+
+  it('en la misma moneda sale 1 sin ningún caso especial', () => {
+    expect(effectiveRate(fromDb('500.00', 'PEN'), fromDb('500.00', 'PEN'))).toBe('1.000000');
+  });
+
+  it('redondea a seis decimales sin pasar por coma flotante', () => {
+    expect(effectiveRate(fromDb('3.00', 'USD'), fromDb('10.00', 'PEN'))).toBe('3.333333');
+  });
+
+  it('y la de ida es la inversa de la de vuelta', () => {
+    expect(effectiveRate(fromDb('3700.00', 'PEN'), fromDb('1000.00', 'USD'))).toBe('0.270270');
+  });
+
+  it('sin los dos lados no hay tasa que calcular', () => {
+    expect(effectiveRate(zero('USD'), fromDb('370.00', 'PEN'))).toBeNull();
+    expect(effectiveRate(fromDb('100.00', 'USD'), zero('PEN'))).toBeNull();
   });
 });

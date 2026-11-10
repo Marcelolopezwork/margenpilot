@@ -46,6 +46,16 @@ Toda transferencia produce exactamente 2 o 3 `cash_movements` atados por `transf
 
 Si hay cambio de moneda, se guardan los **cuatro** datos: monto origen, monto destino, `fx_rate` aplicado de verdad y comisión por separado. El `fx_rate` que se almacena es el **efectivamente aplicado por el banco** (monto destino ÷ monto origen), no una tasa de referencia.
 
+Corolarios normativos, todos con estructura detrás (implantado el 10/11/2026):
+
+1. **`fx_rate` no se escribe nunca:** es columna generada `round(amount_to / amount_from, 10)`. Una tasa que se teclea puede discrepar de los dos importes que la definen, y entonces hay dos verdades. El margen que el banco se quedó entre su tasa publicada y esta queda dentro de la cifra: no se desglosa porque no se conoce.
+2. **En la misma moneda, `amount_from = amount_to`** (`check misma_moneda_mismo_importe`). No existe ninguna tasa que explique que salgan 1.000 soles y lleguen 970. Esa diferencia es una comisión y se registra como la tercera pata, que es gasto real y entra en el lente Resultado.
+3. **Las dos cuentas son de la misma `legal_entity_id`.** Entre dos empresas del grupo el dinero sale del libro de una y entra en el de la otra: son dos hechos económicos, cada uno con su motivo —préstamo, aporte del dueño o venta con documento—, y clasificarlos como `internal_transfer` los escondería justo del lente que existe para verlos (ADR-16, INV-11).
+4. **La comisión la paga una de las dos cuentas de la transferencia**, nunca una tercera, y va en la moneda de esa cuenta.
+5. **No existe media transferencia.** Anular una pata anula todas (`anular_movimiento`), y un disparador diferido comprueba al cerrar la transacción que las patas vivas son 2 o 3 y cuadran con la cabecera, o que no hay ninguna. Anular solo la salida haría aparecer dinero en el destino.
+6. **`kind = 'transfer'` exige `transfer_id`** (`check pata_sin_transferencia`). Una pata huérfana es dinero que sale del resultado sin que nada explique a dónde fue, y por eso «transferencia» no está entre los tipos del alta manual de movimientos.
+7. **Una pata no se puede asignar a un documento** (`asignacion_de_transferencia`). Daría una factura por cobrada con dinero que no vino de ningún cliente.
+
 ### INV-6 — Hecho económico: la regla que evita el doble conteo
 Un mismo gasto puede llegar de dos formas: con documento (factura del proveedor) o sin él (el taxi). Para no contarlo dos veces ni dejarlo fuera:
 
