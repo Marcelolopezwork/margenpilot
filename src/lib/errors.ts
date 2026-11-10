@@ -50,6 +50,13 @@ const CON_CIFRAS: readonly string[] = [
   'desglose_descuadrado',
   'documento_cerrado',
   'cuenta_de_otro_libro',
+  // Estos tres traen los nombres propios dentro: qué gasto, qué empresa, qué
+  // cuenta, cuántos pagos. Sin ellos el mensaje no se puede corregir, que es
+  // justo lo que pasaba cuando este error llegaba como violación de clave
+  // ajena y decía «falta un dato relacionado» (trampa #15).
+  'gasto_de_otra_empresa',
+  'gasto_en_otra_moneda',
+  'gasto_no_se_muda',
 ];
 
 function conCifras(bruto: string): string | null {
@@ -149,6 +156,23 @@ const FIJOS: readonly (readonly [string, string])[] = [
     'Ese movimiento ya no existe, o no tienes permiso de finanzas en esta organización.',
   ],
   ['movimiento_ya_anulado', 'Este movimiento ya estaba anulado.'],
+  // F3-3 · gastos fijos
+  [
+    'gasto_no_encontrado',
+    'Ese gasto fijo ya no existe, o no tienes permiso de finanzas en esta organización.',
+  ],
+  [
+    'recurrente_solo_sale',
+    'Un gasto fijo se paga, no se cobra. Si entró dinero, no es el pago de una suscripción: anótalo como entrada suelta.',
+  ],
+  [
+    'etiqueta_obligatoria',
+    'El gasto necesita un nombre, el que vas a reconocer en el extracto del banco.',
+  ],
+  [
+    'entidad_no_encontrada',
+    'Esa empresa ya no existe, o no tienes permiso de finanzas en esta organización.',
+  ],
   ['invalid_name', 'Hace falta un nombre.'],
   ['unknown_currency', 'Esa moneda no existe en el catálogo.'],
 ];

@@ -125,8 +125,12 @@ compilado.
 - **Listado de cotizaciones** · filtros por estado y por cliente, y el
   **margen agregado ponderado** de lo que se está viendo, una cifra por
   moneda. Σ utilidad / Σ precio, nunca el promedio de porcentajes (§2.3)
-- **Finanzas, Pipeline, Análisis** · todavía son marcadores honestos que dicen
-  en qué fase llegan
+- **Finanzas** · dos pestañas, Caja y Gastos fijos: saldos por moneda, cartera,
+  libro de caja y las reglas de lo que sale cada mes
+- **Pipeline y Análisis** · marcadores honestos: dicen en qué fase llegan, qué
+  parte de esa pregunta ya se contesta hoy y dónde. El texto de lo que se puede
+  hacer mientras tanto se pasa por props desde `App.tsx`, para que se mueva con
+  el producto y no con la fecha en que se escribió la pantalla
 
 ### Datos reales que ya existen en producción
 
@@ -136,12 +140,12 @@ caja (BCP soles en PEN, Mercury en USD), un cliente y una cotización de prueba.
 
 ### Verificación
 
-- **197 pruebas** de Vitest: dinero, errores, formato, armazón, altas, el A4,
+- **209 pruebas** de Vitest: dinero, errores, formato, armazón, altas, el A4,
   la propuesta, la aritmética de la cotización, el panel de emisión, la
   reimpresión de una versión emitida, el reparto en cuotas, el margen
   agregado, la cartera, la pantalla de finanzas, la proyección de caja con sus
   salidas, los gastos fijos y el panel de inicio
-- **73 aserciones** SQL en `supabase/tests/invariants.sql`
+- **82 aserciones** SQL en `supabase/tests/invariants.sql`
 - CI en GitHub Actions: tipos, lint, pruebas, build, y las migraciones
   reaplicadas desde cero en cada push. El Postgres de la CI es pelado y no
   trae lo que Supabase pone encima, así que `supabase/stubs/auth.sql` y
@@ -213,6 +217,16 @@ Dos reglas de esta parte, las dos fijadas con pruebas:
   porque de los meses anteriores el sistema no tiene ninguna prueba y
   presumir que no se pagaron sería inventar un impago. Después de anotarlo, la
   ausencia de un pago sí significa algo.
+
+Corregido el 10/11, **F3-3b**: el gasto que no se podía pagar. Un gasto fijo se
+paga desde una cuenta **de su empresa y en su moneda**, y eso lo garantiza la
+clave compuesta; pero lo garantizaba *sin explicarlo*, así que un gasto en
+dólares a nombre de la empresa que solo tiene cuenta en soles acababa en
+«falta un dato relacionado». Ahora el gate comprueba antes y contesta con los
+nombres dentro, la pantalla solo ofrece los gastos que esa cuenta puede pagar,
+el alta avisa si la empresa no tiene cuentas en esa moneda, y la empresa y la
+moneda de un gasto **se pueden cambiar mientras no tenga ningún pago**
+registrado (trampas #15 y #16).
 
 Lo que falta de F3, por orden:
 
@@ -433,6 +447,29 @@ Cada una costó tiempo. Están aquí para no repetirlas.
     dinero de verdad. Lo cazó la comprobación contra la base real, no la
     revisión del código. Un cast que falta no se ve leyendo; se ve
     ejecutando.
+15. **Una restricción estructural impide; una puerta explica. No son lo
+    mismo.** La clave compuesta de `cash_movements` hace imposible pagar un
+    gasto en dólares desde la cuenta en soles, y eso está bien: es una fila que
+    no existe (ADR-16). Pero si el que contesta al usuario es la restricción,
+    lo que llega a la pantalla es `23503`, que se traduce a «falta un dato
+    relacionado, o el que elegiste ya no existe»: verdad e inútil, porque no
+    dice qué dato ni por qué. Marcelo cargó Claude Code en dólares a nombre de
+    la empresa que solo tiene cuenta en soles y se quedó sin poder anotar el
+    pago. **La restricción se queda como red; el gate comprueba antes y
+    contesta con los nombres propios dentro** —qué gasto, de qué empresa, en
+    qué moneda, cuántos pagos—, y la pantalla no ofrece la combinación que la
+    base va a rechazar. Regla práctica: si una restricción compuesta puede
+    saltar por algo que el usuario eligió, hay que escribir el error antes de
+    que lo escriba Postgres.
+16. **Una prohibición más ancha que su motivo es un callejón sin salida.** La
+    empresa y la moneda de un gasto fijo no se podían cambiar nunca, y el
+    motivo era bueno: un movimiento registrado lo señala por sus cuatro
+    columnas. Pero el motivo solo existe **si hay movimientos**. Sin ninguno no
+    había nada que romper, y la regla obligaba a archivar y recrear un gasto
+    que nunca movió un céntimo —precisamente el que nunca se pudo pagar—.
+    Ahora la regla se mide: se prohíbe cuando hay pagos, y el mensaje dice
+    cuántos. Una invariante se enuncia sobre lo que de verdad protege, no sobre
+    el caso más fácil de comprobar.
 
 ---
 

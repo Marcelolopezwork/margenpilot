@@ -120,8 +120,36 @@ function ConOrganizacion() {
           <Route path="caja" element={<Caja />} />
           <Route path="gastos-fijos" element={<GastosFijos />} />
         </Route>
-        <Route path="pipeline" element={<Pendiente ruta="/pipeline" fase="F4" />} />
-        <Route path="analisis" element={<Pendiente ruta="/analisis" fase="F3" />} />
+        <Route
+          path="pipeline"
+          element={
+            <Pendiente
+              ruta="/pipeline"
+              fase="F4, cuando Finanzas esté cerrado"
+              mientras={{
+                texto:
+                  'El seguimiento de cada propuesta ya está en Comercial: en qué estado va, qué versión se envió y qué falta para aprobarla. Lo que Pipeline añade es el tablero —verlas todas a la vez y moverlas de columna—, no la información, que ya existe.',
+                ruta: '/comercial',
+                boton: 'Ir a Comercial',
+              }}
+            />
+          }
+        />
+        <Route
+          path="analisis"
+          element={
+            <Pendiente
+              ruta="/analisis"
+              fase="el lente Resultado, lo que queda de F3"
+              mientras={{
+                texto:
+                  'El margen de cada cotización ya se calcula y se ve al abrirla, y la caja de las próximas trece semanas está en Inicio. Lo que falta aquí es la vista de arriba: cuánto deja cada servicio y cada cliente, que exige separar lo operativo de un retiro del dueño para no llamar gasto a lo que no lo es.',
+                ruta: '/comercial',
+                boton: 'Ver el margen de una cotización',
+              }}
+            />
+          }
+        />
         <Route path="configuracion" element={<Settings />}>
           <Route index element={<Navigate to="entidades" replace />} />
           <Route path="entidades" element={<Entidades />} />

@@ -379,3 +379,44 @@ export const CADENCIAS: readonly Enums<'recurrence'>[] = [
   'yearly',
   'weekly',
 ];
+
+/** Lo mínimo para saber de qué libro es algo: una empresa y una moneda. */
+export interface EnUnLibro {
+  legal_entity_id: string;
+  currency_code: string;
+}
+
+/**
+ * ¿Se puede pagar este gasto desde esta cuenta?
+ *
+ * Solo si la cuenta es de la misma empresa y en la misma moneda. No es una
+ * preferencia nuestra: de una cuenta sale el dinero de su empresa, y un pago
+ * en soles no salda una suscripción en dólares. La base lo garantiza con la
+ * clave compuesta de `cash_movements` (ADR-16), así que sin esto la pantalla
+ * ofrece combinaciones que la base va a rechazar.
+ *
+ * Con la cuenta sin elegir todavía no se puede decir, y la respuesta es que
+ * no: ofrecer una lista que luego se recorta sola es peor que pedir la cuenta
+ * primero.
+ */
+export function pagableDesde(gasto: EnUnLibro, cuenta: EnUnLibro | undefined): boolean {
+  if (!cuenta) return false;
+  return (
+    gasto.legal_entity_id === cuenta.legal_entity_id &&
+    gasto.currency_code === cuenta.currency_code
+  );
+}
+
+/**
+ * Por qué ese gasto no se puede pagar desde esa cuenta, para decirlo antes de
+ * que lo diga el error. Devuelve null cuando sí se puede.
+ */
+export function porQueNoSePaga(
+  gasto: EnUnLibro,
+  cuenta: EnUnLibro | undefined,
+): 'sin-cuenta' | 'otra-empresa' | 'otra-moneda' | null {
+  if (!cuenta) return 'sin-cuenta';
+  if (gasto.legal_entity_id !== cuenta.legal_entity_id) return 'otra-empresa';
+  if (gasto.currency_code !== cuenta.currency_code) return 'otra-moneda';
+  return null;
+}

@@ -73,6 +73,9 @@ Confirmar una coincidencia solo escribe en `reconciliation_matches`. El único c
 ### INV-11 — Ningún dato cruza de libro
 `cash_movements.legal_entity_id` y `currency_code` se validan por trigger contra su `cash_account`. Un documento, una cotización y una oportunidad llevan también su `legal_entity_id`, y una asignación exige que documento y movimiento sean de la **misma entidad**. Consecuencia: no existe ninguna operación que mezcle el libro de 3 Brothers MKT SAC con el de The Publisher Ventures LLC (ADR-16).
 
+### INV-11b — Un gasto fijo se paga desde una cuenta de su libro
+Un gasto recurrente es una **regla de proyección, no dinero**: no crea movimientos. Se paga registrando un movimiento, que lo señala con `recurring_expense_id`, y la clave compuesta exige que coincidan **entidad y moneda**: un pago en soles no salda una suscripción en dólares, y de una cuenta solo sale el dinero de su empresa. Corolario normativo: **la empresa y la moneda de un gasto se pueden cambiar mientras ningún movimiento lo señale**, porque es entonces cuando no hay enlace que romper; con pagos registrados, no —se archiva y se crea otro, que además es lo que de verdad pasó—. Y quien explica el rechazo es el gate, con los nombres dentro: dejar que lo explique la restricción deja al usuario leyendo «falta un dato relacionado» (trampas #15 y #16).
+
 ### INV-10 — Dos monedas nunca se suman sin declararlo
 Ninguna consulta, vista ni componente puede sumar importes de monedas distintas sin pasar por la función de conversión, que **exige** `fx_rate`, `as_of` y `source`. El total consolidado no se almacena nunca: se calcula en el momento de mostrarlo y viaja siempre con su etiqueta.
 

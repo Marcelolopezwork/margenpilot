@@ -10,6 +10,7 @@ import { Aviso, Boton, Campo, Cargando, Etiqueta, Selector, Tarjeta, Vacio } fro
 import { Alta, FiltradoPor, Fila, Lista, Seccion } from '../../components/piezas';
 import { useRecargar } from '../../components/recargar';
 import { cobradoPorDocumento } from './cobrado';
+import { pagableDesde } from './proyeccion';
 import {
   TIPOS_A_MANO,
   diasDeAtraso,
@@ -265,6 +266,16 @@ export default function Caja() {
   const cuentasActivas = (cuentas.data ?? []).filter((c) => c.is_active);
   const cuentaElegida = cuentasActivas.find((c) => c.id === cuentaId);
 
+  // Un gasto fijo solo se paga desde una cuenta de su empresa y en su moneda.
+  // Antes se ofrecían todos los de la organización y la base rechazaba el
+  // imposible con una violación de clave ajena, que en pantalla se leía como
+  // «falta un dato relacionado». Ahora la lista es la de los que esta cuenta
+  // puede pagar, y lo que queda fuera se explica.
+  const gastosDeLaCuenta = (gastosFijos.data ?? []).filter((g) =>
+    pagableDesde(g, cuentaElegida),
+  );
+  const gastosFuera = (gastosFijos.data ?? []).length - gastosDeLaCuenta.length;
+
   return (
     <Seccion
       titulo="Finanzas"
@@ -393,7 +404,15 @@ export default function Caja() {
         <Selector
           etiqueta="Cuenta"
           value={cuentaId}
-          onChange={(e) => setCuentaId(e.target.value)}
+          onChange={(e) => {
+            const id = e.target.value;
+            setCuentaId(id);
+            // Cambiar de cuenta puede dejar el gasto elegido fuera de su
+            // libro. Se suelta en vez de mandarlo y que lo rechace la base.
+            const nueva = cuentasActivas.find((c) => c.id === id);
+            const elegido = (gastosFijos.data ?? []).find((g) => g.id === gastoFijo);
+            if (elegido && !pagableDesde(elegido, nueva)) setGastoFijo('');
+          }}
           required
         >
           <option value="">Elige una cuenta</option>
@@ -457,7 +476,7 @@ export default function Caja() {
           lo rechaza igual (`recurrente_solo_sale`), pero ofrecerlo en una
           entrada sería invitar al error.
         */}
-        {direccion === 'out' && (gastosFijos.data ?? []).length > 0 && (
+        {direccion === 'out' && gastosDeLaCuenta.length > 0 && (
           <Selector
             etiqueta="¿Paga un gasto fijo?"
             ayuda="Opcional. Decirlo saca ese periodo de la proyección, para que no siga apareciendo como pendiente."
@@ -465,20 +484,31 @@ export default function Caja() {
             onChange={(e) => {
               const id = e.target.value;
               setGastoFijo(id);
-              const g = (gastosFijos.data ?? []).find((x) => x.id === id);
+              const g = gastosDeLaCuenta.find((x) => x.id === id);
               if (!g) return;
               if (!concepto.trim()) setConcepto(g.label);
               if (!importe.trim()) setImporte(toDb(fromRow(g.amount, currencyOf(g.currency_code))));
-              if (g.cash_account_id) setCuentaId(g.cash_account_id);
             }}
           >
             <option value="">No, es un gasto suelto</option>
-            {(gastosFijos.data ?? []).map((g) => (
+            {gastosDeLaCuenta.map((g) => (
               <option key={g.id} value={g.id}>
                 {g.label} · {g.amount} {g.currency_code}
               </option>
             ))}
           </Selector>
+        )}
+
+        {/*
+          Lo que queda fuera se dice. Un desplegable que no aparece es un
+          misterio; peor aún si el gasto que falta es el único que hay.
+        */}
+        {direccion === 'out' && gastosFuera > 0 && (
+          <p className="max-w-prose text-xs text-subtle">
+            {cuentaElegida
+              ? `${gastosFuera === 1 ? 'Hay 1 gasto fijo que no sale' : `Hay ${gastosFuera} gastos fijos que no salen`} de esta cuenta: son de otra empresa del grupo o están en otra moneda. De una cuenta sale el dinero de su empresa y en su moneda, así que para pagarlos hace falta una cuenta de la empresa que los paga.`
+              : 'Elige primero la cuenta y, si lo que sale paga un gasto fijo, podrás decir cuál: solo se ofrecen los que esa cuenta puede pagar.'}
+          </p>
         )}
 
         <Campo

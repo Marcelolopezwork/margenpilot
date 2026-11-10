@@ -2,6 +2,8 @@ import { describe, expect, it } from 'vitest';
 import { fromDb, toDb } from '../../lib/money';
 import {
   lunesDe,
+  pagableDesde,
+  porQueNoSePaga,
   monedasConMovimiento,
   proyeccion,
   saldoProyectado,
@@ -378,5 +380,43 @@ describe('cómo se nombra una cadencia', () => {
     expect(nombreCadencia('monthly')).toBe('cada mes');
     expect(nombreCadencia('yearly')).toBe('cada año');
     expect(CADENCIAS).toHaveLength(4);
+  });
+});
+
+/**
+ * De una cuenta sale el dinero de su empresa y en su moneda. No es una
+ * preferencia: es la clave compuesta de `cash_movements` (ADR-16). La pantalla
+ * tiene que saberlo antes de ofrecer la combinación, porque si la ofrece, el
+ * que contesta es el error.
+ */
+describe('qué gasto puede pagar una cuenta', () => {
+  const claude = { legal_entity_id: 'e-2', currency_code: 'USD' };
+  const mercury = { legal_entity_id: 'e-2', currency_code: 'USD' };
+  const bcp = { legal_entity_id: 'e-1', currency_code: 'PEN' };
+
+  it('misma empresa y misma moneda, sí', () => {
+    expect(pagableDesde(claude, mercury)).toBe(true);
+    expect(porQueNoSePaga(claude, mercury)).toBeNull();
+  });
+
+  it('la misma moneda en otra empresa, no', () => {
+    const otraEmpresa = { legal_entity_id: 'e-1', currency_code: 'USD' };
+    expect(pagableDesde(claude, otraEmpresa)).toBe(false);
+    expect(porQueNoSePaga(claude, otraEmpresa)).toBe('otra-empresa');
+  });
+
+  it('la misma empresa en otra moneda, tampoco', () => {
+    const otraMoneda = { legal_entity_id: 'e-2', currency_code: 'PEN' };
+    expect(pagableDesde(claude, otraMoneda)).toBe(false);
+    expect(porQueNoSePaga(claude, otraMoneda)).toBe('otra-moneda');
+  });
+
+  it('las dos cosas distintas: es el fallo que vio Marcelo', () => {
+    expect(pagableDesde(claude, bcp)).toBe(false);
+  });
+
+  it('sin cuenta elegida no se puede decir, y la respuesta es que no', () => {
+    expect(pagableDesde(claude, undefined)).toBe(false);
+    expect(porQueNoSePaga(claude, undefined)).toBe('sin-cuenta');
   });
 });

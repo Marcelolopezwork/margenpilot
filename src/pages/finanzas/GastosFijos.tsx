@@ -15,6 +15,7 @@ import {
   lunesDe,
   nombreCadencia,
   ocurrencias,
+  pagableDesde,
   salidasEsperadas,
   sumarSemanas,
 } from './proyeccion';
@@ -214,6 +215,22 @@ export default function GastosFijos() {
   const cuentasDeLaEntidad = (cuentas.data ?? []).filter(
     (c) => c.legal_entity_id === entidadId && (!moneda || c.currency_code === moneda),
   );
+
+  // Cuántos pagos señalan al gasto que se está editando. Mientras sean cero, su
+  // empresa y su moneda se pueden cambiar: no hay enlace que romper. Es el caso
+  // de un gasto que se cargó en una empresa que no tiene cuentas en esa moneda,
+  // y que por tanto nunca se pudo pagar.
+  const pagosDelQueEdito = editando
+    ? (pagos.data ?? []).filter((p) => p.recurring_expense_id === editando).length
+    : 0;
+  const puedeMudarse = pagosDelQueEdito === 0;
+
+  // El dinero sale de una cuenta concreta de una empresa concreta. Si la
+  // empresa elegida no tiene ninguna cuenta en esa moneda, el gasto se puede
+  // guardar —entra en la proyección igual— pero no se podrá pagar. Decirlo
+  // ahora es la diferencia entre un aviso y un error una semana después.
+  const nombreEntidad = entidades.find((x) => x.id === entidadId)?.legal_name ?? 'Esa empresa';
+  const sinCuentaPosible = entidadId !== '' && moneda !== '' && cuentasDeLaEntidad.length === 0;
   // Un costo compartido no tiene entidad, así que vale para las dos.
   const fichasPosibles = (fichas.data ?? []).filter(
     (f) => f.legal_entity_id === null || f.legal_entity_id === entidadId,
@@ -293,6 +310,14 @@ export default function GastosFijos() {
           {consulta.data.map((g) => {
             const dinero = fromRow(g.amount, currencyOf(g.currency_code));
             const cuenta = (cuentas.data ?? []).find((c) => c.id === g.cash_account_id);
+            // Un gasto al que ninguna cuenta puede pagar se dice en la lista y
+            // no al intentar pagarlo. Ahí ya es un error; aquí todavía es algo
+            // que se puede arreglar.
+            const pagable = (cuentas.data ?? []).some((c) =>
+              pagableDesde(g, { legal_entity_id: c.legal_entity_id, currency_code: c.currency_code }),
+            );
+            const suEmpresa =
+              entidades.find((x) => x.id === g.legal_entity_id)?.legal_name ?? 'Su empresa';
             const proximas = ocurrencias(
               {
                 id: g.id, label: g.label, amount: String(g.amount),
@@ -314,11 +339,18 @@ export default function GastosFijos() {
                     </span>
                     <Etiqueta>{nombreCadencia(g.cadence)}</Etiqueta>
                     {!g.is_active && <Etiqueta tono="atencion">archivado</Etiqueta>}
+                    {g.is_active && !pagable && (
+                      <Etiqueta tono="atencion">no se puede pagar</Etiqueta>
+                    )}
                   </>
                 }
                 secundario={
                   <>
-                    {cuenta ? `Sale de ${cuenta.name}` : 'Sin cuenta decidida'}
+                    {cuenta
+                      ? `Sale de ${cuenta.name}`
+                      : pagable
+                        ? 'Sin cuenta decidida'
+                        : `${suEmpresa} no tiene cuentas en ${g.currency_code}`}
                     {g.is_active && proximas[0]
                       ? ` · el próximo el ${formatoFecha(proximas[0])}`
                       : g.is_active
@@ -370,7 +402,7 @@ export default function GastosFijos() {
           value={entidadId}
           onChange={(e) => setEntidadId(e.target.value)}
           required
-          disabled={editando !== null}
+          disabled={!puedeMudarse}
         >
           <option value="">Elige una empresa</option>
           {entidades.map((x) => (
@@ -406,16 +438,29 @@ export default function GastosFijos() {
 
         <Selector
           etiqueta="Moneda"
-          ayuda="No se puede cambiar después: un movimiento ya registrado apunta al gasto con su moneda dentro."
+          ayuda={
+            puedeMudarse
+              ? 'Se puede cambiar mientras el gasto no tenga ningún pago registrado. Con pagos dentro, no: lo señalan con su moneda.'
+              : `Este gasto ya tiene ${pagosDelQueEdito === 1 ? 'un pago' : `${pagosDelQueEdito} pagos`} registrado${pagosDelQueEdito === 1 ? '' : 's'}, que lo apuntan con su empresa y su moneda dentro. Para cambiarlas, archívalo y crea el nuevo.`
+          }
           value={moneda}
           onChange={(e) => setMoneda(e.target.value)}
           required
-          disabled={editando !== null}
+          disabled={!puedeMudarse}
         >
           <option value="">Elige una moneda</option>
           <option value="PEN">PEN</option>
           <option value="USD">USD</option>
         </Selector>
+
+        {sinCuentaPosible && (
+          <Aviso tipo="atencion">
+            {nombreEntidad} no tiene ninguna cuenta en {moneda}. Puedes guardarlo y entra en la
+            proyección igual, pero no podrás registrar su pago: el dinero sale de una cuenta
+            concreta y no cruza de una empresa a otra. O creas esa cuenta en Configuración →
+            Cuentas, o el gasto lo paga la empresa que sí la tiene.
+          </Aviso>
+        )}
 
         <Campo
           etiqueta="Importe"

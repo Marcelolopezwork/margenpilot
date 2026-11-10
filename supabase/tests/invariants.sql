@@ -707,4 +707,113 @@ end $$;
 
 reset request.jwt.claim.sub;
 
-select 'TODAS LAS PRUEBAS DE F1, F2 Y F3 PASARON · 73 aserciones' as resultado;
+-- ---------------------------------------------------------------------------
+-- F3-3b · una restricción impide, una puerta explica
+-- ---------------------------------------------------------------------------
+--
+-- La clave compuesta ya impedía pagar un gasto en dólares desde la cuenta en
+-- soles, y eso está bien: es una fila que no existe. Pero lo hacía como
+-- violación de clave ajena, que en pantalla se leía «falta un dato
+-- relacionado, o el que elegiste ya no existe»: verdad e inútil. Estas
+-- aserciones vigilan que el que contesta sea el gate, con los nombres dentro.
+
+set request.jwt.claim.sub = '11111111-1111-1111-1111-111111111111';
+
+do $$
+declare
+  v_org   uuid;
+  v_uno   uuid;
+  v_dos   uuid;
+  v_pen   uuid;
+  v_usd   uuid;
+  v_gasto uuid;
+begin
+  select id into v_org from organizations where slug = 'org-a';
+  select id into v_uno from legal_entities
+   where organization_id = v_org and legal_name = 'Entidad Uno';
+  select id into v_dos from legal_entities
+   where organization_id = v_org and legal_name = 'Entidad Dos';
+  select id into v_pen from cash_accounts
+   where organization_id = v_org and name = 'BCP Soles';
+
+  insert into cash_accounts (organization_id, legal_entity_id, name, currency_code)
+  values (v_org, v_dos, 'Mercury USD', 'USD')
+  returning id into v_usd;
+
+  -- Lo que cargó Marcelo: una suscripción en dólares a nombre de la empresa
+  -- que solo tiene cuenta en soles. Se guarda —la proyección la cuenta— pero
+  -- no hay ninguna cuenta que pueda pagarla.
+  select id into v_gasto from guardar_gasto_recurrente(
+    p_entity => v_uno, p_label => 'Suscripción en dólares', p_amount => 200,
+    p_currency => 'USD', p_cadence => 'monthly', p_day => 30);
+
+  perform assert_raises(
+    format('select registrar_movimiento(%L, ''out'', 200, ''Suscripción'', null,
+            ''operating'', null, null, null, null, null, %L)', v_pen, v_gasto),
+    '«Suscripción en dólares» está en USD y BCP Soles es una cuenta en PEN',
+    'el gate dice qué gasto, en qué moneda y desde qué cuenta');
+
+  perform assert_raises(
+    format('select registrar_movimiento(%L, ''out'', 200, ''Suscripción'', null,
+            ''operating'', null, null, null, null, null, %L)', v_usd, v_gasto),
+    '«Suscripción en dólares» lo paga Entidad Uno y Mercury USD es una cuenta de Entidad Dos',
+    'el gate nombra las dos empresas cuando el dinero cruzaría de libro');
+
+  perform assert_raises(
+    format('select registrar_movimiento(%L, ''out'', 200, ''Suscripción'', null,
+            ''operating'', null, null, null, null, null, %L)',
+           v_usd, gen_random_uuid()),
+    'gasto_no_encontrado',
+    'un gasto que no es de la organización no existe');
+
+  -- Mientras ningún movimiento lo señale, el gasto se puede mudar de empresa:
+  -- no hay enlace que romper.
+  perform guardar_gasto_recurrente(
+    p_entity => v_dos, p_label => 'Suscripción en dólares', p_amount => 200,
+    p_currency => 'USD', p_id => v_gasto, p_cadence => 'monthly', p_day => 30);
+
+  perform assert_true(
+    (select legal_entity_id from recurring_expenses where id = v_gasto) = v_dos,
+    'un gasto sin pagos se puede mudar de empresa');
+
+  -- Y entonces ya se paga, desde la cuenta que sí es de su libro.
+  perform registrar_movimiento(v_usd, 'out', 200, 'Suscripción de noviembre',
+    null, 'operating', null, null, null, null, null, v_gasto);
+
+  perform assert_true(
+    (select balance from account_balances where cash_account_id = v_usd) = -200.00,
+    'el pago de un gasto fijo mueve el saldo como cualquier otra salida (INV-1)');
+
+  perform assert_true(
+    (select source = 'recurring' and recurring_expense_id = v_gasto
+       from cash_movements where cash_account_id = v_usd),
+    'el movimiento queda marcado con el gasto que saldaba');
+
+  -- Con un pago dentro, mudarlo se rechaza y dice cuántos hay.
+  perform assert_raises(
+    format('select guardar_gasto_recurrente(%L, ''Suscripción en dólares'', 200,
+            ''USD'', %L)', v_uno, v_gasto),
+    'ya tiene 1 pago(s) registrado(s)',
+    'con pagos dentro, la empresa y la moneda no se mudan, y lo dice con la cifra');
+
+  -- Pero el precio sí sube: eso no rompe ningún enlace.
+  perform guardar_gasto_recurrente(
+    p_entity => v_dos, p_label => 'Suscripción en dólares', p_amount => 250,
+    p_currency => 'USD', p_id => v_gasto, p_cadence => 'monthly', p_day => 30);
+
+  perform assert_true(
+    (select amount from recurring_expenses where id = v_gasto) = 250.00,
+    'subir el precio de un gasto con pagos dentro sí se puede');
+
+  -- «Sale de» tampoco puede apuntar a una cuenta de otro libro.
+  perform assert_raises(
+    format('select guardar_gasto_recurrente(%L, ''Suscripción en dólares'', 250,
+            ''USD'', %L, ''monthly'', null, null, null, %L)',
+           v_dos, v_gasto, v_pen),
+    'cuenta_de_otro_libro',
+    'la cuenta de la que sale un gasto tiene que ser de su empresa y su moneda');
+end $$;
+
+reset request.jwt.claim.sub;
+
+select 'TODAS LAS PRUEBAS DE F1, F2 Y F3 PASARON · 82 aserciones' as resultado;

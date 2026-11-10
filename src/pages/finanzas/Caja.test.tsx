@@ -22,6 +22,7 @@ const SALDOS: Record<string, unknown>[] = [];
 const DOCUMENTOS: Record<string, unknown>[] = [];
 const ASIGNACIONES: Record<string, unknown>[] = [];
 const MOVIMIENTOS: Record<string, unknown>[] = [];
+const GASTOS: Record<string, unknown>[] = [];
 const CLIENTES = [{ id: 'cli-1', name: 'EJ Deportes' }];
 const llamadas: { nombre: string; args: Record<string, unknown> }[] = [];
 
@@ -32,6 +33,7 @@ vi.mock('../../lib/supabase', () => {
     if (nombre === 'billing_documents') return DOCUMENTOS;
     if (nombre === 'payment_allocations') return ASIGNACIONES;
     if (nombre === 'cash_movements') return MOVIMIENTOS;
+    if (nombre === 'recurring_expenses') return GASTOS;
     if (nombre === 'clients') return CLIENTES;
     return [];
   };
@@ -109,7 +111,8 @@ async function montar(rol: Enums<'membership_role'> = 'owner') {
 }
 
 beforeEach(() => {
-  for (const a of [CUENTAS, SALDOS, DOCUMENTOS, ASIGNACIONES, MOVIMIENTOS, llamadas]) a.length = 0;
+  for (const a of [CUENTAS, SALDOS, DOCUMENTOS, ASIGNACIONES, MOVIMIENTOS, GASTOS, llamadas])
+    a.length = 0;
 });
 
 afterEach(cleanup);
@@ -225,5 +228,115 @@ describe('Finanzas · Caja', () => {
     expect(screen.getByText(/Hay 1 documento vencido/)).toBeTruthy();
     expect(screen.getByText('vencido hace 10 días')).toBeTruthy();
     vi.useRealTimers();
+  });
+  /**
+   * El fallo del 10/11. Marcelo cargó Claude Code en dólares a nombre de
+   * 3 Brothers, que solo tiene cuenta en soles, y al anotar el pago la clave
+   * compuesta lo rechazó con un «falta un dato relacionado». El desplegable no
+   * tenía que haberlo ofrecido.
+   */
+  it('solo ofrece los gastos fijos que esa cuenta puede pagar', async () => {
+    const usuario = userEvent.setup();
+    CUENTAS.push(
+      { id: 'cta-1', name: 'BCP soles', bank_name: 'BCP', currency_code: 'PEN', legal_entity_id: 'e-1', is_active: true },
+      { id: 'cta-2', name: 'Mercury', bank_name: null, currency_code: 'USD', legal_entity_id: 'e-2', is_active: true },
+    );
+    GASTOS.push(
+      { id: 'g-1', label: 'Claude Code', amount: '200.00', currency_code: 'USD', cadence: 'monthly', legal_entity_id: 'e-2', cash_account_id: null },
+      { id: 'g-2', label: 'Hosting', amount: '90.00', currency_code: 'PEN', cadence: 'monthly', legal_entity_id: 'e-1', cash_account_id: null },
+    );
+    await montar();
+    await screen.findByText('BCP soles');
+
+    // Sin cuenta elegida no se ofrece ninguno: se pide la cuenta primero.
+    expect(screen.queryByLabelText(/¿Paga un gasto fijo\?/)).toBeNull();
+    expect(screen.getByText(/Elige primero la cuenta/)).toBeTruthy();
+
+    await usuario.selectOptions(screen.getByLabelText('Cuenta'), 'cta-1');
+    const soles = screen.getByLabelText(/¿Paga un gasto fijo\?/) as HTMLSelectElement;
+    expect([...soles.options].map((o) => o.textContent)).toEqual([
+      'No, es un gasto suelto',
+      'Hosting · 90.00 PEN',
+    ]);
+    expect(screen.getByText(/no sale de esta cuenta/)).toBeTruthy();
+
+    await usuario.selectOptions(screen.getByLabelText('Cuenta'), 'cta-2');
+    const dolares = screen.getByLabelText(/¿Paga un gasto fijo\?/) as HTMLSelectElement;
+    expect([...dolares.options].map((o) => o.textContent)).toEqual([
+      'No, es un gasto suelto',
+      'Claude Code · 200.00 USD',
+    ]);
+  });
+
+  it('cambiar de cuenta suelta el gasto que ya no se puede pagar desde ella', async () => {
+    const usuario = userEvent.setup();
+    CUENTAS.push(
+      { id: 'cta-1', name: 'BCP soles', bank_name: 'BCP', currency_code: 'PEN', legal_entity_id: 'e-1', is_active: true },
+      { id: 'cta-2', name: 'Mercury', bank_name: null, currency_code: 'USD', legal_entity_id: 'e-2', is_active: true },
+    );
+    GASTOS.push({
+      id: 'g-1', label: 'Claude Code', amount: '200.00', currency_code: 'USD',
+      cadence: 'monthly', legal_entity_id: 'e-2', cash_account_id: null,
+    });
+    await montar();
+    await screen.findByText('Mercury');
+
+    await usuario.selectOptions(screen.getByLabelText('Cuenta'), 'cta-2');
+    await usuario.selectOptions(screen.getByLabelText(/¿Paga un gasto fijo\?/), 'g-1');
+    // Rellena el concepto y el importe desde el gasto, para no teclearlo.
+    expect((screen.getByLabelText('Concepto') as HTMLInputElement).value).toBe('Claude Code');
+    expect((screen.getByLabelText(/Importe en USD/) as HTMLInputElement).value).toBe('200.00');
+
+    await usuario.selectOptions(screen.getByLabelText('Cuenta'), 'cta-1');
+    await usuario.click(screen.getByRole('button', { name: 'Anotar movimiento' }));
+
+    await waitFor(() => expect(llamadas).toHaveLength(1));
+    expect(llamadas[0]?.args).not.toHaveProperty('p_recurring');
+  });
+
+  it('al pagar un gasto fijo manda cuál saldaba', async () => {
+    const usuario = userEvent.setup();
+    CUENTAS.push({
+      id: 'cta-2', name: 'Mercury', bank_name: null, currency_code: 'USD',
+      legal_entity_id: 'e-2', is_active: true,
+    });
+    GASTOS.push({
+      id: 'g-1', label: 'Claude Code', amount: '200.00', currency_code: 'USD',
+      cadence: 'monthly', legal_entity_id: 'e-2', cash_account_id: null,
+    });
+    await montar();
+    await screen.findByText('Mercury');
+
+    await usuario.selectOptions(screen.getByLabelText('Cuenta'), 'cta-2');
+    await usuario.selectOptions(screen.getByLabelText(/¿Paga un gasto fijo\?/), 'g-1');
+    await usuario.click(screen.getByRole('button', { name: 'Anotar movimiento' }));
+
+    await waitFor(() => expect(llamadas).toHaveLength(1));
+    expect(llamadas[0]?.args).toMatchObject({
+      p_account: 'cta-2',
+      p_direction: 'out',
+      p_amount: 200,
+      p_recurring: 'g-1',
+    });
+  });
+
+  it('en una entrada no ofrece gastos fijos: se pagan, no se cobran', async () => {
+    const usuario = userEvent.setup();
+    CUENTAS.push({
+      id: 'cta-2', name: 'Mercury', bank_name: null, currency_code: 'USD',
+      legal_entity_id: 'e-2', is_active: true,
+    });
+    GASTOS.push({
+      id: 'g-1', label: 'Claude Code', amount: '200.00', currency_code: 'USD',
+      cadence: 'monthly', legal_entity_id: 'e-2', cash_account_id: null,
+    });
+    await montar();
+    await screen.findByText('Mercury');
+
+    await usuario.selectOptions(screen.getByLabelText('Cuenta'), 'cta-2');
+    expect(screen.getByLabelText(/¿Paga un gasto fijo\?/)).toBeTruthy();
+
+    await usuario.selectOptions(screen.getByLabelText('Dirección'), 'in');
+    expect(screen.queryByLabelText(/¿Paga un gasto fijo\?/)).toBeNull();
   });
 });

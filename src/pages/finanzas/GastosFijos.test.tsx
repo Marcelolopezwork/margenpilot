@@ -198,7 +198,14 @@ describe('Gastos fijos', () => {
     expect(await screen.findByText(/No ha movido ningún saldo: es una regla, no un pago/)).toBeTruthy();
   });
 
-  it('editando, la empresa y la moneda quedan bloqueadas', async () => {
+  /**
+   * La prohibición era más ancha que su motivo. Un movimiento registrado
+   * apunta al gasto por su empresa y su moneda, así que con pagos dentro no se
+   * cambian; pero sin ningún pago no hay enlace que romper, y bloquearlo
+   * obligaba a archivar y recrear un gasto que nunca movió un céntimo. Que es
+   * justo el caso del gasto que nunca se pudo pagar.
+   */
+  it('sin pagos, la empresa y la moneda se pueden cambiar', async () => {
     const usuario = userEvent.setup();
     GASTOS.push(gasto({}));
     await montar();
@@ -207,7 +214,59 @@ describe('Gastos fijos', () => {
     await usuario.click(screen.getByRole('button', { name: 'Editar' }));
 
     expect((screen.getByLabelText('Concepto') as HTMLInputElement).value).toBe('Claude Code');
+    expect((screen.getByLabelText('Empresa que lo paga') as HTMLSelectElement).disabled).toBe(false);
+    expect((screen.getByLabelText('Moneda') as HTMLSelectElement).disabled).toBe(false);
+    expect(screen.getByText(/mientras el gasto no tenga ningún pago registrado/)).toBeTruthy();
+  });
+
+  it('con un pago registrado quedan bloqueadas y dice cuántos hay', async () => {
+    const usuario = userEvent.setup();
+    GASTOS.push(gasto({}));
+    MOVIMIENTOS.push({ recurring_expense_id: 'g-1', value_date: '2026-11-05', is_void: false });
+    await montar();
+    await screen.findByText('Claude Code');
+
+    await usuario.click(screen.getByRole('button', { name: 'Editar' }));
+
     expect((screen.getByLabelText('Empresa que lo paga') as HTMLSelectElement).disabled).toBe(true);
     expect((screen.getByLabelText('Moneda') as HTMLSelectElement).disabled).toBe(true);
+    expect(screen.getByText(/ya tiene un pago registrado/)).toBeTruthy();
+  });
+
+  /**
+   * El origen del fallo del 10/11: un gasto en dólares a nombre de la empresa
+   * que solo tiene cuenta en soles. Se puede guardar —la proyección lo cuenta
+   * igual— pero nunca se va a poder pagar, y eso se dice al crearlo y no una
+   * semana después con un error de clave ajena.
+   */
+  it('avisa si la empresa no tiene ninguna cuenta en esa moneda', async () => {
+    const usuario = userEvent.setup();
+    CUENTAS.push({
+      id: 'cta-1', name: 'BCP soles', currency_code: 'PEN', legal_entity_id: 'e-1',
+    });
+    await montar();
+    await screen.findByText('Todavía no hay ningún gasto fijo');
+
+    await usuario.selectOptions(screen.getByLabelText('Empresa que lo paga'), 'e-1');
+    await usuario.selectOptions(screen.getByLabelText('Moneda'), 'PEN');
+    expect(screen.queryByText(/no tiene ninguna cuenta en/)).toBeNull();
+
+    await usuario.selectOptions(screen.getByLabelText('Moneda'), 'USD');
+    expect(
+      screen.getByText(/3 Brothers MKT SAC no tiene ninguna cuenta en USD/),
+    ).toBeTruthy();
+    expect(screen.getByText(/no cruza de una empresa a otra/)).toBeTruthy();
+  });
+
+  it('un gasto que ninguna cuenta puede pagar se marca en la lista', async () => {
+    CUENTAS.push({
+      id: 'cta-1', name: 'BCP soles', currency_code: 'PEN', legal_entity_id: 'e-1',
+    });
+    GASTOS.push(gasto({ legal_entity_id: 'e-1' }));
+    await montar();
+    await screen.findByText('Claude Code');
+
+    expect(screen.getByText('no se puede pagar')).toBeTruthy();
+    expect(screen.getByText(/3 Brothers MKT SAC no tiene cuentas en USD/)).toBeTruthy();
   });
 });
