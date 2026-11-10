@@ -66,6 +66,46 @@ jobs:
       - name: Invariantes
         run: psql -v ON_ERROR_STOP=1 -f supabase/tests/invariants.sql
 
+      # Los datos de demostración pasan por las mismas puertas que la
+      # aplicación —emitir, aprobar, cobrar, transferir, comprar, pagar—, así
+      # que ejecutarlos aquí comprueba de una vez que las puertas siguen
+      # aceptando lo que el guion les manda. Si alguien cambia la firma de una,
+      # esto se pone rojo en el PR en vez de fallar delante de Marcelo cuando
+      # pegue el archivo en el editor de Supabase.
+      - name: Datos de demostración
+        run: |
+          psql -v ON_ERROR_STOP=1 -f supabase/seed/_datos-demo.sql
+          psql -v ON_ERROR_STOP=1 -c "
+            do \$$
+            declare v_org uuid; v_cuantas int;
+            begin
+              select id into v_org from organizations where slug = 'margen-demo';
+              if v_org is null then raise exception 'la demo no se creó'; end if;
+
+              select count(*) into v_cuantas from cash_accounts where organization_id = v_org;
+              if v_cuantas <> 3 then raise exception 'la demo necesita tres cuentas, hay %', v_cuantas; end if;
+
+              select count(distinct status) into v_cuantas from quotes where organization_id = v_org;
+              if v_cuantas < 5 then raise exception 'el tablero necesita varias columnas, hay % estados', v_cuantas; end if;
+
+              select count(*) into v_cuantas from billing_documents
+               where organization_id = v_org and direction = 'purchase';
+              if v_cuantas <> 4 then raise exception 'faltan compras: hay %', v_cuantas; end if;
+
+              select count(*) into v_cuantas from economic_facts where organization_id = v_org;
+              if v_cuantas = 0 then raise exception 'la demo no produjo ningún hecho económico'; end if;
+
+              raise notice 'Demo comprobada: % hechos económicos', v_cuantas;
+            end \$$;"
+          psql -v ON_ERROR_STOP=1 -f supabase/seed/borrar-demo.sql
+          psql -v ON_ERROR_STOP=1 -c "
+            do \$$
+            begin
+              if exists (select 1 from organizations where slug = 'margen-demo') then
+                raise exception 'borrar-demo.sql no la quitó';
+              end if;
+            end \$$;"
+
       # Una migración que no se puede volver a aplicar sobre una base limpia
       # es una migración que no sirve: se comprueba en cada PR.
       #
