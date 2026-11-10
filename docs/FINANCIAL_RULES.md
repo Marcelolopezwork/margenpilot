@@ -67,6 +67,16 @@ hechos económicos = todos los billing_documents  (no anulados, is_opening = fal
 
 Es decir: si el movimiento está asignado a un documento, **el documento manda** (ya aporta su neto y su impuesto) y el movimiento solo es dinero. Si el movimiento no está asignado a nada, **el movimiento es su propio hecho económico** y aporta su `amount_net` / `amount_tax` (si el usuario los capturó) o su importe total como neto (si no hay impuesto).
 
+Esta regla está escrita **una sola vez**, en la vista `economic_facts` (implantada el 10/11/2026). Ninguna pantalla la rehace: una consulta que la reimplemente con sus propios `where` es la forma segura de que dos pantallas den dos cifras distintas y nadie sepa cuál creer. La vista es `security_invoker`, así que filtra con las políticas de quien pregunta.
+
+Qué deja fuera **por definición de la vista**, no por un filtro que alguien pueda olvidar:
+
+- las patas de una transferencia (`flow_class = 'internal_transfer'`), por INV-5;
+- los saldos de apertura (`flow_class = 'opening'`): el dinero con el que se arrancó no se ganó en el periodo;
+- los documentos anulados y los movimientos anulados.
+
+Qué deja dentro, y por qué: **lo no operativo**, con su `flow_class` puesta. Un retiro del dueño es un hecho económico y hay que poder verlo; lo que no se puede es restarlo del resultado del negocio. El lente lo enseña aparte, y el IGV cobrado y el pagado también —no son resultado, son dinero de la SUNAT que pasa por las cuentas—.
+
 ### INV-7 — Nada financiero se borra
 `DELETE` está revocado para `authenticated` en: `cash_movements`, `billing_documents`, `payment_allocations`, `transfers`, `quote_versions`, `statement_imports`, `statement_lines`, `reconciliation_matches`, `reconciliation_decisions`, `audit_log`.
 

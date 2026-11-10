@@ -126,11 +126,16 @@ compilado.
   **margen agregado ponderado** de lo que se está viendo, una cifra por
   moneda. Σ utilidad / Σ precio, nunca el promedio de porcentajes (§2.3)
 - **Finanzas** · dos pestañas, Caja y Gastos fijos: saldos por moneda, cartera,
-  libro de caja y las reglas de lo que sale cada mes
-- **Pipeline y Análisis** · marcadores honestos: dicen en qué fase llegan, qué
-  parte de esa pregunta ya se contesta hoy y dónde. El texto de lo que se puede
-  hacer mientras tanto se pasa por props desde `App.tsx`, para que se mueva con
-  el producto y no con la fecha en que se escribió la pantalla
+  libro de caja, «Mover dinero entre cuentas» y las reglas de lo que sale cada
+  mes
+- **Análisis** · el lente Resultado: ingresos, gastos y resultado del periodo
+  por moneda, de qué cliente vino, en qué se fue, y lo no operativo aparte. El
+  periodo son meses y años completos, y el rango viaja a la base como filtro de
+  fechas: la pantalla no recorta nada que la vista no haya decidido
+- **Pipeline** · marcador honesto: dice en qué fase llega, qué parte de esa
+  pregunta ya se contesta hoy y dónde. El texto de lo que se puede hacer
+  mientras tanto se pasa por props desde `App.tsx`, para que se mueva con el
+  producto y no con la fecha en que se escribió la pantalla
 
 ### Datos reales que ya existen en producción
 
@@ -140,13 +145,13 @@ caja (BCP soles en PEN, Mercury en USD), un cliente y una cotización de prueba.
 
 ### Verificación
 
-- **227 pruebas** de Vitest: dinero, errores, formato, armazón, altas, el A4,
+- **245 pruebas** de Vitest: dinero, errores, formato, armazón, altas, el A4,
   la propuesta, la aritmética de la cotización, el panel de emisión, la
   reimpresión de una versión emitida, el reparto en cuotas, el margen
   agregado, la cartera, la pantalla de finanzas, la proyección de caja con sus
   salidas, los gastos fijos, la tasa efectiva, los destinos de una
-  transferencia y el panel de inicio
-- **111 aserciones** SQL en `supabase/tests/invariants.sql`
+  transferencia, el resultado del periodo y el panel de inicio
+- **124 aserciones** SQL en `supabase/tests/invariants.sql`
 - CI en GitHub Actions: tipos, lint, pruebas, build, y las migraciones
   reaplicadas desde cero en cada push. El Postgres de la CI es pelado y no
   trae lo que Supabase pone encima, así que `supabase/stubs/auth.sql` y
@@ -253,16 +258,38 @@ gasto del mismo tamaño. Cuatro decisiones, cada una con su estructura detrás:
   movimiento `kind='transfer'` sin cabecera no se puede insertar, y una pata no
   se puede asignar a un documento: ese dinero no vino de ningún cliente.
 
+Hecho el 10/11, **F3-5**: el hecho económico (INV-6), y con él la pantalla de
+Análisis. La regla de qué cuenta y qué no está escrita **una vez**, en la vista
+`economic_facts`: los documentos emitidos más los movimientos que no saldan
+ninguno. De ahí sale todo lo demás sin que ninguna pantalla vuelva a filtrar
+nada.
+
+Lo que esa vista resuelve, y que a mano se habría roto el primer martes:
+
+- **Una venta y su cobro son un solo hecho.** Mientras el movimiento no esté
+  asignado, es su propio hecho —no se sabe qué saldaba—; en cuanto se asigna,
+  manda el documento y el movimiento solo es dinero. Es la diferencia entre
+  1.100 de ingreso y 2.200.
+- **Las patas de una transferencia y los saldos de apertura no están**, por
+  definición de la vista y no por un `where` que alguien pueda olvidar.
+- **Lo no operativo sí está, con su clase puesta.** Un retiro del dueño se ve
+  —pasó— pero no se resta del resultado, porque llamarlo gasto haría que el
+  resultado dejara de significar lo que significa.
+- **El IGV cobrado y el pagado se enseñan aparte** y nunca dentro del
+  resultado: es dinero de la SUNAT que pasa por la cuenta.
+- **Sin desglose, el neto es el importe entero.** No se inventa un IGV que
+  nadie declaró.
+
 Lo que falta de F3, por orden:
 
 1. **Proveedores y compras.** `billing_documents` solo admite
    `direction = 'sale'` porque no hay tabla de proveedores. Con ella llegan los
    gastos con documento, el IGV soportado y el «Por pagar» que hoy Inicio dice
    que falta.
-2. **El lente Resultado.** Es donde `flow_class` deja de ser una columna y se
-   vuelve el filtro que separa lo operativo de un retiro del dueño, y donde
-   INV-6 (el hecho económico) evita contar dos veces un gasto que llegó con
-   documento y con movimiento.
+2. **Cuánto deja cada servicio.** El margen de una cotización ya se calcula y
+   se ve al abrirla, pero para llevarlo al lente Resultado hace falta atar cada
+   documento a las líneas de la versión aceptada; y un gasto, hoy, no sabe a
+   qué trabajo pertenece. Llega con las compras.
 3. **Conciliación bancaria** (INV-8) e importación de extractos.
 4. **Pagos de una sola vez con fecha futura.** Hoy la proyección solo conoce
    las cuotas de cobro y los gastos fijos; un pago grande y puntual —una

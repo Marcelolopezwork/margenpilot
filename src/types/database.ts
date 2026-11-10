@@ -2181,6 +2181,26 @@ export type Database = {
       }
     }
     Views: {
+      economic_facts: {
+        Row: {
+          amount_net: number | null
+          amount_tax: number | null
+          amount_total: number | null
+          category_id: string | null
+          client_id: string | null
+          concepto: string | null
+          currency_code: string | null
+          direction: Database["public"]["Enums"]["cash_direction"] | null
+          fecha: string | null
+          flow_class: Database["public"]["Enums"]["flow_class"] | null
+          kind: Database["public"]["Enums"]["cash_kind"] | null
+          legal_entity_id: string | null
+          organization_id: string | null
+          origen: string | null
+          source_id: string | null
+        }
+        Relationships: []
+      }
       account_balances: {
         Row: {
           balance: number | null

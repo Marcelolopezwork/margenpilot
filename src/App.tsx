@@ -9,6 +9,7 @@ import { isConfigured } from './lib/supabase';
 import Home from './pages/Home';
 import Onboarding from './pages/Onboarding';
 import Pendiente from './pages/Pendiente';
+import Analisis from './pages/analisis/Analisis';
 import Setup from './pages/Setup';
 import SignIn from './pages/SignIn';
 import Catalogo from './pages/catalogo/Catalogo';
@@ -135,21 +136,7 @@ function ConOrganizacion() {
             />
           }
         />
-        <Route
-          path="analisis"
-          element={
-            <Pendiente
-              ruta="/analisis"
-              fase="el lente Resultado, lo que queda de F3"
-              mientras={{
-                texto:
-                  'El margen de cada cotización ya se calcula y se ve al abrirla, y la caja de las próximas trece semanas está en Inicio. Lo que falta aquí es la vista de arriba: cuánto deja cada servicio y cada cliente, que exige separar lo operativo de un retiro del dueño para no llamar gasto a lo que no lo es.',
-                ruta: '/comercial',
-                boton: 'Ver el margen de una cotización',
-              }}
-            />
-          }
-        />
+        <Route path="analisis" element={<Analisis />} />
         <Route path="configuracion" element={<Settings />}>
           <Route index element={<Navigate to="entidades" replace />} />
           <Route path="entidades" element={<Entidades />} />

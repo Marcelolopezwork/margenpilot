@@ -1063,6 +1063,123 @@ begin
     'la pata de una transferencia no puede dar por cobrada una factura (INV-6)');
 end $$;
 
+-- ---------------------------------------------------------------------------
+-- F3-5 · el hecho económico: ni dos veces ni ninguna
+-- ---------------------------------------------------------------------------
+--
+-- La vista `economic_facts` es INV-6 escrito una vez. Lo que estas aserciones
+-- vigilan es justo lo que se rompería sin ella: que el mismo cobro se cuente
+-- como venta y otra vez como dinero, que una transferencia pase por ingreso, o
+-- que el saldo con el que arrancaste parezca ganado este mes.
+
+do $$
+declare
+  v_org     uuid;
+  v_uno     uuid;
+  v_usuario uuid := '11111111-1111-1111-1111-111111111111';
+  v_pen     uuid;
+  v_chica   uuid;
+  v_antes   int;
+  v_mov     uuid;
+  v_doc     uuid;
+begin
+  perform assert_true(
+    (select reloptions::text from pg_class where oid = 'economic_facts'::regclass)
+      like '%security_invoker=%',
+    'la vista del resultado respeta las políticas de quien pregunta');
+
+  perform assert_true(
+    not has_table_privilege('authenticated', 'economic_facts', 'insert')
+    and not has_table_privilege('authenticated', 'economic_facts', 'update')
+    and not has_table_privilege('authenticated', 'economic_facts', 'delete'),
+    'el resultado se lee: no hay nada que escribir en él');
+
+  select id into v_org from organizations where slug = 'org-a';
+  select id into v_uno from legal_entities
+   where organization_id = v_org and legal_name = 'Entidad Uno';
+  select id into v_pen from cash_accounts
+   where organization_id = v_org and name = 'BCP Soles';
+  select id into v_chica from cash_accounts
+   where organization_id = v_org and name = 'Caja Chica PEN';
+
+  select count(*) into v_antes from economic_facts;
+
+  -- El dinero con el que arrancas no lo ganaste este mes.
+  perform registrar_movimiento(v_pen, 'in', 5000, 'Apertura de prueba', null, 'opening');
+  perform assert_true(
+    (select count(*) from economic_facts) = v_antes,
+    'un saldo de apertura no es un hecho económico');
+
+  -- Mover dinero entre cuentas propias no es ingreso ni gasto (INV-5).
+  perform registrar_transferencia(v_pen, v_chica, 400, p_description => 'Traslado de prueba');
+  perform assert_true(
+    (select count(*) from economic_facts) = v_antes,
+    'las dos patas de una transferencia no aparecen en el resultado');
+
+  -- Pero la comisión del banco sí: eso se pagó de verdad.
+  perform registrar_transferencia(v_pen, v_chica, 300, null, null, 'Traslado con comisión', 7);
+  perform assert_true(
+    (select count(*) from economic_facts) = v_antes + 1,
+    'de una transferencia con comisión, solo la comisión es un hecho económico');
+  perform assert_true(
+    (select direction = 'out' and flow_class = 'operating' and amount_total = 7
+       from economic_facts where concepto like 'Comisión%'),
+    'y aparece como salida operativa por el importe de la comisión');
+
+  -- Un gasto sin documento es su propio hecho, con lo que el usuario declaró.
+  perform registrar_movimiento(v_pen, 'out', 118, 'Taxi de prueba', null, 'operating',
+    null, null, null, 100, 18);
+  perform assert_true(
+    (select amount_net = 100 and amount_tax = 18 and amount_total = 118
+       from economic_facts where concepto = 'Taxi de prueba'),
+    'un movimiento sin documento aporta su neto y su impuesto (INV-6)');
+
+  perform registrar_movimiento(v_pen, 'out', 50, 'Café de prueba', null, 'operating');
+  perform assert_true(
+    (select amount_net = 50 and amount_tax = 0
+       from economic_facts where concepto = 'Café de prueba'),
+    'sin desglose, el neto es el importe entero: no se inventa un IGV que nadie declaró');
+
+  -- Lo no operativo entra con su clase puesta, para poder enseñarlo aparte.
+  perform registrar_movimiento(v_pen, 'out', 1000, 'Retiro de prueba', null, 'owner_draw');
+  perform assert_true(
+    (select flow_class = 'non_operating' from economic_facts where concepto = 'Retiro de prueba'),
+    'un retiro del dueño es un hecho económico, pero no es un gasto del negocio');
+
+  -- Y la que sostiene el lente entero: la venta y su cobro son un solo hecho.
+  select count(*) into v_antes from economic_facts;
+
+  insert into billing_documents (organization_id, legal_entity_id, client_id,
+    currency_code, amount_net, amount_tax, amount_total, created_by)
+  select v_org, v_uno, c.id, 'PEN', 500, 0, 500, v_usuario
+    from clients c where c.organization_id = v_org and c.name = 'Cliente de las pruebas'
+  returning id into v_doc;
+
+  perform assert_true(
+    (select count(*) from economic_facts) = v_antes + 1,
+    'un documento emitido es un hecho económico desde que se emite, no al cobrarse');
+
+  select id into v_mov from registrar_movimiento(v_pen, 'in', 500, 'Cobro de prueba');
+  perform assert_true(
+    (select count(*) from economic_facts) = v_antes + 2,
+    'y un cobro sin asignar es su propio hecho, porque no se sabe qué saldaba');
+
+  insert into payment_allocations (organization_id, legal_entity_id, currency_code,
+    cash_movement_id, billing_document_id, amount)
+  values (v_org, v_uno, 'PEN', v_mov, v_doc, 500);
+
+  perform assert_true(
+    (select count(*) from economic_facts) = v_antes + 1,
+    'al asignarlo al documento deja de contar aparte: el documento manda (INV-6)');
+
+  -- Lo anulado sale del resultado igual que sale del saldo.
+  perform anular_movimiento(
+    (select id from cash_movements where description = 'Café de prueba'), 'prueba');
+  perform assert_true(
+    (select count(*) from economic_facts where concepto = 'Café de prueba') = 0,
+    'un movimiento anulado deja de contar en el resultado, igual que en el saldo');
+end $$;
+
 reset request.jwt.claim.sub;
 
-select 'TODAS LAS PRUEBAS DE F1, F2 Y F3 PASARON · 111 aserciones' as resultado;
+select 'TODAS LAS PRUEBAS DE F1, F2 Y F3 PASARON · 124 aserciones' as resultado;
