@@ -2,6 +2,7 @@ import { NavLink, Outlet } from 'react-router-dom';
 
 const SUBSECCIONES = [
   { ruta: 'caja', nombre: 'Caja' },
+  { ruta: 'compras', nombre: 'Compras' },
   { ruta: 'gastos-fijos', nombre: 'Gastos fijos' },
 ] as const;
 

@@ -22,6 +22,7 @@ import { rangoDe } from './resultado';
 const HECHOS: Record<string, unknown>[] = [];
 const CLIENTES = [{ id: 'cli-1', name: 'EJ Deportes' }];
 const CATEGORIAS = [{ id: 'cat-1', name: 'Herramientas' }];
+const PROVEEDORES = [{ id: 'prov-1', name: 'Movistar' }];
 const consultas: { tabla: string; filtros: [string, unknown][] }[] = [];
 
 vi.mock('../../lib/supabase', () => {
@@ -29,6 +30,7 @@ vi.mock('../../lib/supabase', () => {
     if (nombre === 'economic_facts') return HECHOS;
     if (nombre === 'clients') return CLIENTES;
     if (nombre === 'financial_categories') return CATEGORIAS;
+    if (nombre === 'suppliers') return PROVEEDORES;
     return [];
   };
   const tabla = (nombre: string) => {
@@ -82,6 +84,7 @@ const hecho = (h: Record<string, unknown>) => ({
   amount_tax: '0.00',
   category_id: null,
   client_id: null,
+  supplier_id: null,
   concepto: 'Algo',
   ...h,
 });
@@ -144,9 +147,12 @@ describe('Análisis · el lente Resultado', () => {
     await screen.findByText('Ingresos · PEN');
 
     // Los ingresos salen dos veces: la cifra de arriba y la fila del cliente
-    // del que vinieron.
+    // del que vinieron. El gasto sale tres: la cifra, su categoría y su
+    // proveedor —que aquí es «sin proveedor anotado», porque es un movimiento
+    // suelto y no una compra con factura.
     expect(screen.getAllByText('S/ 10,000.00')).toHaveLength(2);
-    expect(screen.getAllByText('S/ 1,000.00')).toHaveLength(2);
+    expect(screen.getAllByText('S/ 1,000.00')).toHaveLength(3);
+    expect(screen.getByText('Sin proveedor anotado')).toBeTruthy();
     expect(screen.getByText('S/ 9,000.00')).toBeTruthy();
     expect(screen.getByText(/margen del 90.0 %/)).toBeTruthy();
     // El IGV cobrado y el pagado se dicen, y se dice que no son resultado.
@@ -154,6 +160,26 @@ describe('Análisis · el lente Resultado', () => {
     // Y el desglose: de qué cliente vino y en qué se fue.
     expect(screen.getByText('EJ Deportes')).toBeTruthy();
     expect(screen.getByText('Herramientas')).toBeTruthy();
+  });
+
+  it('una compra con factura es gasto del día que llegó, y su IGV queda aparte', async () => {
+    HECHOS.push(
+      hecho({
+        origen: 'documento', direction: 'out', supplier_id: 'prov-1', category_id: 'cat-1',
+        amount_total: '1180.00', amount_net: '1000.00', amount_tax: '180.00',
+        concepto: 'Hosting anual',
+      }),
+    );
+    await montar();
+    await screen.findByText('Ingresos · PEN');
+
+    // El gasto es el neto, no el total: los 180 de IGV son crédito fiscal.
+    expect(screen.getAllByText('S/ 1,000.00').length).toBeGreaterThan(0);
+    expect(screen.queryByText('S/ 1,180.00')).toBeNull();
+    expect(screen.getByText(/pagado S\/ 180.00/)).toBeTruthy();
+    // Y se dice a quién se le pagó, con el nombre del proveedor.
+    expect(screen.getByText('A quién se le pagó')).toBeTruthy();
+    expect(screen.getByText('Movistar')).toBeTruthy();
   });
 
   it('dos monedas son dos tarjetas y dice por qué no las suma', async () => {

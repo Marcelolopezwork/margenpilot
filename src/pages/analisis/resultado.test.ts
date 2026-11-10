@@ -3,6 +3,7 @@ import { format } from '../../lib/money';
 import {
   fueraDelResultado,
   gastosPorCategoria,
+  gastosPorProveedor,
   ingresosPorCliente,
   rangoDe,
   resultadoPorMoneda,
@@ -21,8 +22,43 @@ const hecho = (h: Partial<Hecho>): Hecho => ({
   amount_tax: '0.00',
   category_id: null,
   client_id: null,
+  supplier_id: null,
   concepto: 'Algo',
   ...h,
+});
+
+describe('a quién se le pagó', () => {
+  const nombres = new Map([['prov-1', 'Movistar']]);
+
+  it('agrupa las salidas por proveedor', () => {
+    const filas = gastosPorProveedor(
+      [
+        hecho({ direction: 'out', supplier_id: 'prov-1', amount_net: '500.00' }),
+        hecho({ direction: 'out', supplier_id: 'prov-1', amount_net: '200.00' }),
+      ],
+      nombres,
+    );
+    expect(filas).toHaveLength(1);
+    expect(filas[0]?.nombre).toBe('Movistar');
+    expect(format(filas[0]!.total)).toBe('S/ 700.00');
+    expect(filas[0]?.hechos).toBe(2);
+  });
+
+  it('un gasto sin proveedor no se inventa uno: queda en su grupo', () => {
+    const filas = gastosPorProveedor(
+      [hecho({ direction: 'out', supplier_id: null, amount_net: '90.00' })],
+      nombres,
+    );
+    expect(filas[0]?.nombre).toBe('Sin proveedor anotado');
+  });
+
+  it('lo que no es del negocio no cuenta como pago a proveedor', () => {
+    const filas = gastosPorProveedor(
+      [hecho({ direction: 'out', flow_class: 'non_operating', supplier_id: 'prov-1' })],
+      nombres,
+    );
+    expect(filas).toHaveLength(0);
+  });
 });
 
 describe('los periodos son completos, no móviles', () => {

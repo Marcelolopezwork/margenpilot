@@ -3,7 +3,16 @@ import { useQuery } from '@tanstack/react-query';
 import { puedeEscribirDinero, useOrg, useOrgElegida } from '../app/org-context';
 import { mensajeDeError } from '../lib/errors';
 import { formatoFecha } from '../lib/format';
-import { currencyOf, format, fromRow, toDb, type CurrencyCode, type Money } from '../lib/money';
+import {
+  currencyOf,
+  format,
+  fromRow,
+  subtract,
+  toDb,
+  zero,
+  type CurrencyCode,
+  type Money,
+} from '../lib/money';
 import { requireSupabase } from '../lib/supabase';
 import { Aviso, Boton, Cargando, Etiqueta, Tarjeta } from '../components/ui';
 import { FiltradoPor } from '../components/piezas';
@@ -112,6 +121,53 @@ export default function Home() {
     },
   });
 
+  // Lo que debes. Va aparte de la cartera y no restado de ella: una factura
+  // que te deben y otra que debes no se compensan, porque no vencen el mismo
+  // día ni dependen de la misma persona (F3-6).
+  const porPagar = useQuery({
+    queryKey: ['compras', organizacion.id, entidad?.id ?? null],
+    enabled: conDinero,
+    queryFn: async () => {
+      let q = requireSupabase()
+        .from('billing_documents')
+        .select('id, description, series_number, due_date, currency_code, amount_total, amount_tax, status, legal_entity_id')
+        .eq('organization_id', organizacion.id)
+        .eq('direction', 'purchase')
+        .in('status', ['open', 'partially_paid'])
+        .order('due_date', { nullsFirst: false });
+      if (entidad) q = q.eq('legal_entity_id', entidad.id);
+      const { data: docs, error } = await q;
+      if (error) throw error;
+      if (!docs || docs.length === 0) return [];
+
+      const pagado = await cobradoPorDocumento(docs.map((d) => d.id));
+      return docs.map((d) => {
+        const moneda = currencyOf(d.currency_code);
+        const yaPagado = pagado.get(d.id) ?? zero(moneda);
+        return {
+          id: d.id,
+          concepto:
+            (d.description ?? '').trim() ||
+            (d.series_number ?? '').trim() ||
+            'Compra sin número',
+          due_date: d.due_date,
+          currency_code: d.currency_code,
+          atraso:
+            d.due_date && d.due_date < hoy
+              ? Math.max(
+                  0,
+                  Math.round(
+                    (Date.parse(`${hoy}T00:00:00Z`) - Date.parse(`${d.due_date}T00:00:00Z`)) /
+                      86_400_000,
+                  ),
+                )
+              : 0,
+          pendiente: subtract(fromRow(d.amount_total, moneda), yaPagado),
+        };
+      });
+    },
+  });
+
   const cartera = useQuery({
     queryKey: ['cartera', organizacion.id, entidad?.id ?? null],
     enabled: conDinero,
@@ -121,6 +177,10 @@ export default function Home() {
         .from('billing_documents')
         .select('id, series_number, doc_type, issue_date, due_date, currency_code, amount_total, status, client_id, legal_entity_id')
         .in('status', ['open', 'partially_paid'])
+        // La cartera son ventas. Una compra vive en la misma tabla con
+        // `direction = 'purchase'`, y sin este filtro aparecería aquí como
+        // dinero que te deben (F3-6).
+        .eq('direction', 'sale')
         .eq('organization_id', organizacion.id)
         .order('due_date', { nullsFirst: false });
       if (entidad) q = q.eq('legal_entity_id', entidad.id);
@@ -266,6 +326,12 @@ export default function Home() {
   );
   const vencidos = (cartera.data ?? []).filter((d) => vencido(d.doc, hoy));
 
+  const deudas = porPagar.data ?? [];
+  const totalesPorPagar = porMoneda(
+    deudas.map((d) => ({ currency_code: d.currency_code, importe: toDb(d.pendiente) })),
+  );
+  const vencidasDeCompra = deudas.filter((d) => d.atraso > 0);
+
   const esperadas: CuotaEsperada[] = (cuotas.data ?? []).map((c) => ({
     due_date: c.due_date,
     amount: String(c.amount),
@@ -325,6 +391,16 @@ export default function Home() {
       texto: `${d.serie ?? 'Documento sin número'} venció hace ${diasDeAtraso(d.doc, hoy)} días · ${format(d.pendiente)} sin cobrar`,
       ruta: '/finanzas',
       boton: 'Registrar cobro',
+    });
+  }
+
+  for (const d of vencidasDeCompra.slice(0, 4)) {
+    acciones.push({
+      clave: `deuda-${d.id}`,
+      tono: 'atencion',
+      texto: `${d.concepto} venció hace ${d.atraso} ${d.atraso === 1 ? 'día' : 'días'} · ${format(d.pendiente)} sin pagar`,
+      ruta: '/finanzas/compras',
+      boton: 'Pagar',
     });
   }
 
@@ -463,6 +539,38 @@ export default function Home() {
               )}
             </p>
           )}
+        </section>
+      )}
+
+      {/* ----------------------------------------------------- por pagar */}
+      {!cargando && deudas.length > 0 && (
+        <section className="flex flex-col gap-3">
+          <h2 className="text-xs uppercase tracking-widest text-subtle">Por pagar</h2>
+          <Tarjeta className="p-5">
+            <div className="flex flex-wrap gap-8">
+              {totalesPorPagar.map((f) => (
+                <div key={f.moneda}>
+                  <p className="num text-2xl font-semibold tracking-tight">{format(f.total)}</p>
+                  <p className="mt-1 text-sm text-muted">
+                    {f.cuantos} {f.cuantos === 1 ? 'factura' : 'facturas'}
+                    {totalesPorPagar.length > 1 ? ` · ${f.moneda}` : ''}
+                  </p>
+                </div>
+              ))}
+            </div>
+            {vencidasDeCompra.length > 0 && (
+              <p className="mt-4 text-sm text-warning">
+                {vencidasDeCompra.length === 1
+                  ? '1 factura vencida'
+                  : `${vencidasDeCompra.length} facturas vencidas`}
+                , la más atrasada por {Math.max(...vencidasDeCompra.map((d) => d.atraso))} días.
+              </p>
+            )}
+            <p className="mt-4 max-w-prose text-xs text-subtle">
+              No se resta de «Por cobrar». Lo que te deben y lo que debes no se compensan: no
+              vencen el mismo día ni los paga la misma persona.
+            </p>
+          </Tarjeta>
         </section>
       )}
 

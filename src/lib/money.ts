@@ -272,3 +272,26 @@ export function effectiveRate(from: Money, to: Money): string | null {
   const resto = (bruto % SEIS).toString().padStart(6, '0');
   return `${entero}.${resto}`;
 }
+
+/**
+ * El neto que hay dentro de un importe que ya lleva el impuesto (F3-6).
+ *
+ * En una factura de compra lo que viene escrito es el total: el proveedor
+ * cobra 118 y el IGV va dentro. Para que el gasto sea el gasto y el IGV sea
+ * crédito fiscal hay que partirlo hacia atrás, y hacerlo con la misma fórmula
+ * que la base de datos: `round(total / (1 + tasa/100), decimales)`.
+ *
+ * Se calcula en enteros sobre la fracción exacta de la tasa, con un solo
+ * redondeo al final. La base es la que manda —ella guarda la cifra—; esto
+ * existe para que el formulario pueda enseñar el desglose mientras se teclea,
+ * en vez de descubrirlo después de guardar.
+ */
+export function netFromGross(gross: Money, taxRatePercent: string): Money {
+  const { numerator, denominator } = toRatio(taxRatePercent);
+  if (numerator < 0n) throw new MoneyError('el impuesto no puede ser negativo');
+  // neto = total / (1 + tasa/100) = total · 100·den / (100·den + num)
+  return {
+    minor: divHalfUp(gross.minor * 100n * denominator, 100n * denominator + numerator),
+    currency: gross.currency,
+  };
+}

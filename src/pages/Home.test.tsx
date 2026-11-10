@@ -41,13 +41,25 @@ vi.mock('../lib/supabase', () => {
     return [];
   };
   const tabla = (nombre: string) => {
+    // La dirección sí se respeta. Desde que las ventas y las compras viven en
+    // la misma tabla, un `mock` que devuelve todo para las dos consultas haría
+    // pasar la prueba con lo que debes contado como lo que te deben.
+    let direccion: unknown = null;
     const api: Record<string, unknown> = {
       then: (r: (v: unknown) => unknown) => {
-        const datos = datosDe(nombre);
+        let datos = datosDe(nombre);
+        if (nombre === 'billing_documents' && direccion !== null) {
+          datos = datos.filter((d) => (d.direction ?? 'sale') === direccion);
+        }
         return Promise.resolve({ data: datos, error: null, count: datos.length }).then(r);
       },
     };
-    for (const m of ['select', 'eq', 'in', 'order', 'limit', 'not']) api[m] = () => api;
+    for (const m of ['select', 'eq', 'in', 'order', 'limit', 'not']) {
+      api[m] = (campo: string, valor: unknown) => {
+        if (m === 'eq' && campo === 'direction') direccion = valor;
+        return api;
+      };
+    }
     return api;
   };
   return {
@@ -169,6 +181,36 @@ describe('Inicio', () => {
     // Y aparece como acción, con los días concretos.
     expect(screen.getByText(/venció hace 6 días/)).toBeTruthy();
     expect(screen.getByRole('button', { name: 'Registrar cobro' })).toBeTruthy();
+  });
+
+  it('lo que debes va aparte de lo que te deben, y no se restan', async () => {
+    CUENTAS.push(cuenta('cta-1', 'BCP soles', 'PEN'));
+    DOCUMENTOS.push(
+      {
+        id: 'doc-1', series_number: 'F001-00000123', doc_type: 'invoice', direction: 'sale',
+        issue_date: '2026-10-01', due_date: '2026-12-31', currency_code: 'PEN',
+        amount_total: '2000.00', amount_tax: '0.00', status: 'open', client_id: 'cli-1',
+        legal_entity_id: 'e-1',
+      },
+      {
+        id: 'doc-2', series_number: 'F002-9', description: 'Hosting anual', doc_type: 'invoice',
+        direction: 'purchase', issue_date: '2026-10-01', due_date: '2026-10-31',
+        currency_code: 'PEN', amount_total: '590.00', amount_tax: '90.00', status: 'open',
+        client_id: null, legal_entity_id: 'e-1',
+      },
+    );
+    await montar();
+    await screen.findByText('Por pagar');
+
+    // Las dos cifras existen y son distintas: 2.000 que te deben y 590 que
+    // debes. Restarlas daría 1.410, que no es ninguna de las dos cosas.
+    expect(screen.getByText('S/ 2,000.00')).toBeTruthy();
+    expect(screen.getByText('S/ 590.00')).toBeTruthy();
+    expect(screen.getByText(/1 factura vencida/)).toBeTruthy();
+    expect(screen.getByText(/no se compensan/)).toBeTruthy();
+    // Y la factura vencida que debes es una de las cosas que hacer hoy.
+    expect(screen.getByText(/Hosting anual venció hace \d+ días/)).toBeTruthy();
+    expect(screen.getByRole('button', { name: 'Pagar' })).toBeTruthy();
   });
 
   it('la proyección cuenta lo previsto y marca lo que ya venció', async () => {

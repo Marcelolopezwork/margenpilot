@@ -19,6 +19,7 @@ import Cotizacion from './pages/comercial/Cotizacion';
 import Cotizaciones from './pages/comercial/Cotizaciones';
 import Finanzas from './pages/finanzas/Finanzas';
 import Caja from './pages/finanzas/Caja';
+import Compras from './pages/finanzas/Compras';
 import GastosFijos from './pages/finanzas/GastosFijos';
 import Propuesta from './pages/comercial/Propuesta';
 import PropuestaEmitida from './pages/comercial/PropuestaEmitida';
@@ -119,6 +120,7 @@ function ConOrganizacion() {
         <Route path="finanzas" element={<Finanzas />}>
           <Route index element={<Navigate to="caja" replace />} />
           <Route path="caja" element={<Caja />} />
+          <Route path="compras" element={<Compras />} />
           <Route path="gastos-fijos" element={<GastosFijos />} />
         </Route>
         <Route

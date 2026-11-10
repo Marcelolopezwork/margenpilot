@@ -22,3 +22,4 @@ supabase/.branches/
 
 # muestras para revisar el formato, no son del proyecto
 muestra-propuesta.*
+entregas/*.zip

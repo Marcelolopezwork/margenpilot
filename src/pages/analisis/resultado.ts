@@ -35,6 +35,7 @@ export interface Hecho {
   amount_tax: string | number;
   category_id: string | null;
   client_id: string | null;
+  supplier_id: string | null;
   concepto: string;
 }
 
@@ -227,6 +228,24 @@ export function gastosPorCategoria(
     (h) => h.category_id,
     (c) => nombres.get(c) ?? 'Categoría que ya no existe',
     'Sin categoría',
+  );
+}
+
+/**
+ * Lo que salió, por proveedor. Es el espejo de «de dónde vino el ingreso», y
+ * contesta otra pregunta que la categoría no contesta: la categoría dice en
+ * qué se fue y esto dice a quién. Un gasto anotado como movimiento suelto no
+ * tiene proveedor, así que cae en su propio grupo en vez de inventarse uno.
+ */
+export function gastosPorProveedor(
+  hechos: readonly Hecho[],
+  nombres: ReadonlyMap<string, string>,
+): Fila[] {
+  return agrupar(
+    hechos.filter((h) => h.flow_class === 'operating' && h.direction === 'out'),
+    (h) => h.supplier_id,
+    (p) => nombres.get(p) ?? 'Proveedor que ya no existe',
+    'Sin proveedor anotado',
   );
 }
 

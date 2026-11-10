@@ -11,6 +11,7 @@ import { nombreTipoMovimiento } from '../finanzas/cartera';
 import {
   fueraDelResultado,
   gastosPorCategoria,
+  gastosPorProveedor,
   ingresosPorCliente,
   nombrePeriodo,
   rangoDe,
@@ -65,7 +66,7 @@ export default function Analisis() {
       let q = cliente
         .from('economic_facts')
         .select(
-          'origen, fecha, direction, flow_class, kind, currency_code, amount_total, amount_net, amount_tax, category_id, client_id, concepto',
+          'origen, fecha, direction, flow_class, kind, currency_code, amount_total, amount_net, amount_tax, category_id, client_id, supplier_id, concepto',
         )
         .eq('organization_id', organizacion.id)
         .gte('fecha', rango.desde)
@@ -87,10 +88,17 @@ export default function Analisis() {
         .eq('organization_id', organizacion.id);
       if (e3) throw e3;
 
+      const { data: proveedores, error: e4 } = await cliente
+        .from('suppliers')
+        .select('id, name')
+        .eq('organization_id', organizacion.id);
+      if (e4) throw e4;
+
       return {
         hechos: (data ?? []) as unknown as Hecho[],
         clientes: new Map((clientes ?? []).map((c) => [c.id, c.name])),
         categorias: new Map((categorias ?? []).map((c) => [c.id, c.name])),
+        proveedores: new Map((proveedores ?? []).map((p) => [p.id, p.name])),
       };
     },
   });
@@ -117,6 +125,7 @@ export default function Analisis() {
   const porMoneda = resultadoPorMoneda(hechos);
   const porCliente = ingresosPorCliente(hechos, datos.data?.clientes ?? new Map());
   const porCategoria = gastosPorCategoria(hechos, datos.data?.categorias ?? new Map());
+  const porProveedor = gastosPorProveedor(hechos, datos.data?.proveedores ?? new Map());
   const aparte = fueraDelResultado(hechos);
 
   return (
@@ -233,6 +242,36 @@ export default function Analisis() {
                 secundario={
                   <>
                     {f.hechos} {f.hechos === 1 ? 'salida' : 'salidas'}
+                  </>
+                }
+                extremo={<p className="font-medium tabular-nums">{format(f.total)}</p>}
+              />
+            ))}
+          </Lista>
+        </section>
+      )}
+
+      {porProveedor.length > 0 && (
+        <section className="flex flex-col gap-3">
+          <h2 className="font-medium">A quién se le pagó</h2>
+          <p className="max-w-prose text-sm text-muted">
+            La misma salida que arriba, mirada por el otro lado: la categoría dice en qué se fue y
+            esto dice a quién. Un gasto anotado como movimiento suelto no tiene proveedor, así que
+            queda junto en su propio grupo.
+          </p>
+          <Lista>
+            {porProveedor.map((f) => (
+              <Fila
+                key={`${f.moneda}-${f.clave}`}
+                principal={
+                  <>
+                    <span className="font-medium">{f.nombre}</span>
+                    <Etiqueta>{f.moneda}</Etiqueta>
+                  </>
+                }
+                secundario={
+                  <>
+                    {f.hechos} {f.hechos === 1 ? 'compra o salida' : 'compras o salidas'}
                   </>
                 }
                 extremo={<p className="font-medium tabular-nums">{format(f.total)}</p>}

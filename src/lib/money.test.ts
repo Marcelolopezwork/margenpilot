@@ -12,6 +12,7 @@ import {
   marginPercent,
   markupPercent,
   multiplyByQuantity,
+  netFromGross,
   sumLines,
   taxOn,
   toDb,
@@ -209,5 +210,27 @@ describe('effectiveRate', () => {
   it('sin los dos lados no hay tasa que calcular', () => {
     expect(effectiveRate(zero('USD'), fromDb('370.00', 'PEN'))).toBeNull();
     expect(effectiveRate(fromDb('100.00', 'USD'), zero('PEN'))).toBeNull();
+  });
+});
+
+describe('netFromGross · el neto que lleva dentro un total con impuesto', () => {
+  it('devuelve el neto del IGV peruano', () => {
+    expect(format(netFromGross(fromDb('1180.00', 'PEN'), '18'))).toBe('S/ 1,000.00');
+    expect(format(netFromGross(fromDb('118.00', 'PEN'), '18'))).toBe('S/ 100.00');
+  });
+
+  it('con impuesto cero el neto es el total', () => {
+    expect(format(netFromGross(fromDb('742.35', 'USD'), '0'))).toBe('US$ 742.35');
+  });
+
+  it('redondea al medio hacia arriba, como round() en la base', () => {
+    // 85.00 / 1.18 = 72.0338…  →  72.03
+    expect(format(netFromGross(fromDb('85.00', 'PEN'), '18'))).toBe('S/ 72.03');
+    // 1.00 / 1.18 = 0.84745…   →  0.85
+    expect(format(netFromGross(fromDb('1.00', 'PEN'), '18'))).toBe('S/ 0.85');
+  });
+
+  it('un impuesto negativo no es un impuesto', () => {
+    expect(() => netFromGross(fromDb('100.00', 'PEN'), '-18')).toThrow();
   });
 });

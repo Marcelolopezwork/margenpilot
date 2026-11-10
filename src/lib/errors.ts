@@ -57,6 +57,17 @@ const CON_CIFRAS: readonly string[] = [
   'gasto_de_otra_empresa',
   'gasto_en_otra_moneda',
   'gasto_no_se_muda',
+  // F3-6 · las compras. Cada uno trae dentro lo que hay que corregir: qué
+  // proveedor, qué número repetido, qué categoría, qué fechas, cuánto queda.
+  'pago_excede_documento',
+  'compra_repetida',
+  'categoria_de_ingreso',
+  'vencimiento_antes_de_la_fecha',
+  'documento_con_dinero',
+  'direccion_no_concuerda',
+  'esto_es_una_compra',
+  'esto_es_una_venta',
+  'proveedor_obligatorio',
 ];
 
 function conCifras(bruto: string): string | null {
@@ -175,6 +186,13 @@ const FIJOS: readonly (readonly [string, string])[] = [
   ],
   ['invalid_name', 'Hace falta un nombre.'],
   ['unknown_currency', 'Esa moneda no existe en el catálogo.'],
+  // F3-6 · compras
+  [
+    'categoria_no_encontrada',
+    'Esa categoría ya no existe en esta organización. Recarga la pantalla y elígela otra vez.',
+  ],
+  ['impuesto_invalido', 'El impuesto no puede ser negativo.'],
+  ['documento_ya_anulado', 'Este documento ya estaba anulado.'],
 ];
 
 /** Códigos SQLSTATE que llegan sin ningún mensaje nuestro. */

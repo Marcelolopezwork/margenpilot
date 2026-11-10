@@ -64,10 +64,12 @@ export type Database = {
           amount_net: number
           amount_tax: number
           amount_total: number
-          client_id: string
+          category_id: string | null
+          client_id: string | null
           created_at: string
           created_by: string
           currency_code: string
+          description: string | null
           direction: string
           doc_type: Database["public"]["Enums"]["document_type"]
           due_date: string | null
@@ -79,6 +81,7 @@ export type Database = {
           quote_version_id: string | null
           series_number: string | null
           status: Database["public"]["Enums"]["document_status"]
+          supplier_id: string | null
           tax_rate: number | null
           updated_at: string
           void_reason: string | null
@@ -87,10 +90,12 @@ export type Database = {
           amount_net: number
           amount_tax?: number
           amount_total: number
-          client_id: string
+          category_id?: string | null
+          client_id?: string | null
           created_at?: string
           created_by?: string
           currency_code: string
+          description?: string | null
           direction?: string
           doc_type?: Database["public"]["Enums"]["document_type"]
           due_date?: string | null
@@ -102,6 +107,7 @@ export type Database = {
           quote_version_id?: string | null
           series_number?: string | null
           status?: Database["public"]["Enums"]["document_status"]
+          supplier_id?: string | null
           tax_rate?: number | null
           updated_at?: string
           void_reason?: string | null
@@ -110,10 +116,12 @@ export type Database = {
           amount_net?: number
           amount_tax?: number
           amount_total?: number
-          client_id?: string
+          category_id?: string | null
+          client_id?: string | null
           created_at?: string
           created_by?: string
           currency_code?: string
+          description?: string | null
           direction?: string
           doc_type?: Database["public"]["Enums"]["document_type"]
           due_date?: string | null
@@ -125,6 +133,7 @@ export type Database = {
           quote_version_id?: string | null
           series_number?: string | null
           status?: Database["public"]["Enums"]["document_status"]
+          supplier_id?: string | null
           tax_rate?: number | null
           updated_at?: string
           void_reason?: string | null
@@ -163,6 +172,20 @@ export type Database = {
             columns: ["quote_version_id", "organization_id"]
             isOneToOne: false
             referencedRelation: "quote_versions"
+            referencedColumns: ["id", "organization_id"]
+          },
+          {
+            foreignKeyName: "billing_documents_proveedor_fkey"
+            columns: ["supplier_id", "organization_id"]
+            isOneToOne: false
+            referencedRelation: "suppliers"
+            referencedColumns: ["id", "organization_id"]
+          },
+          {
+            foreignKeyName: "billing_documents_categoria_fkey"
+            columns: ["category_id", "organization_id"]
+            isOneToOne: false
+            referencedRelation: "financial_categories"
             referencedColumns: ["id", "organization_id"]
           },
         ]
@@ -315,6 +338,7 @@ export type Database = {
           organization_id: string
           recurring_expense_id: string | null
           source: string
+          supplier_id: string | null
           transfer_id: string | null
           value_date: string
           void_reason: string | null
@@ -341,6 +365,7 @@ export type Database = {
           organization_id: string
           recurring_expense_id?: string | null
           source?: string
+          supplier_id?: string | null
           transfer_id?: string | null
           value_date: string
           void_reason?: string | null
@@ -367,6 +392,7 @@ export type Database = {
           organization_id?: string
           recurring_expense_id?: string | null
           source?: string
+          supplier_id?: string | null
           transfer_id?: string | null
           value_date?: string
           void_reason?: string | null
@@ -416,6 +442,13 @@ export type Database = {
             isOneToOne: false
             referencedRelation: "organizations"
             referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "cash_movements_proveedor_fkey"
+            columns: ["supplier_id", "organization_id"]
+            isOneToOne: false
+            referencedRelation: "suppliers"
+            referencedColumns: ["id", "organization_id"]
           },
           {
             foreignKeyName: "cash_movements_recurrente_fkey"
@@ -2065,6 +2098,50 @@ export type Database = {
           },
         ]
       }
+      suppliers: {
+        Row: {
+          created_at: string
+          email: string | null
+          id: string
+          is_active: boolean
+          name: string
+          notes: string | null
+          organization_id: string
+          tax_id: string | null
+          updated_at: string
+        }
+        Insert: {
+          created_at?: string
+          email?: string | null
+          id?: string
+          is_active?: boolean
+          name: string
+          notes?: string | null
+          organization_id: string
+          tax_id?: string | null
+          updated_at?: string
+        }
+        Update: {
+          created_at?: string
+          email?: string | null
+          id?: string
+          is_active?: boolean
+          name?: string
+          notes?: string | null
+          organization_id?: string
+          tax_id?: string | null
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "suppliers_organization_id_fkey"
+            columns: ["organization_id"]
+            isOneToOne: false
+            referencedRelation: "organizations"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       tax_rates: {
         Row: {
           created_at: string
@@ -2198,6 +2275,7 @@ export type Database = {
           organization_id: string | null
           origen: string | null
           source_id: string | null
+          supplier_id: string | null
         }
         Relationships: []
       }
@@ -2218,6 +2296,44 @@ export type Database = {
       add_quote_line_from_service: {
         Args: { p_quantity?: number; p_quote: string; p_service: string }
         Returns: string
+      }
+      anular_documento: {
+        Args: {
+          p_document: string
+          p_motivo: string
+        }
+        Returns: {
+          amount_net: number
+          amount_tax: number
+          amount_total: number
+          category_id: string | null
+          client_id: string | null
+          created_at: string
+          created_by: string
+          currency_code: string
+          description: string | null
+          direction: string
+          doc_type: Database["public"]["Enums"]["document_type"]
+          due_date: string | null
+          id: string
+          is_opening: boolean
+          issue_date: string
+          legal_entity_id: string
+          organization_id: string
+          quote_version_id: string | null
+          series_number: string | null
+          status: Database["public"]["Enums"]["document_status"]
+          supplier_id: string | null
+          tax_rate: number | null
+          updated_at: string
+          void_reason: string | null
+        }[]
+        SetofOptions: {
+          from: "*"
+          to: "billing_documents"
+          isOneToOne: false
+          isSetofReturn: true
+        }
       }
       anular_movimiento: {
         Args: { p_motivo: string; p_movement: string }
@@ -2244,6 +2360,7 @@ export type Database = {
           organization_id: string
           recurring_expense_id: string | null
           source: string
+          supplier_id: string | null
           transfer_id: string | null
           value_date: string
           void_reason: string | null
@@ -2315,10 +2432,12 @@ export type Database = {
           amount_net: number
           amount_tax: number
           amount_total: number
-          client_id: string
+          category_id: string | null
+          client_id: string | null
           created_at: string
           created_by: string
           currency_code: string
+          description: string | null
           direction: string
           doc_type: Database["public"]["Enums"]["document_type"]
           due_date: string | null
@@ -2330,6 +2449,7 @@ export type Database = {
           quote_version_id: string | null
           series_number: string | null
           status: Database["public"]["Enums"]["document_status"]
+          supplier_id: string | null
           tax_rate: number | null
           updated_at: string
           void_reason: string | null
@@ -2445,6 +2565,7 @@ export type Database = {
           organization_id: string
           recurring_expense_id: string | null
           source: string
+          supplier_id: string | null
           transfer_id: string | null
           value_date: string
           void_reason: string | null
@@ -2452,6 +2573,53 @@ export type Database = {
         SetofOptions: {
           from: "*"
           to: "cash_movements"
+          isOneToOne: false
+          isSetofReturn: true
+        }
+      }
+      registrar_compra: {
+        Args: {
+          p_amount: number
+          p_category?: string
+          p_currency: string
+          p_description?: string
+          p_doc_type?: Database["public"]["Enums"]["document_type"]
+          p_due_date?: string
+          p_entity: string
+          p_issue_date?: string
+          p_series?: string
+          p_supplier: string
+          p_tax_rate?: number
+        }
+        Returns: {
+          amount_net: number
+          amount_tax: number
+          amount_total: number
+          category_id: string | null
+          client_id: string | null
+          created_at: string
+          created_by: string
+          currency_code: string
+          description: string | null
+          direction: string
+          doc_type: Database["public"]["Enums"]["document_type"]
+          due_date: string | null
+          id: string
+          is_opening: boolean
+          issue_date: string
+          legal_entity_id: string
+          organization_id: string
+          quote_version_id: string | null
+          series_number: string | null
+          status: Database["public"]["Enums"]["document_status"]
+          supplier_id: string | null
+          tax_rate: number | null
+          updated_at: string
+          void_reason: string | null
+        }[]
+        SetofOptions: {
+          from: "*"
+          to: "billing_documents"
           isOneToOne: false
           isSetofReturn: true
         }
@@ -2494,6 +2662,51 @@ export type Database = {
           organization_id: string
           recurring_expense_id: string | null
           source: string
+          supplier_id: string | null
+          transfer_id: string | null
+          value_date: string
+          void_reason: string | null
+        }[]
+        SetofOptions: {
+          from: "*"
+          to: "cash_movements"
+          isOneToOne: false
+          isSetofReturn: true
+        }
+      }
+      registrar_pago_de_compra: {
+        Args: {
+          p_account: string
+          p_amount: number
+          p_description?: string
+          p_document: string
+          p_external_ref?: string
+          p_value_date?: string
+        }
+        Returns: {
+          amount: number
+          amount_net: number | null
+          amount_tax: number | null
+          booked_at: string
+          cash_account_id: string
+          category_id: string | null
+          client_id: string | null
+          counterparty_kind: string | null
+          created_at: string
+          created_by: string
+          currency_code: string
+          description: string
+          direction: Database["public"]["Enums"]["cash_direction"]
+          external_ref: string | null
+          flow_class: Database["public"]["Enums"]["flow_class"]
+          id: string
+          is_void: boolean
+          kind: Database["public"]["Enums"]["cash_kind"]
+          legal_entity_id: string
+          organization_id: string
+          recurring_expense_id: string | null
+          source: string
+          supplier_id: string | null
           transfer_id: string | null
           value_date: string
           void_reason: string | null

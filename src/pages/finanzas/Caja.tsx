@@ -165,6 +165,10 @@ export default function Caja() {
           'id, series_number, doc_type, issue_date, due_date, currency_code, amount_total, status, client_id, legal_entity_id',
         )
         .in('status', ['open', 'partially_paid'])
+        // La cartera son ventas. Una compra vive en la misma tabla con
+        // `direction = 'purchase'`, y sin este filtro aparecería aquí como
+        // dinero que te deben (F3-6).
+        .eq('direction', 'sale')
         .eq('organization_id', organizacion.id)
         .order('due_date', { nullsFirst: false });
       if (entidad) q = q.eq('legal_entity_id', entidad.id);
@@ -190,7 +194,7 @@ export default function Caja() {
           currency_code: d.currency_code,
           amount_total: String(d.amount_total),
           status: d.status,
-          cliente: nombre.get(d.client_id) ?? 'Cliente desconocido',
+          cliente: nombre.get(d.client_id ?? '') ?? 'Cliente desconocido',
         };
         const pagado = cobrado.get(d.id) ?? zero(currencyOf(d.currency_code));
         return { ...d, doc, pagado, pendiente: pendienteDe(doc, pagado) };

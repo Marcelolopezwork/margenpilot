@@ -1180,6 +1180,325 @@ begin
     'un movimiento anulado deja de contar en el resultado, igual que en el saldo');
 end $$;
 
+-- ---------------------------------------------------------------------------
+-- F3-6 · una compra tiene proveedor, y su IGV no es tu gasto
+-- ---------------------------------------------------------------------------
+--
+-- Dos cosas se vigilan aquí. La primera es que una compra no pueda disfrazarse
+-- de venta ni al revés: la contraparte que lleva depende de su dirección, y es
+-- una restricción, no una costumbre. La segunda es el IGV: el impuesto que
+-- pagas dentro de una factura es crédito fiscal y no gasto, así que el neto y
+-- el impuesto se guardan separados y el lente Resultado solo resta el primero.
+
+do $$
+declare
+  v_org     uuid;
+  v_uno     uuid;
+  v_usuario uuid := '11111111-1111-1111-1111-111111111111';
+  v_pen     uuid;
+  v_cat_in  uuid;
+  v_cat_out uuid;
+  v_antes   int;
+  v_c1      uuid;
+  v_c2      uuid;
+  v_c3      uuid;
+  v_prov    uuid;
+  v_venta   uuid;
+  v_mov     uuid;
+  v_cuota   uuid;
+  v_saldo0  numeric;
+begin
+  select id into v_org from organizations where slug = 'org-a';
+  select id into v_uno from legal_entities
+   where organization_id = v_org and legal_name = 'Entidad Uno';
+  select id into v_pen from cash_accounts
+   where organization_id = v_org and name = 'BCP Soles';
+  select id into v_cat_in from financial_categories
+   where organization_id = v_org and direction = 'in' limit 1;
+  select id into v_cat_out from financial_categories
+   where organization_id = v_org and name = 'Herramientas y licencias';
+
+  -- Un proveedor se crea y se corrige. No se borra: borrarlo dejaría facturas
+  -- sin saber a quién se le compró.
+  perform assert_true(
+    has_table_privilege('authenticated', 'suppliers', 'select')
+    and has_table_privilege('authenticated', 'suppliers', 'insert')
+    and has_table_privilege('authenticated', 'suppliers', 'update')
+    and not has_table_privilege('authenticated', 'suppliers', 'delete'),
+    'un proveedor se crea y se corrige, pero no se borra');
+
+  perform assert_true(
+    (select relrowsecurity and relforcerowsecurity
+       from pg_class where oid = 'suppliers'::regclass),
+    'suppliers tiene RLS, y forzada también para el dueño');
+
+  perform assert_true(
+    (select count(*) from information_schema.columns
+      where table_name = 'economic_facts' and column_name = 'supplier_id') = 1,
+    'el hecho económico dice a quién se le pagó, no solo en qué se fue');
+
+  perform assert_true(
+    exists (select 1 from pg_constraint
+             where conrelid = 'billing_documents'::regclass
+               and conname = 'solo_una_venta_viene_de_cotizacion'),
+    'y la base impide que una compra cuelgue de una cotización nuestra');
+
+  -- ---------------------------------------------------------------- la puerta
+  select count(*) into v_antes from economic_facts;
+
+  select id into v_c1 from registrar_compra(
+    v_uno, 'Movistar', 1180, 'PEN',
+    p_series => 'F001-1234',
+    p_description => 'Teléfono de octubre',
+    p_due_date => current_date + 30,
+    p_category => v_cat_out);
+
+  perform assert_true(
+    (select amount_net = 1000 and amount_tax = 180 and amount_total = 1180
+       from billing_documents where id = v_c1),
+    'el total lleva el IGV dentro y se parte: de 1180, 1000 son gasto y 180 crédito fiscal');
+
+  perform assert_true(
+    (select direction = 'purchase' and status = 'open'
+            and client_id is null and supplier_id is not null
+       from billing_documents where id = v_c1),
+    'una compra nace por pagar, con proveedor y sin cliente');
+
+  perform assert_true(
+    (select tax_rate = 18 from billing_documents where id = v_c1),
+    'sin tasa dicha se usa la de la empresa, no una inventada');
+
+  select supplier_id into v_prov from billing_documents where id = v_c1;
+  perform assert_true(
+    (select name = 'Movistar' from suppliers where id = v_prov),
+    'el proveedor se crea al nombrarlo: nadie lo da de alta antes de anotar el recibo');
+
+  select id into v_c2 from registrar_compra(
+    v_uno, '  movistar ', 236, 'PEN', p_series => 'F001-9');
+
+  perform assert_true(
+    (select supplier_id from billing_documents where id = v_c2) = v_prov,
+    'el mismo nombre con otras mayúsculas es el mismo proveedor, no uno nuevo');
+
+  perform assert_true(
+    (select count(*) from suppliers where organization_id = v_org) = 1,
+    'y por tanto sigue habiendo un solo proveedor');
+
+  select id into v_c3 from registrar_compra(
+    v_uno, 'Contador', 500, 'PEN', p_tax_rate => 0, p_description => 'Honorarios');
+
+  perform assert_true(
+    (select amount_net = 500 and amount_tax = 0 from billing_documents where id = v_c3),
+    'una factura exonerada es gasto entero: no se le inventa un IGV que nadie cobró');
+
+  -- --------------------------------------------------- el hecho es la factura
+  perform assert_true(
+    (select count(*) from economic_facts) = v_antes + 3,
+    'cada compra es un hecho económico desde que llega la factura, no desde que se paga');
+
+  perform assert_true(
+    (select direction = 'out' and flow_class = 'operating'
+            and amount_net = 1000 and amount_tax = 180
+       from economic_facts where concepto = 'Teléfono de octubre'),
+    'y entra como salida operativa con su neto y su impuesto separados (INV-6)');
+
+  perform assert_true(
+    (select concepto = 'F001-9' from economic_facts where source_id = v_c2),
+    'sin concepto escrito queda el número del comprobante, que es lo que hay');
+
+  perform assert_true(
+    (select supplier_id from economic_facts where source_id = v_c1) = v_prov,
+    'el hecho sabe a quién se le compró');
+
+  -- ------------------------------------------------- la misma factura, una vez
+  perform assert_raises(
+    format('select registrar_compra(%L, ''Movistar'', 100, ''PEN'', p_series => ''f001-1234'')',
+           v_uno),
+    'compra_repetida',
+    'la misma factura del mismo proveedor no entra dos veces, ni con otras mayúsculas');
+
+  perform assert_true(
+    (select count(*) from registrar_compra(
+       v_uno, 'Claro', 100, 'PEN', p_series => 'F001-1234')) = 1,
+    'pero el mismo número de otro proveedor sí: las series son suyas, no tuyas');
+
+  -- -------------------------------------------- la contraparte y la dirección
+  perform assert_raises(
+    format('insert into billing_documents (organization_id, legal_entity_id, direction,
+              client_id, currency_code, amount_net, amount_tax, amount_total, created_by)
+            select %L, %L, ''purchase'', c.id, ''PEN'', 100, 0, 100, %L
+              from clients c where c.organization_id = %L limit 1',
+           v_org, v_uno, v_usuario, v_org),
+    'la_contraparte_concuerda',
+    'una compra no la hace un cliente: es imposible, no está desaconsejado');
+
+  perform assert_raises(
+    format('insert into billing_documents (organization_id, legal_entity_id, direction,
+              supplier_id, currency_code, amount_net, amount_tax, amount_total, created_by)
+            values (%L, %L, ''sale'', %L, ''PEN'', 100, 0, 100, %L)',
+           v_org, v_uno, v_prov, v_usuario),
+    'la_contraparte_concuerda',
+    'ni una venta se le factura a un proveedor');
+
+  perform assert_raises(
+    format('insert into cash_movements (organization_id, cash_account_id, legal_entity_id,
+              direction, amount, currency_code, value_date, client_id, supplier_id,
+              description, created_by)
+            select %L, %L, %L, ''out'', 10, ''PEN'', current_date, c.id, %L,
+                   ''dos contrapartes'', %L
+              from clients c where c.organization_id = %L limit 1',
+           v_org, v_pen, v_uno, v_prov, v_usuario, v_org),
+    'una_sola_contraparte',
+    'un movimiento tiene una contraparte, no dos');
+
+  -- ------------------------------------------------- lo que la puerta rechaza
+  perform assert_raises(
+    format('select registrar_compra(%L, ''Movistar'', 100, ''PEN'',
+              p_issue_date => current_date, p_due_date => current_date - 1)', v_uno),
+    'vencimiento_antes_de_la_fecha',
+    'una factura que vence antes de existir aparecería vencida el día que llegó');
+
+  perform assert_raises(
+    format('select registrar_compra(%L, ''Movistar'', 100, ''PEN'', p_category => %L)',
+           v_uno, v_cat_in),
+    'categoria_de_ingreso',
+    'una categoría de ingresos no clasifica una compra');
+
+  perform assert_raises(
+    format('select registrar_compra(%L, ''   '', 100, ''PEN'')', v_uno),
+    'proveedor_obligatorio',
+    'una compra sin proveedor no se puede reclamar ni cuadrar con el extracto');
+
+  perform assert_raises(
+    format('select registrar_compra(%L, ''Movistar'', 0, ''PEN'')', v_uno),
+    'importe_invalido',
+    'una compra de cero no es una compra');
+
+  perform assert_raises(
+    format('select registrar_compra(%L, ''Movistar'', 100, ''ZZZ'')', v_uno),
+    'unknown_currency',
+    'ni una en una moneda que no existe');
+
+  perform assert_raises(
+    format('select registrar_compra(%L, ''Movistar'', 100, ''PEN'', p_tax_rate => -1)', v_uno),
+    'impuesto_invalido',
+    'un impuesto negativo no es un impuesto');
+
+  -- ------------------------------------------------------------- pagar y cuadrar
+  select balance into v_saldo0 from account_balances where cash_account_id = v_pen;
+  select count(*) into v_antes from economic_facts;
+
+  select id into v_mov from registrar_pago_de_compra(v_c3, v_pen, 200);
+
+  perform assert_true(
+    (select direction = 'out' and counterparty_kind = 'supplier'
+            and supplier_id is not null and client_id is null and kind = 'operating'
+       from cash_movements where id = v_mov),
+    'pagar una compra saca dinero y queda apuntado al proveedor');
+
+  perform assert_true(
+    (select status = 'partially_paid' from billing_documents where id = v_c3),
+    'un pago parcial deja la factura pagada a medias (INV-3)');
+
+  perform assert_true(
+    (select balance from account_balances where cash_account_id = v_pen) = v_saldo0 - 200,
+    'y el saldo baja por el importe pagado, ni más ni menos (INV-1)');
+
+  perform assert_true(
+    (select count(*) from economic_facts) = v_antes,
+    'el pago no es un hecho nuevo: el hecho era la factura (INV-6)');
+
+  perform assert_raises(
+    format('select registrar_pago_de_compra(%L, %L, 400)', v_c3, v_pen),
+    'pago_excede_documento',
+    'no se puede pagar más de lo que la factura dice');
+
+  perform registrar_pago_de_compra(v_c3, v_pen, 300);
+  perform assert_true(
+    (select status = 'paid' from billing_documents where id = v_c3),
+    'y al completarla queda pagada');
+
+  perform assert_raises(
+    format('select registrar_pago_de_compra(%L, %L, 10)', v_c3, v_pen),
+    'documento_cerrado',
+    'una factura pagada no admite más pagos');
+
+  -- ------------------------------------------------ cada puerta por su nombre
+  select id into v_venta from billing_documents
+   where organization_id = v_org and direction = 'sale' limit 1;
+
+  perform assert_raises(
+    format('select registrar_cobro(%L, %L, 100)', v_c1, v_pen),
+    'esto_es_una_compra',
+    'una factura de proveedor se paga, no se cobra, y la puerta lo dice por su nombre');
+
+  perform assert_raises(
+    format('select registrar_pago_de_compra(%L, %L, 100)', v_venta, v_pen),
+    'esto_es_una_venta',
+    'y una venta tuya se cobra, no se paga');
+
+  select id into v_mov from registrar_movimiento(v_pen, 'in', 100, 'Entrada de prueba F3-6');
+  perform assert_raises(
+    format('insert into payment_allocations (organization_id, legal_entity_id,
+              currency_code, cash_movement_id, billing_document_id, amount)
+            values (%L, %L, ''PEN'', %L, %L, 100);
+            set constraints all immediate', v_org, v_uno, v_mov, v_c1),
+    'direccion_no_concuerda',
+    'un ingreso no paga una compra: la dejaría pagada con dinero que entró');
+
+  -- ------------------------------------------------------------------- anular
+  perform assert_raises(
+    format('select anular_documento(%L, ''prueba'')', v_c3),
+    'documento_con_dinero',
+    'anular una factura con pagos vivos dejaría ese dinero sin nada que lo explique');
+
+  perform assert_raises(
+    format('select anular_documento(%L, ''   '')', v_c1),
+    'motivo_obligatorio',
+    'anular exige decir por qué');
+
+  select count(*) into v_antes from economic_facts;
+  perform anular_documento(v_c2, 'El número estaba mal');
+
+  perform assert_true(
+    (select status = 'void' and void_reason = 'El número estaba mal'
+       from billing_documents where id = v_c2),
+    'anular no borra: marca y deja el motivo escrito');
+
+  perform assert_true(
+    (select count(*) from economic_facts) = v_antes - 1,
+    'y deja de contar en el resultado, igual que un movimiento anulado');
+
+  perform assert_raises(
+    format('select anular_documento(%L, ''otra vez'')', v_c2),
+    'documento_ya_anulado',
+    'no se anula dos veces');
+
+  perform assert_true(
+    (select count(*) from registrar_compra(
+       v_uno, 'Movistar', 236, 'PEN', p_series => 'F001-9')) = 1,
+    'y su número vuelve a estar libre: una factura mal teclada no lo inutiliza para siempre');
+
+  -- La cuota sigue a su documento también hacia atrás.
+  insert into billing_documents (organization_id, legal_entity_id, client_id,
+    currency_code, amount_net, amount_tax, amount_total, created_by)
+  select v_org, v_uno, c.id, 'PEN', 700, 0, 700, v_usuario
+    from clients c where c.organization_id = v_org and c.name = 'Cliente de las pruebas'
+  returning id into v_venta;
+
+  insert into payment_schedule_items (organization_id, legal_entity_id, label,
+    due_date, amount, currency_code, status, billing_document_id)
+  values (v_org, v_uno, 'Cuota de prueba F3-6', current_date, 700, 'PEN',
+    'documented', v_venta)
+  returning id into v_cuota;
+
+  perform anular_documento(v_venta, 'Se emitió por error');
+  perform assert_true(
+    (select status = 'planned' and billing_document_id is null
+       from payment_schedule_items where id = v_cuota),
+    'anulado su documento, la cuota vuelve a estar prevista y se puede volver a emitir');
+end $$;
+
 reset request.jwt.claim.sub;
 
-select 'TODAS LAS PRUEBAS DE F1, F2 Y F3 PASARON · 124 aserciones' as resultado;
+select 'TODAS LAS PRUEBAS DE F1, F2 Y F3 PASARON · 167 aserciones' as resultado;
