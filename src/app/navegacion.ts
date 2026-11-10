@@ -49,7 +49,7 @@ export const DESTINOS: readonly Destino[] = [
     ruta: '/pipeline',
     nombre: 'Pipeline',
     icono: IconoPipeline,
-    para: 'El tablero de oportunidades y su seguimiento.',
+    para: 'Las cotizaciones en juego por estado, y las que llevan días sin moverse.',
   },
   {
     ruta: '/analisis',

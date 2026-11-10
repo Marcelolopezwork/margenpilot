@@ -8,8 +8,8 @@ import { Aviso } from './components/ui';
 import { isConfigured } from './lib/supabase';
 import Home from './pages/Home';
 import Onboarding from './pages/Onboarding';
-import Pendiente from './pages/Pendiente';
 import Analisis from './pages/analisis/Analisis';
+import Pipeline from './pages/pipeline/Pipeline';
 import Setup from './pages/Setup';
 import SignIn from './pages/SignIn';
 import Catalogo from './pages/catalogo/Catalogo';
@@ -123,21 +123,7 @@ function ConOrganizacion() {
           <Route path="compras" element={<Compras />} />
           <Route path="gastos-fijos" element={<GastosFijos />} />
         </Route>
-        <Route
-          path="pipeline"
-          element={
-            <Pendiente
-              ruta="/pipeline"
-              fase="F4, cuando Finanzas esté cerrado"
-              mientras={{
-                texto:
-                  'El seguimiento de cada propuesta ya está en Comercial: en qué estado va, qué versión se envió y qué falta para aprobarla. Lo que Pipeline añade es el tablero —verlas todas a la vez y moverlas de columna—, no la información, que ya existe.',
-                ruta: '/comercial',
-                boton: 'Ir a Comercial',
-              }}
-            />
-          }
-        />
+        <Route path="pipeline" element={<Pipeline />} />
         <Route path="analisis" element={<Analisis />} />
         <Route path="configuracion" element={<Settings />}>
           <Route index element={<Navigate to="entidades" replace />} />
