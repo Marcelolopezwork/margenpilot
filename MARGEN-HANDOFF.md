@@ -65,7 +65,12 @@ que la clave sea secreta.
 Todo esto está **en producción y verificado contra la base real**, no solo
 compilado.
 
-### Base de datos · treinta y una migraciones aplicadas
+### Base de datos · treinta y cinco migraciones
+
+Las treinta y cuatro primeras están **aplicadas en producción**. La última, la
+de compras, está verificada en CI contra un Postgres 17 limpio pero **todavía
+no aplicada en el proyecto de Marcelo**: el modo automático bloquea escribir
+en producción y hace falta su permiso.
 
 ```
 20261028120000 foundations      esquema, tablas, disparadores, auditoría
@@ -96,12 +101,21 @@ compilado.
 20261105150000 estados_con_bitacora   transiciones válidas; `status` deja de ser escribible
 20261105160000 emision_inmutable      emitir congela el documento en una versión
 20261105170000 cronograma_de_cobro    al aprobar nacen las cuotas previstas
+20261106120000 el_dinero_existe       caja, cartera, asignaciones, saldos (INV-1..4)
+20261106123000 cast_del_estado_de_cuota
+20261109120000 gastos_recurrentes     la regla de lo que sale cada mes
+20261110090000 un_gasto_que_no_se_puede_pagar  la puerta explica lo que la clave impide
+20261110100000 una_transferencia_no_es_un_gasto  cabecera y patas (INV-5)
+20261110110000 el_hecho_economico     la vista economic_facts (INV-6)
+20261110120000 lo_que_compras_tiene_proveedor   proveedores y compras (INV-12, INV-13)
 ```
 
 ### Pantallas
 
 - **Acceso** con contraseña (principal) o enlace por correo (secundario)
-- **Inicio** · estado de la puesta en marcha
+- **Inicio** · la caja por moneda, «Por cobrar» y «Por pagar» —aparte, sin
+  restarse—, la proyección de trece semanas y las cosas que hacer hoy. La
+  puesta en marcha baja al final y solo asoma lo que falte
 - **Configuración** · entidades, marcas, monedas, impuestos, cuentas, categorías
 - **Catálogo** · servicios, ítems de costo, categorías de servicio
 - **Comercial** · clientes, cotizaciones, y el editor: líneas desde una ficha
@@ -125,11 +139,15 @@ compilado.
 - **Listado de cotizaciones** · filtros por estado y por cliente, y el
   **margen agregado ponderado** de lo que se está viendo, una cifra por
   moneda. Σ utilidad / Σ precio, nunca el promedio de porcentajes (§2.3)
-- **Finanzas** · dos pestañas, Caja y Gastos fijos: saldos por moneda, cartera,
-  libro de caja, «Mover dinero entre cuentas» y las reglas de lo que sale cada
-  mes
+- **Finanzas** · tres pestañas. **Caja**: saldos por moneda, cartera, libro de
+  caja y «Mover dinero entre cuentas». **Compras**: lo que debes a proveedores
+  con su IGV señalado como crédito fiscal, el alta —que enseña el desglose
+  mientras se teclea y dice si el proveedor es nuevo—, el pago parcial o
+  entero y la anulación con motivo. **Gastos fijos**: las reglas de lo que sale
+  cada mes
 - **Análisis** · el lente Resultado: ingresos, gastos y resultado del periodo
-  por moneda, de qué cliente vino, en qué se fue, y lo no operativo aparte. El
+  por moneda, de qué cliente vino, en qué se fue, a quién se le pagó, y lo no
+  operativo aparte. El
   periodo son meses y años completos, y el rango viaja a la base como filtro de
   fechas: la pantalla no recorta nada que la vista no haya decidido
 - **Pipeline** · marcador honesto: dice en qué fase llega, qué parte de esa
@@ -145,13 +163,13 @@ caja (BCP soles en PEN, Mercury en USD), un cliente y una cotización de prueba.
 
 ### Verificación
 
-- **245 pruebas** de Vitest: dinero, errores, formato, armazón, altas, el A4,
+- **280 pruebas** de Vitest: dinero, errores, formato, armazón, altas, el A4,
   la propuesta, la aritmética de la cotización, el panel de emisión, la
   reimpresión de una versión emitida, el reparto en cuotas, el margen
   agregado, la cartera, la pantalla de finanzas, la proyección de caja con sus
   salidas, los gastos fijos, la tasa efectiva, los destinos de una
   transferencia, el resultado del periodo y el panel de inicio
-- **124 aserciones** SQL en `supabase/tests/invariants.sql`
+- **167 aserciones** SQL en `supabase/tests/invariants.sql`
 - CI en GitHub Actions: tipos, lint, pruebas, build, y las migraciones
   reaplicadas desde cero en cada push. El Postgres de la CI es pelado y no
   trae lo que Supabase pone encima, así que `supabase/stubs/auth.sql` y
@@ -280,20 +298,56 @@ Lo que esa vista resuelve, y que a mano se habría roto el primer martes:
 - **Sin desglose, el neto es el importe entero.** No se inventa un IGV que
   nadie declaró.
 
+Hecho el 10/11, **F3-6**: proveedores y compras (INV-12, INV-13). Las ventas y
+las compras viven en la misma tabla, distinguidas por `direction`; `suppliers`
+es una lista propia y no `clients` con una marca, porque a un proveedor no se
+le cotiza. Pantalla `/finanzas/compras` con «Por pagar», el alta, el pago
+parcial o entero y la anulación; «Por pagar» también en Inicio, aparte de «Por
+cobrar»; y «A quién se le pagó» en Análisis.
+
+Lo que resuelve, y por qué cada cosa es estructura y no aviso:
+
+- **Una factura es gasto el día que llega.** Antes un gasto solo existía al
+  pagarlo, así que un mes con compras a treinta días parecía el mejor del año
+  y el siguiente, el peor.
+- **El IGV soportado no es gasto.** Es crédito fiscal. El total se parte una
+  vez con la fórmula de la base, el lente resta solo el neto, y el formulario
+  enseña el desglose **mientras se teclea** en vez de después de guardar.
+  Sin tasa dicha se usa la de la empresa; nunca un 18 % supuesto, porque una
+  factura exonerada existe y un IGV inventado es crédito que no se tiene.
+- **Una compra no la hace un cliente.** `check la_contraparte_concuerda`: la
+  dirección decide cuál de las dos columnas se rellena, y la otra tiene que
+  estar vacía. La fila contraria no existe.
+- **La misma factura no entra dos veces**, ni con otras mayúsculas: índice
+  único parcial sobre `(organización, proveedor, número)` para las vivas. Las
+  anuladas quedan fuera a propósito, para que un número mal teclado se pueda
+  reutilizar.
+- **«Movistar» y «movistar» son el mismo proveedor.** Índice único sobre el
+  nombre normalizado; el nombre se escribe en el alta y el proveedor se crea
+  si no existe, porque nadie da de alta al casero antes de anotar el recibo.
+- **Cobrar y pagar comparten un cuerpo.** `app.saldar_documento` deriva signo,
+  contraparte y verbo de la dirección del documento, y las dos puertas
+  públicas se niegan a la dirección que no les toca. Dos copias se habrían
+  separado en el primer arreglo hecho en una y no en la otra, y entonces
+  existirían dos definiciones de «cuánto queda».
+- **Un ingreso no paga una factura de proveedor.** `app.respeta_los_topes`
+  rechaza la asignación cuyo movimiento va al revés que su documento.
+- **`anular_documento`**, que hacía falta desde que el número es único: marca,
+  deja el motivo, se niega si hay dinero asignado y devuelve la cuota a
+  `planned` para poder volver a emitirla.
+
 Lo que falta de F3, por orden:
 
-1. **Proveedores y compras.** `billing_documents` solo admite
-   `direction = 'sale'` porque no hay tabla de proveedores. Con ella llegan los
-   gastos con documento, el IGV soportado y el «Por pagar» que hoy Inicio dice
-   que falta.
-2. **Cuánto deja cada servicio.** El margen de una cotización ya se calcula y
+1. **Cuánto deja cada servicio.** El margen de una cotización ya se calcula y
    se ve al abrirla, pero para llevarlo al lente Resultado hace falta atar cada
-   documento a las líneas de la versión aceptada; y un gasto, hoy, no sabe a
-   qué trabajo pertenece. Llega con las compras.
-3. **Conciliación bancaria** (INV-8) e importación de extractos.
-4. **Pagos de una sola vez con fecha futura.** Hoy la proyección solo conoce
-   las cuotas de cobro y los gastos fijos; un pago grande y puntual —una
-   compra de equipo, un adelanto— no cabe en ninguna de las dos.
+   documento —y cada compra— a las líneas de la versión aceptada. Hoy la
+   categoría dice en qué se fue y el proveedor a quién, pero ninguna dice para
+   qué trabajo. Es lo siguiente y es lo que Marcelo pidió desde el principio.
+2. **Conciliación bancaria** (INV-8) e importación de extractos.
+3. **Pagos de una sola vez con fecha futura.** Hoy la proyección conoce las
+   cuotas de cobro y los gastos fijos, pero no las facturas de compra que ya
+   están anotadas con su vencimiento —que ya se podrían proyectar— ni un pago
+   grande y puntual sin factura, como un adelanto.
 
 ### Después
 
@@ -430,7 +484,14 @@ Cada una costó tiempo. Están aquí para no repetirlas.
    cuentas (ADR-33).
 3. **Un 200 del dominio puede ser el `.htaccess` reescribiendo.** Cualquier
    ruta inexistente devuelve `index.html` con 200. Hay que mirar el
-   `content-type` y el tamaño.
+   `content-type` y el tamaño. Volvió a morder el 10/11: se comprobó que el
+   bundle nuevo estaba en el servidor pidiéndolo con `HEAD` y mirando solo el
+   código, que era 200; el archivo no existía y lo que llegaba era el
+   `index.html` del `.htaccess`. Marcelo veía una página en blanco y la consola
+   decía lo único cierto: «expected a JavaScript module but the server
+   responded with a MIME type of text/html». La comprobación buena es el
+   `content-type` de **cada** fragmento del build, y la definitiva es el
+   despliegue automático, que compara el bundle servido con el compilado.
 4. **Nunca dos paquetes con el mismo nombre.** Se mandaron dos
    `margen-pilot-web.zip` distintos y se subió el viejo. El nombre del zip
    lleva el hash del bundle por esto.
@@ -537,6 +598,16 @@ Cada una costó tiempo. Están aquí para no repetirlas.
     ejecutarla, o se saca el valor a una variable escalar aparte.
 
 ---
+
+19. **Dos archivos que solo se diferencian en mayúsculas no pueden coexistir.**
+    El disco de un Mac no distingue `Compras.tsx` de `compras.ts`, así que
+    TypeScript aborta con TS1261 y, de paso, TS1192 («no tiene export por
+    defecto», que es el error equivocado y manda a buscar donde no es). Ha
+    pasado dos veces: con `Resultado.tsx`/`resultado.ts` y con
+    `Compras.tsx`/`compras.ts`. La convención que lo evita: la pantalla en
+    plural y mayúscula —`Compras.tsx`—, su lógica en singular y minúscula
+    —`compra.ts`—. En CI, sobre Linux, el choque no aparece: compila y luego
+    falla en el Mac de quien lo abra.
 
 ### Dos pantallas no comparten clave de caché si no traen las mismas columnas
 

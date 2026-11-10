@@ -61,9 +61,13 @@ Un mismo gasto puede llegar de dos formas: con documento (factura del proveedor)
 
 ```
 hechos económicos = todos los billing_documents  (no anulados, is_opening = false)
+                       · direction='sale'     → entra  (una venta)
+                       · direction='purchase' → sale   (una compra)
                   ∪ los cash_movements con flow_class='operating'
                        que NO tienen ninguna payment_allocation a un documento
 ```
+
+Desde el 10/11/2026 la vista lleva `supplier_id` junto a `client_id` y el `category_id` del documento: un gasto con factura tiene categoría y proveedor igual que un movimiento suelto, y sin ellos caería en «sin categoría» y «sin proveedor» cuando sí se saben.
 
 Es decir: si el movimiento está asignado a un documento, **el documento manda** (ya aporta su neto y su impuesto) y el movimiento solo es dinero. Si el movimiento no está asignado a nada, **el movimiento es su propio hecho económico** y aporta su `amount_net` / `amount_tax` (si el usuario los capturó) o su importe total como neto (si no hay impuesto).
 
@@ -98,6 +102,21 @@ Un gasto recurrente es una **regla de proyección, no dinero**: no crea movimien
 
 ### INV-10 — Dos monedas nunca se suman sin declararlo
 Ninguna consulta, vista ni componente puede sumar importes de monedas distintas sin pasar por la función de conversión, que **exige** `fx_rate`, `as_of` y `source`. El total consolidado no se almacena nunca: se calcula en el momento de mostrarlo y viaja siempre con su etiqueta.
+
+### INV-12 — Una compra tiene proveedor, y su IGV no es tu gasto
+Implantado el 10/11/2026 (F3-6). Las ventas y las compras viven en la misma tabla, `billing_documents`, distinguidas por `direction`. De ahí salen seis reglas duras, y ninguna es una recomendación: cada una la impone una restricción.
+
+1. **Una contraparte, la que corresponde a la dirección.** `check la_contraparte_concuerda`: una venta tiene `client_id` y no `supplier_id`; una compra, lo contrario. Una compra facturada a un cliente no es un error que se detecte: es una fila que no puede existir. Lo mismo en `cash_movements`, donde `una_sola_contraparte` impide que un movimiento señale a los dos.
+2. **El proveedor es su propia lista.** `suppliers` no es `clients` con una marca. A un proveedor no se le cotiza, y si estuvieran juntos el casero aparecería en el desplegable de cliente de una cotización. El índice único es sobre `lower(btrim(name))`: «Movistar», «movistar» y «Movistar » son el mismo proveedor, porque si no el gasto de teléfono saldría repartido entre tres.
+3. **La misma factura no entra dos veces.** Índice único parcial sobre `(organization_id, supplier_id, upper(btrim(series_number)))` para las compras vivas. Las anuladas quedan fuera a propósito: si una se anuló por estar mal escrita, su número tiene que poder volver a usarse.
+4. **El IGV soportado no se resta del resultado.** El total de la factura lleva el impuesto dentro, y se parte una sola vez: `amount_net = round(total / (1 + tasa/100), decimales)` y `amount_tax = total − amount_net`. El lente Resultado resta el neto; el impuesto se dice aparte, porque es crédito fiscal que vuelve contra el IGV cobrado. Sumarlo al gasto desinfla el resultado todos los meses sin que nada avise. Sin tasa dicha se usa la de la empresa (`tax_rates.is_default`), nunca un 18 % supuesto: una factura exonerada existe, y un IGV inventado es crédito fiscal que no se tiene.
+5. **La factura es un hecho el día que llega, no el día que se paga.** Por INV-6 el documento es el hecho y el pago solo es dinero. Es lo que hace que el resultado de un mes sea el de ese mes aunque se compre a treinta días.
+6. **Cobrar y pagar comparten un solo cuerpo.** `app.saldar_documento` hace las dos cosas y deriva el signo, la contraparte y el verbo de la dirección del documento; `registrar_cobro` y `registrar_pago_de_compra` son dos puertas que se niegan a la dirección que no les toca (`esto_es_una_compra`, `esto_es_una_venta`). El tope de «cuánto queda» está escrito una vez. Y `app.respeta_los_topes` rechaza una asignación cuyo movimiento vaya en sentido contrario al documento (`direccion_no_concuerda`): un ingreso no paga una factura de proveedor.
+
+Lo que esto **todavía no** permite: saber cuánto deja cada servicio. Para eso hace falta atar cada compra y cada venta a las líneas de la versión aceptada, y hoy una compra no sabe a qué trabajo pertenece. La categoría dice en qué se fue y el proveedor dice a quién; ninguna de las dos dice para qué trabajo.
+
+### INV-13 — Un documento se anula; no se borra ni se vacía
+`anular_documento` marca `status='void'` con su motivo escrito, y se **niega** si el documento tiene movimientos vivos asignados (`documento_con_dinero`): anularlo dejando sus cobros o pagos vivos convertiría ese dinero en una entrada o salida sin hecho que la explique. El orden es: primero el movimiento, después el documento. Al anularlo, la cuota de la que salió vuelve a `planned` con su `billing_document_id` en nulo, porque si no quedaría «documentada» señalando a un documento anulado y no habría forma de volver a facturarla.
 
 ---
 
