@@ -65,12 +65,16 @@ que la clave sea secreta.
 Todo esto está **en producción y verificado contra la base real**, no solo
 compilado.
 
-### Base de datos · treinta y cinco migraciones
+### Base de datos · treinta y cinco migraciones aplicadas
 
-Las treinta y cuatro primeras están **aplicadas en producción**. La última, la
-de compras, está verificada en CI contra un Postgres 17 limpio pero **todavía
-no aplicada en el proyecto de Marcelo**: el modo automático bloquea escribir
-en producción y hace falta su permiso.
+Las treinta y cinco están aplicadas en producción. La última, la de compras,
+la ejecutó Marcelo el 23/11 pegando `supabase/seed/demo.sql` en el editor SQL
+de Supabase, porque el modo automático no deja escribir en producción desde
+aquí. Ese mismo archivo creó la organización **Margen Demo**, que es donde
+viven los datos de prueba: va aparte de «Margen Pilot» porque nada financiero
+se borra (INV-7), así que dentro de la organización real los datos de prueba
+no se podrían quitar nunca. Se borra con `supabase/seed/borrar-demo.sql`, que
+es una sola fila y un `on delete cascade`.
 
 ```
 20261028120000 foundations      esquema, tablas, disparadores, auditoría
@@ -343,15 +347,40 @@ Lo que falta de F3, por orden:
    documento —y cada compra— a las líneas de la versión aceptada. Hoy la
    categoría dice en qué se fue y el proveedor a quién, pero ninguna dice para
    qué trabajo. Es lo siguiente y es lo que Marcelo pidió desde el principio.
-2. **Conciliación bancaria** (INV-8) e importación de extractos.
-3. **Pagos de una sola vez con fecha futura.** Hoy la proyección conoce las
-   cuotas de cobro y los gastos fijos, pero no las facturas de compra que ya
-   están anotadas con su vencimiento —que ya se podrían proyectar— ni un pago
-   grande y puntual sin factura, como un adelanto.
+2. **Las compras anotadas no entran en la proyección de caja.** Desde F3-6 el
+   sistema sabe que debes 1.180 el día 30, pero la proyección de trece semanas
+   solo mira las cuotas de cobro y los gastos fijos. Es la pieza más barata que
+   queda y la que más cambia la cifra: hoy la proyección es optimista por
+   construcción.
+3. **Conciliación bancaria** (INV-8) e importación de extractos.
+4. **Pagos de una sola vez con fecha futura** sin factura detrás: un adelanto,
+   una compra de equipo pactada. No caben ni en las cuotas, ni en los gastos
+   fijos, ni en las compras.
 
-### Después
+### F4 · Pipeline
 
-- **F4 · Pipeline:** tablero de oportunidades y seguimiento.
+Hecho el 10/11: el tablero. Con él **se acaban las pantallas del plan**: no
+queda ninguna que sea un marcador, y `Pendiente.tsx` ya no existe.
+
+Lo que añade sobre el listado de Comercial no es información —ahí estaba
+toda— sino verlas repartidas por estado y moverlas sin abrirlas. Y una tercera
+cosa, que es la que justifica la pantalla: **señala lo que no se ha movido**,
+porque saca el último movimiento de la bitácora y no de la fecha de creación.
+
+Tres decisiones, fijadas con pruebas:
+
+- **El tablero es lo que está en juego**: enviadas y en negociación. Un
+  borrador no ha salido y una aprobada ya se ganó —lo que queda es cobrarla, y
+  eso vive en Finanzas—, así que ninguna entra en la cifra de arriba.
+- **La cifra es el neto de la última versión emitida**, la que el cliente tiene
+  en la mano. Una sin emitir no aporta cero: aporta «sin emitir». Sumar
+  «todavía no se sabe» como cero hace que el total parezca completo.
+- **Mover no es arrastrar**: un desplegable y un botón, porque aprobar crea el
+  cronograma de cobro y porque arrastrar no funciona con teclado ni con lector
+  de pantalla.
+
+«Vencida» sigue siendo una decisión de una persona, no un cálculo: el tablero
+solo deja de disimular que el plazo pasó.
 
 ### Pendiente de Marcelo, no de código
 
@@ -379,7 +408,7 @@ Lo que falta de F3, por orden:
   sigue siendo la buena: en cuanto el CLI pueda, regenerar el archivo entero.
   Para arreglarlo hace falta un token de acceso personal con permiso sobre el
   proyecto (`supabase login`), que es algo de Marcelo, no de código.
-- El bundle principal va por 656 kB en crudo (≈186 kB comprimidos). jsPDF y
+- El bundle principal va por 686 kB en crudo (≈196 kB comprimidos). jsPDF y
   sus dependencias ya van en trozos aparte, cargados solo al descargar; falta
   dividir las rutas con `React.lazy` antes de que entre F3.
 - La aritmética de la cotización está escrita dos veces: en
