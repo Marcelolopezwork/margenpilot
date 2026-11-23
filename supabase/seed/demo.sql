@@ -847,11 +847,17 @@ declare
   v_doc    uuid;
   v_compra uuid;
 begin
-  -- Quién es el dueño de la demo: el usuario más antiguo del proyecto. En
-  -- «Margen Pilot» hay exactamente uno, así que es él; en la CI es el primero
-  -- de los dos de prueba. Buscarlo en vez de escribir su identificador aquí
-  -- hace que este archivo sirva en los dos sitios y no guarde datos de nadie.
-  select u.id into v_usuario from auth.users u order by u.created_at, u.id limit 1;
+  -- Quién es el dueño de la demo: el primer usuario del proyecto. En «Margen
+  -- Pilot» hay exactamente uno, así que es él; en la CI es uno de los dos de
+  -- prueba, y a ninguno le estorba. Buscarlo en vez de escribir aquí su
+  -- identificador hace que este archivo sirva en los dos sitios y no guarde
+  -- datos de nadie.
+  --
+  -- Se ordena por `id` y no por `created_at` a propósito: el `auth.users` que
+  -- Supabase provee tiene esa columna y el stub de la CI no, así que ordenar
+  -- por ella hacía que el guion funcionara en producción y fallara en la CI,
+  -- que es la peor combinación posible.
+  select u.id into v_usuario from auth.users u order by u.id limit 1;
   if v_usuario is null then
     raise exception 'no hay ningún usuario en el proyecto: la demo necesita un dueño';
   end if;
