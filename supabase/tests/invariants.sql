@@ -1530,7 +1530,7 @@ declare
   v_jobB    uuid;
   v_otro    uuid;
   v_compra  uuid;
-  v_otra    uuid;
+  v_reimpresion uuid;
   v_mov     uuid;
   v_ap      uuid;
 begin
@@ -1744,12 +1744,12 @@ begin
   -- Y el pago de una compra tampoco se atribuye, porque la factura ya está
   -- contada y el pago no es un hecho aparte. Va sobre otra compra para no
   -- dejar dinero vivo colgando de la que se anula más abajo.
-  select id into v_otra from registrar_compra(
+  select id into v_reimpresion from registrar_compra(
     v_uno, 'Imprenta Lima', 118, 'PEN',
     p_series => 'F900-2',
     p_description => 'Reimpresión',
     p_category => v_cat_out);
-  select id into v_ap from registrar_pago_de_compra(v_otra, v_pen, 118, current_date);
+  select id into v_ap from registrar_pago_de_compra(v_reimpresion, v_pen, 118, current_date);
 
   perform assert_true(
     (select direction = 'out' from cash_movements where id = v_ap),
