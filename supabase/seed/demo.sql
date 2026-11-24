@@ -15,8 +15,16 @@
 --     con dos compras atribuidas, y dos previstos de una sola vez, uno de
 --     ellos adelantado a medias.
 --
+-- Todo va dentro de una transacción: o entra el archivo entero o no entra
+-- nada. Si algo falla a mitad, la base se queda exactamente como estaba, sin
+-- una tabla a medias ni una migración apuntada que no se aplicó. En Postgres
+-- el DDL también es transaccional, así que esto vale para las tablas y las
+-- funciones igual que para los datos.
+--
 -- Para quitar la demo después, sin volver a crearla: borrar-demo.sql.
 -- ===========================================================================
+
+begin;
 
 -- ============================================================================
 -- Margen Pilot · F5-3 · Lo puntual también es caja
@@ -935,3 +943,5 @@ begin
 
   raise notice 'Margen Demo lista: organización %', v_org;
 end $demo$;
+
+commit;
