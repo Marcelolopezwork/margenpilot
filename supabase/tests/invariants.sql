@@ -1530,6 +1530,7 @@ declare
   v_jobB    uuid;
   v_otro    uuid;
   v_compra  uuid;
+  v_otra    uuid;
   v_mov     uuid;
   v_ap      uuid;
 begin
@@ -1731,12 +1732,33 @@ begin
     'no_es_un_gasto',
     'y anotar un saldo inicial no es un costo de ningún trabajo');
 
-  -- El cobro de la factura salda un documento: el hecho es el documento.
-  select id into v_ap from registrar_cobro(v_venta, v_pen, 1180, current_date);
+  -- Cobrar no mueve el margen del trabajo: el hecho es el documento, no el
+  -- dinero (INV-14.6). Un trabajo puede tener 66 % de margen y cero en el
+  -- banco, y las dos cosas son verdad al mismo tiempo.
+  perform registrar_cobro(v_venta, v_pen, 1180, current_date);
+  perform assert_true(
+    (select ingreso_neto = 600 from job_margins
+      where job_id = v_jobA and currency_code = 'PEN'),
+    'cobrar la factura no cambia el margen del trabajo: el hecho es el documento');
+
+  -- Y el pago de una compra tampoco se atribuye, porque la factura ya está
+  -- contada y el pago no es un hecho aparte. Va sobre otra compra para no
+  -- dejar dinero vivo colgando de la que se anula más abajo.
+  select id into v_otra from registrar_compra(
+    v_uno, 'Imprenta Lima', 118, 'PEN',
+    p_series => 'F900-2',
+    p_description => 'Reimpresión',
+    p_category => v_cat_out);
+  select id into v_ap from registrar_pago_de_compra(v_otra, v_pen, 118, current_date);
+
+  perform assert_true(
+    (select direction = 'out' from cash_movements where id = v_ap),
+    'pagar una compra saca dinero, que es la dirección que un trabajo admite');
+
   perform assert_raises(
     format('select atribuir_gasto(%L, %L)', v_ap, v_jobA),
     'el_pago_no_se_atribuye',
-    'un pago que salda una factura no se atribuye: lo que cuenta es la factura');
+    'pero un pago que salda una factura no se atribuye: lo que cuenta es la factura');
 
   -- Un trabajo de otra empresa no admite el costo de esta.
   insert into quotes (organization_id, legal_entity_id, client_id, number,
@@ -1797,4 +1819,4 @@ end $$;
 
 reset request.jwt.claim.sub;
 
-select 'TODAS LAS PRUEBAS DE F1 A F5 PASARON · 202 aserciones' as resultado;
+select 'TODAS LAS PRUEBAS DE F1 A F5 PASARON · 204 aserciones' as resultado;

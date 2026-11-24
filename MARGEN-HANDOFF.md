@@ -186,7 +186,7 @@ caja (BCP soles en PEN, Mercury en USD), un cliente y una cotización de prueba.
   salidas, los gastos fijos, la tasa efectiva, los destinos de una
   transferencia, el resultado del periodo, el margen por trabajo y por
   servicio, la atribución de un costo a su trabajo y el panel de inicio
-- **202 aserciones** SQL en `supabase/tests/invariants.sql`
+- **204 aserciones** SQL en `supabase/tests/invariants.sql`
 - CI en GitHub Actions: tipos, lint, pruebas, build, y las migraciones
   reaplicadas desde cero en cada push. El Postgres de la CI es pelado y no
   trae lo que Supabase pone encima, así que `supabase/stubs/auth.sql` y
