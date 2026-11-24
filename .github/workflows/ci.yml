@@ -95,6 +95,29 @@ jobs:
               select count(*) into v_cuantas from economic_facts where organization_id = v_org;
               if v_cuantas = 0 then raise exception 'la demo no produjo ningún hecho económico'; end if;
 
+              -- Aprobar la cotización de dos líneas tuvo que dejar dos trabajos.
+              select count(*) into v_cuantas from jobs where organization_id = v_org;
+              if v_cuantas <> 2 then raise exception 'la demo necesita dos trabajos, hay %', v_cuantas; end if;
+
+              -- Y el costo del trabajo cuenta el NETO de su factura, no el total:
+              -- el IGV de una compra es crédito fiscal (INV-12.2, INV-14.5).
+              if not exists (
+                select 1 from job_margins m
+                 where m.organization_id = v_org
+                   and m.costo_neto = (select d.amount_net from billing_documents d
+                                        where d.organization_id = v_org
+                                          and d.series_number = 'F002-000450')
+              ) then
+                raise exception 'el trabajo no se llevó el neto de su factura';
+              end if;
+
+              -- Lo facturado se reparte entre las líneas aprobadas, así que la
+              -- suma de las partes es el neto de los documentos de esa cotización.
+              if not exists (select 1 from job_margins
+                              where organization_id = v_org and ingreso_neto > 0) then
+                raise exception 'ningún trabajo se llevó su parte de lo facturado';
+              end if;
+
               raise notice 'Demo comprobada: % hechos económicos', v_cuantas;
             end \$$;"
           psql -v ON_ERROR_STOP=1 -f supabase/seed/borrar-demo.sql

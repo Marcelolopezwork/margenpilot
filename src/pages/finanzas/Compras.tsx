@@ -47,7 +47,10 @@ export default function Compras() {
   const listaProveedores = useId();
 
   const [exito, setExito] = useState<string | null>(null);
-  const [accion, setAccion] = useState<{ tipo: 'pagar' | 'anular'; compra: string } | null>(null);
+  const [accion, setAccion] = useState<{
+    tipo: 'pagar' | 'anular' | 'atribuir';
+    compra: string;
+  } | null>(null);
 
   // El alta
   const [entidadId, setEntidadId] = useState(entidad?.id ?? '');
@@ -61,6 +64,7 @@ export default function Compras() {
   const [fecha, setFecha] = useState(hoy);
   const [vence, setVence] = useState('');
   const [categoriaId, setCategoriaId] = useState('');
+  const [trabajoId, setTrabajoId] = useState('');
 
   // El pago
   const [cuentaId, setCuentaId] = useState('');
@@ -77,7 +81,7 @@ export default function Compras() {
       let q = cliente
         .from('billing_documents')
         .select(
-          'id, series_number, description, doc_type, issue_date, due_date, currency_code, amount_total, amount_net, amount_tax, tax_rate, status, legal_entity_id, supplier_id, category_id',
+          'id, series_number, description, doc_type, issue_date, due_date, currency_code, amount_total, amount_net, amount_tax, tax_rate, status, legal_entity_id, supplier_id, category_id, job_id',
         )
         .eq('organization_id', organizacion.id)
         .eq('direction', 'purchase')
@@ -123,7 +127,12 @@ export default function Compras() {
           categoria: d.category_id ? nombreCat.get(d.category_id) ?? null : null,
         };
         const yaPagado = pagado.get(d.id) ?? zero(currencyOf(d.currency_code));
-        return { compra, pagado: yaPagado, pendiente: pendienteDeCompra(compra, yaPagado) };
+        return {
+          compra,
+          pagado: yaPagado,
+          pendiente: pendienteDeCompra(compra, yaPagado),
+          trabajo: d.job_id,
+        };
       });
     },
   });
@@ -173,6 +182,24 @@ export default function Compras() {
     },
   });
 
+  // Los trabajos a los que se le puede colgar una compra. Se piden también los
+  // terminados: una factura que llega tarde sigue siendo costo del trabajo que
+  // la provocó, y esconderla sería dejar el margen mintiendo al alza.
+  const trabajos = useQuery({
+    queryKey: ['trabajos', organizacion.id, 'para-atribuir'],
+    enabled: conDinero,
+    queryFn: async () => {
+      const { data, error } = await requireSupabase()
+        .from('jobs')
+        .select('id, name, status, legal_entity_id, currency_code')
+        .eq('organization_id', organizacion.id)
+        .in('status', ['open', 'done'])
+        .order('created_at', { ascending: false });
+      if (error) throw error;
+      return data ?? [];
+    },
+  });
+
   const impuestos = useQuery({
     queryKey: ['impuestos', organizacion.id, 'para-compras'],
     enabled: conDinero,
@@ -195,6 +222,7 @@ export default function Compras() {
     setTasa('');
     setVence('');
     setCategoriaId('');
+    setTrabajoId('');
     setFecha(hoy);
   }
 
@@ -213,6 +241,7 @@ export default function Compras() {
         ...(tasa.trim() ? { p_tax_rate: Number(tasa.replace(',', '.')) } : {}),
         ...(categoriaId ? { p_category: categoriaId } : {}),
         ...(concepto.trim() ? { p_description: concepto.trim() } : {}),
+        ...(trabajoId ? { p_job: trabajoId } : {}),
       });
       if (error) throw error;
     },
@@ -239,6 +268,23 @@ export default function Compras() {
     onSuccess: () => {
       setAccion(null);
       setRefPago('');
+      recargar();
+    },
+  });
+
+  const atribuir = useMutation({
+    mutationFn: async (compra: string) => {
+      const { error } = await requireSupabase().rpc('atribuir_compra', {
+        p_document: compra,
+        // Sin trabajo elegido se manda nulo a propósito: así este mismo
+        // formulario es el que desatribuye, y no hace falta otro botón.
+        ...(trabajoId ? { p_job: trabajoId } : {}),
+      });
+      if (error) throw error;
+    },
+    onSuccess: () => {
+      setAccion(null);
+      setTrabajoId('');
       recargar();
     },
   });
@@ -344,6 +390,7 @@ export default function Compras() {
       {compras.isPending && <Cargando que="tus compras" />}
       {compras.error && <Aviso tipo="error">{mensajeDeError(compras.error)}</Aviso>}
       {pagar.error && <Aviso tipo="error">{mensajeDeError(pagar.error)}</Aviso>}
+      {atribuir.error && <Aviso tipo="error">{mensajeDeError(atribuir.error)}</Aviso>}
       {anular.error && <Aviso tipo="error">{mensajeDeError(anular.error)}</Aviso>}
 
       {compras.data?.length === 0 && (
@@ -356,7 +403,7 @@ export default function Compras() {
 
       {filas.length > 0 && (
         <Lista>
-          {filas.map(({ compra, pagado, pendiente }) => {
+          {filas.map(({ compra, pagado, pendiente, trabajo }) => {
             const atraso = vencidaDesde(compra, hoy);
             const suEmpresa =
               entidades.find((x) => x.id === compra.legal_entity_id)?.legal_name ?? 'Su empresa';
@@ -385,6 +432,13 @@ export default function Compras() {
                     Gasto {format(fromRow(compra.amount_net, currencyOf(compra.currency_code)))} ·
                     IGV {format(fromRow(compra.amount_tax, currencyOf(compra.currency_code)))}
                     {compra.status === 'partially_paid' ? ` · pagado ${format(pagado)}` : ''}
+                    <br />
+                    {trabajo
+                      ? `Trabajo: ${
+                          (trabajos.data ?? []).find((t) => t.id === trabajo)?.name ??
+                          'uno que ya no está'
+                        }`
+                      : 'Sin trabajo: cuenta en el resultado del mes, pero no en el margen de ninguna pieza'}
                   </>
                 }
                 extremo={
@@ -400,6 +454,14 @@ export default function Compras() {
                       }}
                     >
                       Pagar
+                    </Boton>
+                    <Boton
+                      onClick={() => {
+                        setAccion({ tipo: 'atribuir', compra: compra.id });
+                        setTrabajoId(trabajo ?? '');
+                      }}
+                    >
+                      Trabajo
                     </Boton>
                     <Boton onClick={() => setAccion({ tipo: 'anular', compra: compra.id })}>
                       Anular
@@ -471,6 +533,52 @@ export default function Compras() {
                   <div className="flex gap-2">
                     <Boton variante="primario" type="submit" disabled={pagar.isPending}>
                       {pagar.isPending ? 'Registrando…' : 'Registrar el pago'}
+                    </Boton>
+                    <Boton onClick={() => setAccion(null)}>Cancelar</Boton>
+                  </div>
+                </>
+              )}
+            </Alta>
+          );
+        })()}
+
+      {accion?.tipo === 'atribuir' &&
+        (() => {
+          const fila = filas.find((f) => f.compra.id === accion.compra);
+          if (!fila) return null;
+          const suyos = (trabajos.data ?? []).filter(
+            (t) => t.legal_entity_id === fila.compra.legal_entity_id,
+          );
+          return (
+            <Alta
+              titulo={`Para qué trabajo fue ${conceptoDeCompra(fila.compra)}`}
+              onSubmit={() => atribuir.mutate(accion.compra)}
+            >
+              {suyos.length === 0 ? (
+                <Aviso tipo="info">
+                  Esta empresa no tiene ningún trabajo todavía. Los trabajos nacen al aprobar una
+                  cotización: cada línea aprobada se vuelve uno. Mientras no haya ninguno, esta
+                  compra cuenta en el resultado del mes pero no en el margen de ninguna pieza.
+                </Aviso>
+              ) : (
+                <>
+                  <Selector
+                    etiqueta="Trabajo"
+                    value={trabajoId}
+                    onChange={(e) => setTrabajoId(e.target.value)}
+                    ayuda="Déjalo en blanco para quitarle el trabajo. El IGV de esta factura no entra en el costo del trabajo: es crédito fiscal."
+                  >
+                    <option value="">Sin trabajo</option>
+                    {suyos.map((t) => (
+                      <option key={t.id} value={t.id}>
+                        {t.name}
+                        {t.status === 'done' ? ' · terminado' : ''}
+                      </option>
+                    ))}
+                  </Selector>
+                  <div className="flex gap-2">
+                    <Boton variante="primario" type="submit" disabled={atribuir.isPending}>
+                      {atribuir.isPending ? 'Guardando…' : 'Guardar'}
                     </Boton>
                     <Boton onClick={() => setAccion(null)}>Cancelar</Boton>
                   </div>
@@ -655,6 +763,23 @@ export default function Compras() {
           ))}
         </Selector>
 
+        <Selector
+          etiqueta="Para qué trabajo es"
+          value={trabajoId}
+          onChange={(e) => setTrabajoId(e.target.value)}
+          ayuda="Lo que decide si esta compra aparece en el margen de un trabajo o solo en el resultado del mes. Se pregunta aquí porque es el único momento en que alguien se acuerda de para qué era."
+        >
+          <option value="">Ninguno en concreto</option>
+          {(trabajos.data ?? [])
+            .filter((t) => t.legal_entity_id === entidadId)
+            .map((t) => (
+              <option key={t.id} value={t.id}>
+                {t.name}
+                {t.status === 'done' ? ' · terminado' : ''}
+              </option>
+            ))}
+        </Selector>
+
         {anotar.error && <Aviso tipo="error">{mensajeDeError(anotar.error)}</Aviso>}
 
         <div>
@@ -665,9 +790,11 @@ export default function Compras() {
       </Alta>
 
       <p className="max-w-prose text-xs text-subtle">
-        Lo que todavía no hace esta pantalla: decir a qué trabajo pertenece cada compra. Mientras
-        no se pueda, Análisis sabe cuánto gastaste y en qué, pero no cuánto dejó cada servicio.
-        Para eso hace falta atar cada compra y cada venta a las líneas de la cotización aceptada.
+        Lo que una compra atribuida cambia: aparece en Análisis → Trabajos como costo real de esa
+        pieza, por su neto, y mueve el margen del servicio al que pertenece. Lo que todavía no
+        hace esta pantalla: repartir una factura entre dos trabajos. Si una imprenta te factura
+        dos campañas juntas, pide dos facturas o anótala en la que pese más y déjalo dicho en el
+        concepto.
       </p>
     </Seccion>
   );

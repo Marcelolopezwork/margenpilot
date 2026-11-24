@@ -99,3 +99,35 @@ describe('mensajeDeError', () => {
     );
   });
 });
+
+describe('F5 · los trabajos', () => {
+  it('el trabajo de otra empresa conserva los nombres, que son lo que hay que corregir', () => {
+    expect(
+      mensajeDeError({
+        message:
+          'trabajo_de_otra_empresa: «Campaña de lanzamiento» es un trabajo de Demo Perú SAC y esto es de Demo Studio LLC. El dinero no cruza de una empresa a otra: el costo de un trabajo de Demo Perú SAC tiene que anotarse en Demo Perú SAC',
+      }),
+    ).toContain('«Campaña de lanzamiento» es un trabajo de Demo Perú SAC');
+  });
+
+  it('atribuir el pago de una factura dice cuál es la factura', () => {
+    expect(
+      mensajeDeError({
+        message:
+          'el_pago_no_se_atribuye: este pago salda la factura «Impresión del lanzamiento». Lo que cuenta en el trabajo es la factura, no el pago: atribuye la factura',
+      }),
+    ).toContain('«Impresión del lanzamiento»');
+  });
+
+  it('atribuir una venta a mano se explica, no se deja en el código crudo', () => {
+    const frase = mensajeDeError({ message: 'no_es_una_compra: a un trabajo se le atribuye…' });
+    expect(frase).toContain('sale de la línea que se aprobó');
+    expect(frase).not.toContain('no_es_una_compra');
+  });
+
+  it('una entrada atribuida explica por qué se contaría dos veces', () => {
+    expect(mensajeDeError({ message: 'no_es_un_gasto: una entrada no' })).toContain(
+      'la contaría dos veces',
+    );
+  });
+});

@@ -1499,6 +1499,302 @@ begin
     'anulado su documento, la cuota vuelve a estar prevista y se puede volver a emitir');
 end $$;
 
+-- ---------------------------------------------------------------------------
+-- F5 · Cuánto deja cada trabajo (INV-14)
+-- ---------------------------------------------------------------------------
+--
+-- Lo que se vigila aquí es el reparto. Una cotización de dos líneas se
+-- factura con un documento que no es de ninguna de las dos, y la parte de
+-- cada trabajo sale de la línea que se aprobó: si ese reparto se puede tocar
+-- a mano, el margen por trabajo es una opinión. Por eso `job_id` existe en lo
+-- que costó y no en lo que se vendió, y por eso el precio acordado y el costo
+-- estimado no se editan nunca.
+
+do $$
+declare
+  v_org     uuid;
+  v_uno     uuid;
+  v_dos     uuid;
+  v_usuario uuid := '11111111-1111-1111-1111-111111111111';
+  v_cli     uuid;
+  v_pen     uuid;
+  v_cat_out uuid;
+  v_cat_in  uuid;
+  v_quote   uuid;
+  v_lA      uuid;
+  v_lB      uuid;
+  v_vid     uuid;
+  v_cuota   uuid;
+  v_venta   uuid;
+  v_jobA    uuid;
+  v_jobB    uuid;
+  v_otro    uuid;
+  v_compra  uuid;
+  v_mov     uuid;
+  v_ap      uuid;
+begin
+  select id into v_org from organizations where slug = 'org-a';
+  select id into v_uno from legal_entities
+   where organization_id = v_org and legal_name = 'Entidad Uno';
+  select id into v_dos from legal_entities
+   where organization_id = v_org and legal_name = 'Entidad Dos';
+  select id into v_cli from clients
+   where organization_id = v_org and name = 'Cliente de las pruebas';
+  select id into v_pen from cash_accounts
+   where organization_id = v_org and name = 'BCP Soles';
+  select id into v_cat_out from financial_categories
+   where organization_id = v_org and name = 'Herramientas y licencias';
+  select id into v_cat_in from financial_categories
+   where organization_id = v_org and direction = 'in' limit 1;
+
+  -- -------------------------------------------------------------- la forma
+  perform assert_true(
+    (select relrowsecurity and relforcerowsecurity
+       from pg_class where oid = 'jobs'::regclass),
+    'jobs tiene RLS, y forzada también para el dueño');
+
+  perform assert_true(
+    has_table_privilege('authenticated', 'jobs', 'select')
+    and not has_table_privilege('authenticated', 'jobs', 'insert')
+    and not has_table_privilege('authenticated', 'jobs', 'update')
+    and not has_table_privilege('authenticated', 'jobs', 'delete'),
+    'un trabajo se lee, pero lo crea la aprobación y lo cambia su función: el precio acordado no se edita');
+
+  perform assert_true(
+    (select count(*) from information_schema.columns
+      where table_name = 'economic_facts' and column_name = 'job_id') = 1,
+    'el hecho económico dice para qué trabajo fue');
+
+  perform assert_true(
+    exists (select 1 from pg_constraint
+             where conrelid = 'billing_documents'::regclass
+               and conname = 'el_trabajo_solo_en_las_compras'),
+    'una venta no se atribuye a mano: su parte ya sale de la línea aprobada');
+
+  perform assert_true(
+    exists (select 1 from pg_constraint
+             where conrelid = 'cash_movements'::regclass
+               and conname = 'el_trabajo_solo_en_los_gastos'),
+    'y una entrada de dinero tampoco, que sería contar el ingreso dos veces');
+
+  perform assert_true(
+    exists (select 1 from pg_indexes
+             where tablename = 'jobs' and indexname = 'trabajo_por_linea'),
+    'una línea aprobada es un trabajo, no dos');
+
+  -- Una sola firma de cada puerta. Añadir un parámetro con valor por defecto
+  -- deja viva la función anterior si no se tira, y entonces hay una puerta
+  -- que no sabe de trabajos.
+  perform assert_true(
+    (select count(*) from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+      where n.nspname = 'public' and p.proname = 'registrar_compra') = 1,
+    'registrar_compra tiene una sola firma, la que admite trabajo');
+  perform assert_true(
+    (select count(*) from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+      where n.nspname = 'public' and p.proname = 'registrar_movimiento') = 1,
+    'y registrar_movimiento también');
+
+  -- ------------------------------------------------- una cotización de dos
+  insert into quotes (organization_id, legal_entity_id, client_id, number,
+                      currency_code, tax_rate_pct)
+  values (v_org, v_uno, v_cli, next_quote_number(v_uno), 'PEN', 18)
+  returning id into v_quote;
+
+  insert into quote_lines (organization_id, quote_id, description, quantity, unit_price, sort)
+  values (v_org, v_quote, 'Campaña de lanzamiento', 1, 600, 1)
+  returning id into v_lA;
+
+  insert into quote_lines (organization_id, quote_id, description, quantity, unit_price, sort)
+  values (v_org, v_quote, 'Gestión de redes', 1, 400, 2)
+  returning id into v_lB;
+
+  insert into quote_line_costs (organization_id, quote_line_id, label, quantity, unit_cost)
+  values (v_org, v_lA, 'Diseñador', 1, 300);
+  insert into quote_line_costs (organization_id, quote_line_id, label, quantity, unit_cost)
+  values (v_org, v_lB, 'Community manager', 1, 100);
+
+  perform emitir_cotizacion(v_quote, 'Para las pruebas de F5');
+  select id into v_vid from quote_versions where quote_id = v_quote order by version_no desc limit 1;
+
+  perform assert_true(
+    (select count(*) from jobs where quote_id = v_quote) = 0,
+    'una cotización enviada todavía no es trabajo: nadie la ha aceptado');
+
+  perform cambiar_estado_cotizacion(v_quote, 'approved', 'Firmada en las pruebas');
+
+  perform assert_true(
+    (select count(*) from jobs where quote_id = v_quote) = 2,
+    'al aprobar, cada línea de la versión se vuelve un trabajo');
+
+  select id into v_jobA from jobs where quote_id = v_quote and name = 'Campaña de lanzamiento';
+  select id into v_jobB from jobs where quote_id = v_quote and name = 'Gestión de redes';
+
+  perform assert_true(
+    (select sum(price_net) from jobs where quote_id = v_quote) = 1000,
+    'los precios de los trabajos suman el neto de la versión, sin sobrar ni faltar un céntimo');
+
+  perform assert_true(
+    (select count(distinct quote_net) = 1 and max(quote_net) = 1000
+       from jobs where quote_id = v_quote),
+    'y todos guardan el mismo denominador: el neto de la versión entera');
+
+  perform assert_true(
+    (select sum(j.expected_cost) from jobs j where j.quote_id = v_quote)
+      = (select c.cost from quote_version_costs c where c.quote_version_id = v_vid),
+    'el costo estimado de los trabajos suma el de la versión: la misma aritmética, no otra parecida');
+
+  perform assert_true(
+    (select price_net = 600 and expected_cost = 300 and quote_version_id = v_vid
+       and client_id = v_cli and legal_entity_id = v_uno and status = 'open'
+       from jobs where id = v_jobA),
+    'y cada trabajo guarda la foto de su línea el día que se aprobó');
+
+  perform app.crear_trabajos(v_quote);
+  perform assert_true(
+    (select count(*) from jobs where quote_id = v_quote) = 2,
+    'crear los trabajos dos veces no los duplica: ya pueden tener costos colgando');
+
+  perform assert_true(
+    (select count(*) from job_margins where job_id = v_jobA) = 0,
+    'un trabajo recién aprobado no tiene margen: no se ha facturado ni gastado nada');
+
+  -- --------------------------------------------------------- lo facturado
+  select id into v_cuota from payment_schedule_items
+   where quote_id = v_quote and status = 'planned';
+  select id into v_venta from emitir_documento(v_cuota, p_series => 'F005-1');
+
+  perform assert_true(
+    (select amount_net = 1000 and amount_total = 1180 from billing_documents where id = v_venta),
+    'la factura de la cuota única lleva el IGV dentro: 1000 de neto y 1180 de total');
+
+  perform assert_true(
+    (select ingreso_neto = 600 and costo_neto = 0 and documentos = 1
+       from job_margins where job_id = v_jobA and currency_code = 'PEN'),
+    'y el trabajo se lleva su parte del neto —600 de 1000—, no del total: el IGV no es ingreso');
+
+  perform assert_true(
+    (select sum(ingreso_neto) from job_margins where job_id in (v_jobA, v_jobB)) = 1000,
+    'las dos partes suman el neto de la factura');
+
+  perform assert_raises(
+    format('select atribuir_compra(%L, %L)', v_venta, v_jobA),
+    'no_es_una_compra',
+    'una venta no se atribuye a mano: ya tiene su parte calculada');
+
+  -- ------------------------------------------------------------ lo que costó
+  select id into v_compra from registrar_compra(
+    v_uno, 'Imprenta Lima', 236, 'PEN',
+    p_series => 'F900-1',
+    p_description => 'Folletos del lanzamiento',
+    p_category => v_cat_out,
+    p_job => v_jobA);
+
+  perform assert_true(
+    (select job_id = v_jobA from billing_documents where id = v_compra),
+    'la compra se anota y se atribuye en el mismo acto, o en ninguno');
+
+  perform assert_true(
+    (select costo_neto = 200 and costos = 1
+       from job_margins where job_id = v_jobA and currency_code = 'PEN'),
+    'y cuenta 200, no 236: el IGV de una compra es crédito fiscal, no costo del trabajo (INV-12.2)');
+
+  perform assert_true(
+    (select ingreso_neto - costo_neto = 400
+       from job_margins where job_id = v_jobA and currency_code = 'PEN'),
+    'así que el trabajo deja 400 de los 600, contra los 300 de costo que se estimaron');
+
+  -- Un gasto sin factura detrás también es costo del trabajo.
+  select id into v_mov from registrar_movimiento(
+    v_pen, 'out', 118, 'Fotos de stock para las redes',
+    p_category => v_cat_out, p_amount_net => 100, p_amount_tax => 18,
+    p_job => v_jobB);
+
+  perform assert_true(
+    (select costo_neto = 100 and costos = 1
+       from job_margins where job_id = v_jobB and currency_code = 'PEN'),
+    'un gasto suelto atribuido cuenta por su neto declarado');
+
+  perform assert_true(
+    (select count(*) from job_margins
+      where job_id = v_jobB and currency_code = 'PEN' and ingreso_neto = 400) = 1,
+    'y el trabajo que no tenía costo sigue con su parte del ingreso intacta');
+
+  -- ------------------------------------------------------------- las puertas
+  perform assert_raises(
+    format('select registrar_movimiento(%L, ''in'', 50, ''Un ingreso'', p_job => %L)', v_pen, v_jobA),
+    'no_es_un_gasto',
+    'una entrada no se atribuye: el ingreso del trabajo sale de la línea aprobada');
+
+  perform assert_raises(
+    format('select registrar_movimiento(%L, ''out'', 50, ''Saldo inicial'', p_kind => ''opening'', p_job => %L)',
+           v_pen, v_jobA),
+    'no_es_un_gasto',
+    'y anotar un saldo inicial no es un costo de ningún trabajo');
+
+  -- El cobro de la factura salda un documento: el hecho es el documento.
+  select id into v_ap from registrar_cobro(v_venta, v_pen, 1180, current_date);
+  perform assert_raises(
+    format('select atribuir_gasto(%L, %L)', v_ap, v_jobA),
+    'el_pago_no_se_atribuye',
+    'un pago que salda una factura no se atribuye: lo que cuenta es la factura');
+
+  -- Un trabajo de otra empresa no admite el costo de esta.
+  insert into quotes (organization_id, legal_entity_id, client_id, number,
+                      currency_code, tax_rate_pct)
+  values (v_org, v_dos, v_cli, next_quote_number(v_dos), 'PEN', 0)
+  returning id into v_otro;
+  insert into quote_lines (organization_id, quote_id, description, quantity, unit_price)
+  values (v_org, v_otro, 'Trabajo de la otra empresa', 1, 500);
+  perform emitir_cotizacion(v_otro);
+  perform cambiar_estado_cotizacion(v_otro, 'approved', 'Firmada');
+
+  perform assert_raises(
+    format('select atribuir_compra(%L, %L)',
+           v_compra, (select id from jobs where quote_id = v_otro limit 1)),
+    'trabajo_de_otra_empresa',
+    'el costo de una empresa no se le cuelga a un trabajo de la otra (INV-11)');
+
+  perform assert_raises(
+    format('select atribuir_compra(%L, ''99999999-9999-9999-9999-999999999999'')', v_compra),
+    'trabajo_no_encontrado',
+    'ni a un trabajo que no existe');
+
+  -- ------------------------------------------------- lo que sí se puede cambiar
+  perform actualizar_trabajo(v_jobB, p_name => 'Gestión de redes · trimestre 1', p_status => 'done');
+
+  perform assert_true(
+    (select name = 'Gestión de redes · trimestre 1' and status = 'done'
+       and price_net = 400 and expected_cost = 100
+       from jobs where id = v_jobB),
+    'el nombre y el estado se cambian; el precio acordado y el costo estimado no (INV-14.2)');
+
+  perform assert_raises(
+    format('select actualizar_trabajo(%L, p_status => ''terminado'')', v_jobB),
+    'estado_invalido',
+    'un trabajo está en curso, terminado o cancelado, y no hay un cuarto estado');
+
+  perform assert_raises(
+    format('select actualizar_trabajo(%L, p_name => ''   '')', v_jobB),
+    'nombre_obligatorio',
+    'y no se queda sin nombre');
+
+  -- -------------------------------------------------------------- anular
+  perform anular_documento(v_compra, 'Se anotó dos veces');
+
+  perform assert_true(
+    (select coalesce((select costo_neto from job_margins
+                       where job_id = v_jobA and currency_code = 'PEN'), 0)) = 0,
+    'anulada la compra, deja de contar en el trabajo sin que nadie la desatribuya');
+
+  -- Y desatribuir es decir trabajo nulo, no borrar nada.
+  perform atribuir_gasto(v_mov, null);
+  perform assert_true(
+    (select job_id is null from cash_movements where id = v_mov)
+    and (select count(*) from job_margins
+          where job_id = v_jobB and currency_code = 'PEN' and costo_neto = 0) = 1,
+    'desatribuir un gasto lo saca del trabajo y no borra el gasto');
+end $$;
+
 reset request.jwt.claim.sub;
 
-select 'TODAS LAS PRUEBAS DE F1, F2 Y F3 PASARON · 167 aserciones' as resultado;
+select 'TODAS LAS PRUEBAS DE F1 A F5 PASARON · 202 aserciones' as resultado;

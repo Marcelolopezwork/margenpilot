@@ -76,6 +76,7 @@ export type Database = {
           id: string
           is_opening: boolean
           issue_date: string
+          job_id: string | null
           legal_entity_id: string
           organization_id: string
           quote_version_id: string | null
@@ -102,6 +103,7 @@ export type Database = {
           id?: string
           is_opening?: boolean
           issue_date?: string
+          job_id: string | null
           legal_entity_id: string
           organization_id: string
           quote_version_id?: string | null
@@ -128,6 +130,7 @@ export type Database = {
           id?: string
           is_opening?: boolean
           issue_date?: string
+          job_id?: string | null
           legal_entity_id?: string
           organization_id?: string
           quote_version_id?: string | null
@@ -333,6 +336,7 @@ export type Database = {
           flow_class: Database["public"]["Enums"]["flow_class"]
           id: string
           is_void: boolean
+          job_id: string | null
           kind: Database["public"]["Enums"]["cash_kind"]
           legal_entity_id: string
           organization_id: string
@@ -360,6 +364,7 @@ export type Database = {
           external_ref?: string | null
           id?: string
           is_void?: boolean
+          job_id?: string | null
           kind?: Database["public"]["Enums"]["cash_kind"]
           legal_entity_id: string
           organization_id: string
@@ -387,6 +392,7 @@ export type Database = {
           external_ref?: string | null
           id?: string
           is_void?: boolean
+          job_id?: string | null
           kind?: Database["public"]["Enums"]["cash_kind"]
           legal_entity_id?: string
           organization_id?: string
@@ -707,6 +713,74 @@ export type Database = {
             isOneToOne: false
             referencedRelation: "currencies"
             referencedColumns: ["code"]
+          },
+        ]
+      }
+      jobs: {
+        Row: {
+          client_id: string
+          created_at: string
+          currency_code: string
+          expected_cost: number
+          id: string
+          legal_entity_id: string
+          name: string
+          notes: string | null
+          organization_id: string
+          price_net: number
+          quote_id: string
+          quote_line_id: string | null
+          quote_net: number
+          quote_version_id: string
+          service_id: string | null
+          status: string
+          updated_at: string
+        }
+        Insert: {
+          client_id: string
+          created_at?: string
+          currency_code: string
+          expected_cost?: number
+          id?: string
+          legal_entity_id: string
+          name: string
+          notes?: string | null
+          organization_id: string
+          price_net: number
+          quote_id: string
+          quote_line_id?: string | null
+          quote_net: number
+          quote_version_id: string
+          service_id?: string | null
+          status?: string
+          updated_at?: string
+        }
+        Update: {
+          client_id?: string
+          created_at?: string
+          currency_code?: string
+          expected_cost?: number
+          id?: string
+          legal_entity_id?: string
+          name?: string
+          notes?: string | null
+          organization_id?: string
+          price_net?: number
+          quote_id?: string
+          quote_line_id?: string | null
+          quote_net?: number
+          quote_version_id?: string
+          service_id?: string | null
+          status?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "jobs_organization_id_fkey"
+            columns: ["organization_id"]
+            isOneToOne: false
+            referencedRelation: "organizations"
+            referencedColumns: ["id"]
           },
         ]
       }
@@ -2270,12 +2344,26 @@ export type Database = {
           direction: Database["public"]["Enums"]["cash_direction"] | null
           fecha: string | null
           flow_class: Database["public"]["Enums"]["flow_class"] | null
+          job_id: string | null
           kind: Database["public"]["Enums"]["cash_kind"] | null
           legal_entity_id: string | null
           organization_id: string | null
           origen: string | null
           source_id: string | null
           supplier_id: string | null
+        }
+        Relationships: []
+      }
+      job_margins: {
+        Row: {
+          costo_neto: number | null
+          costos: number | null
+          currency_code: string | null
+          documentos: number | null
+          ingreso_neto: number | null
+          job_id: string | null
+          legal_entity_id: string | null
+          organization_id: string | null
         }
         Relationships: []
       }
@@ -2293,6 +2381,29 @@ export type Database = {
       }
     }
     Functions: {
+      actualizar_trabajo: {
+        Args: {
+          p_job: string
+          p_name?: string
+          p_notes?: string
+          p_status?: string
+        }
+        Returns: Database["public"]["Tables"]["jobs"]["Row"][]
+      }
+      atribuir_compra: {
+        Args: {
+          p_document: string
+          p_job?: string
+        }
+        Returns: Database["public"]["Tables"]["billing_documents"]["Row"][]
+      }
+      atribuir_gasto: {
+        Args: {
+          p_job?: string
+          p_movement: string
+        }
+        Returns: Database["public"]["Tables"]["cash_movements"]["Row"][]
+      }
       add_quote_line_from_service: {
         Args: { p_quantity?: number; p_quote: string; p_service: string }
         Returns: string
@@ -2587,6 +2698,7 @@ export type Database = {
           p_due_date?: string
           p_entity: string
           p_issue_date?: string
+          p_job?: string
           p_series?: string
           p_supplier: string
           p_tax_rate?: number
@@ -2607,6 +2719,7 @@ export type Database = {
           id: string
           is_opening: boolean
           issue_date: string
+          job_id: string | null
           legal_entity_id: string
           organization_id: string
           quote_version_id: string | null
@@ -2635,6 +2748,7 @@ export type Database = {
           p_description: string
           p_direction: Database["public"]["Enums"]["cash_direction"]
           p_external_ref?: string
+          p_job?: string
           p_kind?: Database["public"]["Enums"]["cash_kind"]
           p_recurring?: string
           p_value_date?: string
@@ -2657,6 +2771,7 @@ export type Database = {
           flow_class: Database["public"]["Enums"]["flow_class"]
           id: string
           is_void: boolean
+          job_id: string | null
           kind: Database["public"]["Enums"]["cash_kind"]
           legal_entity_id: string
           organization_id: string

@@ -68,6 +68,10 @@ const CON_CIFRAS: readonly string[] = [
   'esto_es_una_compra',
   'esto_es_una_venta',
   'proveedor_obligatorio',
+  // F5 · los trabajos. Los dos traen nombres propios: qué trabajo, de qué
+  // empresa, qué factura salda el pago que se intentaba atribuir.
+  'trabajo_de_otra_empresa',
+  'el_pago_no_se_atribuye',
 ];
 
 function conCifras(bruto: string): string | null {
@@ -179,6 +183,27 @@ const FIJOS: readonly (readonly [string, string])[] = [
   [
     'etiqueta_obligatoria',
     'El gasto necesita un nombre, el que vas a reconocer en el extracto del banco.',
+  ],
+  // F5 · los trabajos
+  [
+    'trabajo_no_encontrado',
+    'Ese trabajo ya no existe, o no tienes permiso de finanzas en esta organización.',
+  ],
+  [
+    'no_es_una_compra',
+    'A un trabajo se le atribuye lo que costó, no lo que se vendió. La parte que un trabajo se lleva de una venta sale de la línea que se aprobó, y por eso no se puede tocar a mano.',
+  ],
+  [
+    'no_es_un_gasto',
+    'Solo una salida de dinero puede ser costo de un trabajo. Una entrada no, porque el ingreso del trabajo ya sale de la línea que se aprobó: atribuirla además la contaría dos veces.',
+  ],
+  [
+    'nombre_obligatorio',
+    'El trabajo necesita un nombre, el que vas a reconocer en la lista dentro de tres meses.',
+  ],
+  [
+    'estado_invalido',
+    'Un trabajo está en curso, terminado o cancelado. No hay un cuarto estado.',
   ],
   [
     'entidad_no_encontrada',

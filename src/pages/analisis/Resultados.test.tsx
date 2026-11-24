@@ -90,7 +90,7 @@ const hecho = (h: Record<string, unknown>) => ({
 });
 
 async function montar(rol: Enums<'membership_role'> = 'owner') {
-  const { default: Analisis } = await import('./Analisis');
+  const { default: Resultados } = await import('./Resultados');
   const org: ContextoOrg = {
     cargando: false,
     error: null,
@@ -117,7 +117,7 @@ async function montar(rol: Enums<'membership_role'> = 'owner') {
     <MemoryRouter>
       <QueryClientProvider client={cliente}>
         <OrgContext.Provider value={org}>
-          <Analisis />
+          <Resultados />
         </OrgContext.Provider>
       </QueryClientProvider>
     </MemoryRouter>,

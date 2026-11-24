@@ -55,7 +55,7 @@ export const DESTINOS: readonly Destino[] = [
     ruta: '/analisis',
     nombre: 'Análisis',
     icono: IconoAnalisis,
-    para: 'Ingresos, gastos y resultado del periodo, sin contar nada dos veces.',
+    para: 'El resultado del periodo y cuánto deja cada trabajo, sin contar nada dos veces.',
   },
   {
     ruta: '/configuracion',

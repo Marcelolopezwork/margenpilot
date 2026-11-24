@@ -61,6 +61,8 @@ declare
   v_cuota  uuid;
   v_doc    uuid;
   v_compra uuid;
+  v_trab_lanz  uuid;
+  v_trab_redes uuid;
 begin
   -- Quién es el dueño de la demo: el primer usuario del proyecto. En «Margen
   -- Pilot» hay exactamente uno, así que es él; en la CI es uno de los dos de
@@ -254,6 +256,14 @@ begin
   perform emitir_cotizacion(v_q_aprobada, 'Versión final acordada');
   perform cambiar_estado_cotizacion(v_q_aprobada, 'approved', 'Firmada');
 
+  -- Aprobar convirtió cada línea de la versión en un trabajo (INV-14). No se
+  -- crean aquí: se buscan, porque crearlos a mano sería saltarse la puerta que
+  -- la aplicación usa de verdad.
+  select j.id into v_trab_lanz  from jobs j
+   where j.quote_id = v_q_aprobada and j.service_id = v_srv_lanz;
+  select j.id into v_trab_redes from jobs j
+   where j.quote_id = v_q_aprobada and j.service_id = v_srv_redes;
+
   -- ------------------------------------------------------------- el dinero
   -- El saldo de apertura es un movimiento más (`kind='opening'`), no un campo
   -- aparte: por eso hay una sola fórmula de saldo y no dos cifras que puedan
@@ -332,7 +342,8 @@ begin
     p_description => 'Impresión de material para el lanzamiento',
     p_issue_date => current_date - 35,
     p_due_date => current_date - 12,
-    p_category => v_g_proveedores);
+    p_category => v_g_proveedores,
+    p_job => v_trab_lanz);
 
   -- Una exonerada y pagada a medias.
   select id into v_compra from registrar_compra(v_pe, 'Freelance Video', 800, 'PEN',
@@ -340,7 +351,8 @@ begin
     p_description => 'Edición de dos piezas',
     p_issue_date => current_date - 15,
     p_due_date => current_date + 15,
-    p_category => v_g_personal);
+    p_category => v_g_personal,
+    p_job => v_trab_redes);
   perform registrar_pago_de_compra(v_compra, v_bcp, 300, current_date - 1, 'OP-884455');
 
   -- Y una en la otra empresa, en dólares y pagada entera.
@@ -351,6 +363,13 @@ begin
     p_due_date => current_date - 2,
     p_category => v_g_herramientas);
   perform registrar_pago_de_compra(v_compra, v_mercury, 59.99, current_date - 2);
+
+  -- Un gasto sin factura detrás también es costo de su trabajo. El pago de una
+  -- factura NO se atribuye: el hecho es la factura, y la base lo dice con
+  -- nombres si alguien lo intenta (`el_pago_no_se_atribuye`).
+  perform registrar_movimiento(v_bcp, 'out', 236, 'Pauta de prueba en redes',
+    current_date - 11, 'operating', v_g_proveedores, null, null, 200, 36,
+    null, v_trab_redes);
 
   -- ----------------------------------------------------------- gastos fijos
   perform guardar_gasto_recurrente(v_us, 'Adobe Creative Cloud', 59.99, 'USD',

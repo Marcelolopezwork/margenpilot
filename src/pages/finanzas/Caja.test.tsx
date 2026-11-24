@@ -23,6 +23,7 @@ const DOCUMENTOS: Record<string, unknown>[] = [];
 const ASIGNACIONES: Record<string, unknown>[] = [];
 const MOVIMIENTOS: Record<string, unknown>[] = [];
 const GASTOS: Record<string, unknown>[] = [];
+const TRABAJOS: Record<string, unknown>[] = [];
 const CLIENTES = [{ id: 'cli-1', name: 'EJ Deportes' }];
 const llamadas: { nombre: string; args: Record<string, unknown> }[] = [];
 
@@ -34,6 +35,7 @@ vi.mock('../../lib/supabase', () => {
     if (nombre === 'payment_allocations') return ASIGNACIONES;
     if (nombre === 'cash_movements') return MOVIMIENTOS;
     if (nombre === 'recurring_expenses') return GASTOS;
+    if (nombre === 'jobs') return TRABAJOS;
     if (nombre === 'clients') return CLIENTES;
     return [];
   };
@@ -111,7 +113,9 @@ async function montar(rol: Enums<'membership_role'> = 'owner') {
 }
 
 beforeEach(() => {
-  for (const a of [CUENTAS, SALDOS, DOCUMENTOS, ASIGNACIONES, MOVIMIENTOS, GASTOS, llamadas])
+  for (const a of [
+    CUENTAS, SALDOS, DOCUMENTOS, ASIGNACIONES, MOVIMIENTOS, GASTOS, TRABAJOS, llamadas,
+  ])
     a.length = 0;
 });
 
@@ -188,6 +192,49 @@ describe('Finanzas · Caja', () => {
     // Y el movimiento anulado sigue en el libro, con su motivo.
     expect(screen.getByText(/se registró dos veces/)).toBeTruthy();
     expect(screen.getByText('anulado')).toBeTruthy();
+  });
+
+  it('un gasto puede decir de qué trabajo es, y entonces lo manda', async () => {
+    const usuario = userEvent.setup();
+    CUENTAS.push({
+      id: 'cta-1', name: 'BCP soles', bank_name: 'BCP', currency_code: 'PEN',
+      legal_entity_id: 'e-1', is_active: true,
+    });
+    TRABAJOS.push({
+      id: 'j-1', name: 'Campaña de lanzamiento', status: 'open',
+      legal_entity_id: 'e-1', currency_code: 'PEN',
+    });
+    await montar();
+    await screen.findByText('BCP soles');
+
+    await usuario.selectOptions(screen.getByLabelText('Cuenta'), 'cta-1');
+    await usuario.type(screen.getByLabelText(/Importe en PEN/), '118');
+    await usuario.type(screen.getByLabelText('Concepto'), 'Fotos de stock');
+    await usuario.selectOptions(
+      await screen.findByLabelText('¿Es costo de algún trabajo?'),
+      'j-1',
+    );
+    await usuario.click(screen.getByRole('button', { name: 'Anotar movimiento' }));
+
+    await waitFor(() => expect(llamadas).toHaveLength(1));
+    expect(llamadas[0]?.args).toMatchObject({ p_direction: 'out', p_job: 'j-1' });
+  });
+
+  it('un trabajo de otra empresa no se ofrece para una cuenta de esta', async () => {
+    const usuario = userEvent.setup();
+    CUENTAS.push({
+      id: 'cta-1', name: 'BCP soles', bank_name: 'BCP', currency_code: 'PEN',
+      legal_entity_id: 'e-1', is_active: true,
+    });
+    TRABAJOS.push({
+      id: 'j-otro', name: 'Trabajo de la otra', status: 'open',
+      legal_entity_id: 'e-2', currency_code: 'PEN',
+    });
+    await montar();
+    await screen.findByText('BCP soles');
+
+    await usuario.selectOptions(screen.getByLabelText('Cuenta'), 'cta-1');
+    expect(screen.queryByLabelText('¿Es costo de algún trabajo?')).toBeNull();
   });
 
   it('anotar un movimiento manda el importe en positivo y su dirección', async () => {

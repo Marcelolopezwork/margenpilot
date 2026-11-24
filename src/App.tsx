@@ -9,6 +9,8 @@ import { isConfigured } from './lib/supabase';
 import Home from './pages/Home';
 import Onboarding from './pages/Onboarding';
 import Analisis from './pages/analisis/Analisis';
+import Resultados from './pages/analisis/Resultados';
+import Trabajos from './pages/analisis/Trabajos';
 import Pipeline from './pages/pipeline/Pipeline';
 import Setup from './pages/Setup';
 import SignIn from './pages/SignIn';
@@ -124,7 +126,11 @@ function ConOrganizacion() {
           <Route path="gastos-fijos" element={<GastosFijos />} />
         </Route>
         <Route path="pipeline" element={<Pipeline />} />
-        <Route path="analisis" element={<Analisis />} />
+        <Route path="analisis" element={<Analisis />}>
+          <Route index element={<Navigate to="resultado" replace />} />
+          <Route path="resultado" element={<Resultados />} />
+          <Route path="trabajos" element={<Trabajos />} />
+        </Route>
         <Route path="configuracion" element={<Settings />}>
           <Route index element={<Navigate to="entidades" replace />} />
           <Route path="entidades" element={<Entidades />} />

@@ -27,6 +27,7 @@ const CATEGORIAS: Record<string, unknown>[] = [];
 const IMPUESTOS: Record<string, unknown>[] = [];
 const ASIGNACIONES: Record<string, unknown>[] = [];
 const MOVIMIENTOS: Record<string, unknown>[] = [];
+const TRABAJOS: Record<string, unknown>[] = [];
 const llamadas: { nombre: string; args: Record<string, unknown> }[] = [];
 
 vi.mock('../../lib/supabase', () => {
@@ -38,6 +39,7 @@ vi.mock('../../lib/supabase', () => {
     if (nombre === 'tax_rates') return IMPUESTOS;
     if (nombre === 'payment_allocations') return ASIGNACIONES;
     if (nombre === 'cash_movements') return MOVIMIENTOS;
+    if (nombre === 'jobs') return TRABAJOS;
     return [];
   };
   const tabla = (nombre: string) => {
@@ -110,11 +112,13 @@ const compra = (extra: Record<string, unknown>) => ({
   legal_entity_id: 'e-1',
   supplier_id: 'p-1',
   category_id: null,
+  job_id: null,
   ...extra,
 });
 
 beforeEach(() => {
   COMPRAS.length = 0;
+  TRABAJOS.length = 0;
   PROVEEDORES.length = 0;
   CUENTAS.length = 0;
   CATEGORIAS.length = 0;
@@ -270,10 +274,67 @@ describe('Compras · lo que debes y el IGV que no es tu gasto', () => {
     expect(llamadas[0]?.args.p_motivo).toBe('El número estaba mal');
   });
 
-  it('dice lo que todavía no sabe: a qué trabajo pertenece cada compra', async () => {
+  it('una compra sin trabajo lo dice, y dice qué se pierde por no decirlo', async () => {
+    COMPRAS.push(compra({}));
     await montar();
     expect(
-      await screen.findByText(/no cuánto dejó cada servicio/),
+      await screen.findByText(/Sin trabajo: cuenta en el resultado del mes/),
+    ).toBeTruthy();
+  });
+
+  it('atribuye la compra al trabajo que se elige, y la factura no cuenta su IGV', async () => {
+    COMPRAS.push(compra({}));
+    TRABAJOS.push({
+      id: 'j-1',
+      name: 'Campaña de lanzamiento',
+      status: 'open',
+      legal_entity_id: 'e-1',
+      currency_code: 'PEN',
+    });
+    const usuario = userEvent.setup();
+    await montar();
+
+    await usuario.click(await screen.findByRole('button', { name: 'Trabajo' }));
+    await usuario.selectOptions(
+      await screen.findByLabelText('Trabajo'),
+      'j-1',
+    );
+    await usuario.click(screen.getByRole('button', { name: 'Guardar' }));
+
+    await waitFor(() => expect(llamadas).toHaveLength(1));
+    expect(llamadas[0]?.nombre).toBe('atribuir_compra');
+    expect(llamadas[0]?.args.p_document).toBe('d-1');
+    expect(llamadas[0]?.args.p_job).toBe('j-1');
+  });
+
+  it('dejar el trabajo en blanco es desatribuir, no otro botón', async () => {
+    COMPRAS.push(compra({ job_id: 'j-1' }));
+    TRABAJOS.push({
+      id: 'j-1',
+      name: 'Campaña de lanzamiento',
+      status: 'open',
+      legal_entity_id: 'e-1',
+      currency_code: 'PEN',
+    });
+    const usuario = userEvent.setup();
+    await montar();
+
+    // La fila ya enseña de qué trabajo es.
+    expect(await screen.findByText(/Trabajo: Campaña de lanzamiento/)).toBeTruthy();
+
+    await usuario.click(screen.getByRole('button', { name: 'Trabajo' }));
+    await usuario.selectOptions(await screen.findByLabelText('Trabajo'), '');
+    await usuario.click(screen.getByRole('button', { name: 'Guardar' }));
+
+    await waitFor(() => expect(llamadas).toHaveLength(1));
+    expect(llamadas[0]?.nombre).toBe('atribuir_compra');
+    expect(llamadas[0]?.args.p_job).toBeUndefined();
+  });
+
+  it('dice lo que todavía no sabe: repartir una factura entre dos trabajos', async () => {
+    await montar();
+    expect(
+      await screen.findByText(/repartir una factura entre dos trabajos/),
     ).toBeTruthy();
   });
 });

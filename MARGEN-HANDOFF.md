@@ -65,16 +65,23 @@ que la clave sea secreta.
 Todo esto está **en producción y verificado contra la base real**, no solo
 compilado.
 
-### Base de datos · treinta y cinco migraciones aplicadas
+### Base de datos · treinta y seis migraciones
 
-Las treinta y cinco están aplicadas en producción. La última, la de compras,
-la ejecutó Marcelo el 23/11 pegando `supabase/seed/demo.sql` en el editor SQL
-de Supabase, porque el modo automático no deja escribir en producción desde
-aquí. Ese mismo archivo creó la organización **Margen Demo**, que es donde
-viven los datos de prueba: va aparte de «Margen Pilot» porque nada financiero
-se borra (INV-7), así que dentro de la organización real los datos de prueba
-no se podrían quitar nunca. Se borra con `supabase/seed/borrar-demo.sql`, que
-es una sola fila y un `on delete cascade`.
+Las treinta y cinco primeras están aplicadas en producción. La de compras
+(F3-6) la ejecutó Marcelo el 23/11 pegando `supabase/seed/demo.sql` en el
+editor SQL de Supabase, porque el modo automático no deja escribir en
+producción desde aquí. Ese mismo archivo creó la organización **Margen Demo**,
+que es donde viven los datos de prueba: va aparte de «Margen Pilot» porque
+nada financiero se borra (INV-7), así que dentro de la organización real los
+datos de prueba no se podrían quitar nunca. Se borra con
+`supabase/seed/borrar-demo.sql`, que es una sola fila y un `on delete
+cascade`.
+
+**La treinta y seis, la de los trabajos (F5), está escrita y verificada en la
+CI pero todavía no aplicada en producción.** Se aplica igual: `armar.sh` ya
+regeneró `supabase/seed/demo.sql` con ella dentro, y ese archivo además borra
+y vuelve a crear Margen Demo, porque los trabajos nacen al aprobar y una demo
+creada antes de la migración no tiene ninguno.
 
 ```
 20261028120000 foundations      esquema, tablas, disparadores, auditoría
@@ -112,6 +119,7 @@ es una sola fila y un `on delete cascade`.
 20261110100000 una_transferencia_no_es_un_gasto  cabecera y patas (INV-5)
 20261110110000 el_hecho_economico     la vista economic_facts (INV-6)
 20261110120000 lo_que_compras_tiene_proveedor   proveedores y compras (INV-12, INV-13)
+20261123120000 cuanto_deja_cada_trabajo  trabajos, atribución y job_margins (INV-14)
 ```
 
 ### Pantallas
@@ -149,15 +157,19 @@ es una sola fila y un `on delete cascade`.
   mientras se teclea y dice si el proveedor es nuevo—, el pago parcial o
   entero y la anulación con motivo. **Gastos fijos**: las reglas de lo que sale
   cada mes
-- **Análisis** · el lente Resultado: ingresos, gastos y resultado del periodo
-  por moneda, de qué cliente vino, en qué se fue, a quién se le pagó, y lo no
-  operativo aparte. El
-  periodo son meses y años completos, y el rango viaja a la base como filtro de
-  fechas: la pantalla no recorta nada que la vista no haya decidido
-- **Pipeline** · marcador honesto: dice en qué fase llega, qué parte de esa
-  pregunta ya se contesta hoy y dónde. El texto de lo que se puede hacer
-  mientras tanto se pasa por props desde `App.tsx`, para que se mueva con el
-  producto y no con la fecha en que se escribió la pantalla
+- **Análisis** · dos lentes. **Resultado**: ingresos, gastos y resultado del
+  periodo por moneda, de qué cliente vino, en qué se fue, a quién se le pagó,
+  y lo no operativo aparte. El periodo son meses y años completos, y el rango
+  viaja a la base como filtro de fechas: la pantalla no recorta nada que la
+  vista no haya decidido. **Trabajos**: cuánto deja cada trabajo y cuánto deja
+  cada servicio, el margen cotizado contra el real sobre el mismo precio
+  acordado, los que se están comiendo el margen y los que ya cuestan sin tener
+  una factura emitida
+- **Pipeline** · el tablero de lo que está en juego: las cotizaciones por
+  estado, el valor de las enviadas y en negociación por moneda, las que llevan
+  días sin moverse —según la bitácora, no la fecha de creación— y las que
+  pasaron su plazo sin que nadie lo marcara. Mover es un desplegable y un
+  botón, no arrastrar
 
 ### Datos reales que ya existen en producción
 
@@ -167,13 +179,14 @@ caja (BCP soles en PEN, Mercury en USD), un cliente y una cotización de prueba.
 
 ### Verificación
 
-- **280 pruebas** de Vitest: dinero, errores, formato, armazón, altas, el A4,
+- **344 pruebas** de Vitest: dinero, errores, formato, armazón, altas, el A4,
   la propuesta, la aritmética de la cotización, el panel de emisión, la
   reimpresión de una versión emitida, el reparto en cuotas, el margen
   agregado, la cartera, la pantalla de finanzas, la proyección de caja con sus
   salidas, los gastos fijos, la tasa efectiva, los destinos de una
-  transferencia, el resultado del periodo y el panel de inicio
-- **167 aserciones** SQL en `supabase/tests/invariants.sql`
+  transferencia, el resultado del periodo, el margen por trabajo y por
+  servicio, la atribución de un costo a su trabajo y el panel de inicio
+- **202 aserciones** SQL en `supabase/tests/invariants.sql`
 - CI en GitHub Actions: tipos, lint, pruebas, build, y las migraciones
   reaplicadas desde cero en cada push. El Postgres de la CI es pelado y no
   trae lo que Supabase pone encima, así que `supabase/stubs/auth.sql` y
@@ -342,20 +355,22 @@ Lo que resuelve, y por qué cada cosa es estructura y no aviso:
 
 Lo que falta de F3, por orden:
 
-1. **Cuánto deja cada servicio.** El margen de una cotización ya se calcula y
-   se ve al abrirla, pero para llevarlo al lente Resultado hace falta atar cada
-   documento —y cada compra— a las líneas de la versión aceptada. Hoy la
-   categoría dice en qué se fue y el proveedor a quién, pero ninguna dice para
-   qué trabajo. Es lo siguiente y es lo que Marcelo pidió desde el principio.
-2. **Las compras anotadas no entran en la proyección de caja.** Desde F3-6 el
+1. **Las compras anotadas no entran en la proyección de caja.** Desde F3-6 el
    sistema sabe que debes 1.180 el día 30, pero la proyección de trece semanas
    solo mira las cuotas de cobro y los gastos fijos. Es la pieza más barata que
    queda y la que más cambia la cifra: hoy la proyección es optimista por
    construcción.
-3. **Conciliación bancaria** (INV-8) e importación de extractos.
-4. **Pagos de una sola vez con fecha futura** sin factura detrás: un adelanto,
+2. **Conciliación bancaria** (INV-8) e importación de extractos.
+3. **Pagos de una sola vez con fecha futura** sin factura detrás: un adelanto,
    una compra de equipo pactada. No caben ni en las cuotas, ni en los gastos
    fijos, ni en las compras.
+4. **Repartir una factura entre dos trabajos.** Hoy una compra pertenece a un
+   trabajo o a ninguno. Si una imprenta factura dos campañas juntas, hay que
+   pedir dos facturas o anotarla en la que pese más. Hace falta una tabla de
+   reparto con su propio tope, como `payment_allocations`.
+5. **Las horas.** Un trabajo sabe cuánto dinero costó, no cuánto tiempo. Es la
+   mitad que falta del «cuánto deja»: un trabajo que dejó 40 % pero se comió
+   tres semanas de dos personas no dejó 40 %.
 
 ### F4 · Pipeline
 
@@ -381,6 +396,58 @@ Tres decisiones, fijadas con pruebas:
 
 «Vencida» sigue siendo una decisión de una persona, no un cálculo: el tablero
 solo deja de disimular que el plazo pasó.
+
+### F5 · Cuánto deja cada trabajo
+
+Hecho el 23/11. Es la pregunta con la que empezó el producto. Las dos cifras
+que ya existían no la contestaban: el margen de una cotización dice lo que
+**prometía** la propuesta, y el resultado del mes dice lo que pasó con **todo
+junto**. Un trabajo rentable que se cobra en enero y se paga en marzo deja un
+enero magnífico y un marzo malo, y ninguno de los dos meses dice nada del
+trabajo.
+
+Un trabajo (`jobs`) es **una línea de una cotización aprobada**, y lo crea el
+disparador de estados al aprobar, igual que el cronograma de cobro. No se
+crean a mano a propósito: así el margen siempre tiene un precio acordado con
+el que compararse, y no uno que alguien pudo teclear después.
+
+Las cuatro decisiones que mandan, todas en INV-14 y todas con aserciones
+detrás:
+
+- **El ingreso se deriva; el costo se atribuye.** Una cotización de tres
+  líneas se factura con un documento por cuota, y ese documento no es de una
+  línea: es de la cotización. Pero el reparto entre líneas ya está decidido
+  —cada línea tiene su neto en la versión—, así que la parte del trabajo es
+  `price_net / quote_net` de lo facturado. El costo no se puede derivar de
+  nada: ninguna factura de proveedor sabe para qué trabajo era, y por eso
+  `job_id` está en las compras y en los gastos y **no** en las ventas.
+- **Los dos márgenes comparten denominador.** Cotizado `(acordado −
+  estimado) / acordado` y real `(acordado − costo real) / acordado`, así que
+  restarlos da puntos que significan algo. Calcular el real sobre lo facturado
+  sería medir el calendario: un trabajo de 6 000 con 2 000 de costo y la
+  primera cuota emitida daría 0 % en enero y 66 % en marzo sin que nada
+  hubiera cambiado. Lo facturado se enseña al lado y no se llama margen.
+- **La foto del día de la aprobación no se edita.** `price_net` y
+  `expected_cost` no tienen UPDATE para `authenticated`, y
+  `actualizar_trabajo` solo cambia nombre, estado y notas. Si el precio
+  acordado se pudiera tocar, «cotizaste 45 %» sería una cifra que se acomoda
+  al resultado.
+- **El margen de un servicio se pondera**, Σutilidad ÷ Σacordado, nunca el
+  promedio de los porcentajes. Y los cancelados quedan fuera: su precio
+  acordado no se va a facturar, así que meterlos hundiría el margen con dinero
+  que nadie perdió.
+
+La atribución **no** se hace en la pantalla de Trabajos, sino donde se anota
+el gasto: `registrar_compra` y `registrar_movimiento` ganaron `p_job`, y hay
+`atribuir_compra` / `atribuir_gasto` para corregir después. Es el único
+momento en que alguien se acuerda de para qué era. Las dos puertas se volvieron
+a declarar enteras y se tiró la firma anterior: añadir un parámetro con valor
+por defecto no reemplaza una función en Postgres, crea una sobrecarga, y
+quedarían dos puertas de las que una no sabe de trabajos.
+
+Análisis pasó a tener dos lentes: `/analisis/resultado` (lo que había) y
+`/analisis/trabajos`. `Analisis.tsx` es ahora el armazón con las dos pestañas
+y la pantalla de antes se llama `Resultados.tsx`.
 
 ### Pendiente de Marcelo, no de código
 
@@ -408,7 +475,7 @@ solo deja de disimular que el plazo pasó.
   sigue siendo la buena: en cuanto el CLI pueda, regenerar el archivo entero.
   Para arreglarlo hace falta un token de acceso personal con permiso sobre el
   proyecto (`supabase login`), que es algo de Marcelo, no de código.
-- El bundle principal va por 686 kB en crudo (≈196 kB comprimidos). jsPDF y
+- El bundle principal va por 720 kB en crudo (≈204 kB comprimidos). jsPDF y
   sus dependencias ya van en trozos aparte, cargados solo al descargar; falta
   dividir las rutas con `React.lazy` antes de que entre F3.
 - La aritmética de la cotización está escrita dos veces: en
