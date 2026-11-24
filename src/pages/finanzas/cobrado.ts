@@ -53,3 +53,53 @@ export async function cobradoPorDocumento(
 
   return cobrado;
 }
+
+/**
+ * Cuánto se ha asignado de verdad a cada cuota prevista.
+ *
+ * El hermano de `cobradoPorDocumento` para lo que no tiene documento: un
+ * previsto de una sola vez se salda con un movimiento asignado a la cuota, no
+ * a una factura. Misma trampa y mismo cuidado: **una asignación de un
+ * movimiento anulado no cuenta.** Si contara, un pago anulado dejaría el
+ * previsto fuera de la proyección y el dinero que vuelve a hacer falta no
+ * aparecería en ninguna semana.
+ */
+export async function asignadoPorCuota(
+  cuotas: readonly string[],
+): Promise<Map<string, Money>> {
+  const asignado = new Map<string, Money>();
+  if (cuotas.length === 0) return asignado;
+
+  const cliente = requireSupabase();
+
+  const { data: asignaciones, error } = await cliente
+    .from('payment_allocations')
+    .select('payment_schedule_item_id, amount, currency_code, cash_movement_id')
+    .in('payment_schedule_item_id', [...cuotas]);
+  if (error) throw error;
+  if (!asignaciones || asignaciones.length === 0) return asignado;
+
+  const movimientos = [...new Set(asignaciones.map((a) => a.cash_movement_id))];
+  const { data: movs, error: e2 } = await cliente
+    .from('cash_movements')
+    .select('id, is_void')
+    .in('id', movimientos);
+  if (e2) throw e2;
+
+  const anulados = new Set((movs ?? []).filter((m) => m.is_void).map((m) => m.id));
+
+  for (const a of asignaciones) {
+    if (!a.payment_schedule_item_id) continue;
+    if (anulados.has(a.cash_movement_id)) continue;
+    let moneda;
+    try {
+      moneda = currencyOf(a.currency_code);
+    } catch {
+      continue;
+    }
+    const antes = asignado.get(a.payment_schedule_item_id) ?? zero(moneda);
+    asignado.set(a.payment_schedule_item_id, add(antes, fromRow(a.amount, moneda)));
+  }
+
+  return asignado;
+}

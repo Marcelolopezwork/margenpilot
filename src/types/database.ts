@@ -2381,6 +2381,34 @@ export type Database = {
       }
     }
     Functions: {
+      guardar_previsto: {
+        Args: {
+          p_account?: string
+          p_amount: number
+          p_currency: string
+          p_direction: string
+          p_due_date: string
+          p_entity: string
+          p_id?: string
+          p_label: string
+        }
+        Returns: Database["public"]["Tables"]["payment_schedule_items"]["Row"][]
+      }
+      quitar_previsto: {
+        Args: { p_item: string }
+        Returns: undefined
+      }
+      saldar_previsto: {
+        Args: {
+          p_account: string
+          p_amount: number
+          p_description?: string
+          p_external_ref?: string
+          p_item: string
+          p_value_date?: string
+        }
+        Returns: Database["public"]["Tables"]["cash_movements"]["Row"][]
+      }
       actualizar_trabajo: {
         Args: {
           p_job: string

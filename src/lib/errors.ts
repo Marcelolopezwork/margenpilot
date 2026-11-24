@@ -72,6 +72,12 @@ const CON_CIFRAS: readonly string[] = [
   // empresa, qué factura salda el pago que se intentaba atribuir.
   'trabajo_de_otra_empresa',
   'el_pago_no_se_atribuye',
+  // F5-3 · los previstos. Traen dentro el nombre del previsto, y en el caso
+  // de «ya saldado», también cuánto se le asignó y cuánto se había previsto.
+  'cuota_de_cotizacion',
+  'previsto_con_dinero',
+  'previsto_ya_saldado',
+  'previsto_cancelado',
 ];
 
 function conCifras(bruto: string): string | null {
@@ -183,6 +189,19 @@ const FIJOS: readonly (readonly [string, string])[] = [
   [
     'etiqueta_obligatoria',
     'El gasto necesita un nombre, el que vas a reconocer en el extracto del banco.',
+  ],
+  // F5-3 · los previstos
+  [
+    'previsto_no_encontrado',
+    'Ese previsto ya no existe, o no tienes permiso de finanzas en esta organización.',
+  ],
+  [
+    'direccion_invalida',
+    'Un previsto es dinero que entra o dinero que sale. Elige una de las dos: el sentido decide con qué movimiento se puede saldar.',
+  ],
+  [
+    'fecha_obligatoria',
+    'El previsto necesita fecha. Sin ella no cae en ninguna semana, y entonces no proyectaría nada, que es justo para lo que sirve.',
   ],
   // F5 · los trabajos
   [

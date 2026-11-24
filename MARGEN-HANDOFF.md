@@ -65,9 +65,9 @@ que la clave sea secreta.
 Todo esto está **en producción y verificado contra la base real**, no solo
 compilado.
 
-### Base de datos · treinta y seis migraciones
+### Base de datos · treinta y siete migraciones
 
-Las treinta y cinco primeras están aplicadas en producción. La de compras
+Las treinta y seis primeras están aplicadas en producción. La de compras
 (F3-6) la ejecutó Marcelo el 23/11 pegando `supabase/seed/demo.sql` en el
 editor SQL de Supabase, porque el modo automático no deja escribir en
 producción desde aquí. Ese mismo archivo creó la organización **Margen Demo**,
@@ -77,11 +77,13 @@ datos de prueba no se podrían quitar nunca. Se borra con
 `supabase/seed/borrar-demo.sql`, que es una sola fila y un `on delete
 cascade`.
 
-**La treinta y seis, la de los trabajos (F5), está escrita y verificada en la
+La de los trabajos (F5) la aplicó el 24/11 por el mismo camino, y quedó
+comprobada contra la base: tres trabajos, dos compras y un gasto atribuidos.
+
+**La treinta y siete, la de lo previsto (F5-3), está escrita y verificada en la
 CI pero todavía no aplicada en producción.** Se aplica igual: `armar.sh` ya
 regeneró `supabase/seed/demo.sql` con ella dentro, y ese archivo además borra
-y vuelve a crear Margen Demo, porque los trabajos nacen al aprobar y una demo
-creada antes de la migración no tiene ninguno.
+y vuelve a crear Margen Demo para que traiga los datos nuevos.
 
 ```
 20261028120000 foundations      esquema, tablas, disparadores, auditoría
@@ -120,6 +122,7 @@ creada antes de la migración no tiene ninguno.
 20261110110000 el_hecho_economico     la vista economic_facts (INV-6)
 20261110120000 lo_que_compras_tiene_proveedor   proveedores y compras (INV-12, INV-13)
 20261123120000 cuanto_deja_cada_trabajo  trabajos, atribución y job_margins (INV-14)
+20261124120000 lo_puntual_tambien_es_caja  cobros y pagos previstos de una vez (INV-15.4)
 ```
 
 ### Pantallas
@@ -179,14 +182,14 @@ caja (BCP soles en PEN, Mercury en USD), un cliente y una cotización de prueba.
 
 ### Verificación
 
-- **363 pruebas** de Vitest: dinero, errores, formato, armazón, altas, el A4,
+- **396 pruebas** de Vitest: dinero, errores, formato, armazón, altas, el A4,
   la propuesta, la aritmética de la cotización, el panel de emisión, la
   reimpresión de una versión emitida, el reparto en cuotas, el margen
   agregado, la cartera, la pantalla de finanzas, la proyección de caja con sus
   salidas, los gastos fijos, la tasa efectiva, los destinos de una
   transferencia, el resultado del periodo, el margen por trabajo y por
   servicio, la atribución de un costo a su trabajo y el panel de inicio
-- **204 aserciones** SQL en `supabase/tests/invariants.sql`
+- **228 aserciones** SQL en `supabase/tests/invariants.sql`
 - CI en GitHub Actions: tipos, lint, pruebas, build, y las migraciones
   reaplicadas desde cero en cada push. El Postgres de la CI es pelado y no
   trae lo que Supabase pone encima, así que `supabase/stubs/auth.sql` y
@@ -355,15 +358,13 @@ Lo que resuelve, y por qué cada cosa es estructura y no aviso:
 
 Lo que falta de F3, por orden:
 
-1. **Conciliación bancaria** (INV-8) e importación de extractos.
-2. **Pagos de una sola vez con fecha futura** sin factura detrás: un adelanto,
-   una compra de equipo pactada. No caben ni en las cuotas, ni en los gastos
-   fijos, ni en las compras. Es lo único que le falta ya a la proyección.
-3. **Repartir una factura entre dos trabajos.** Hoy una compra pertenece a un
+1. **Conciliación bancaria** (INV-8) e importación de extractos. Es lo único
+   grande que queda: convierte «lo que yo anoté» en «lo que el banco dice».
+2. **Repartir una factura entre dos trabajos.** Hoy una compra pertenece a un
    trabajo o a ninguno. Si una imprenta factura dos campañas juntas, hay que
    pedir dos facturas o anotarla en la que pese más. Hace falta una tabla de
    reparto con su propio tope, como `payment_allocations`.
-4. **Las horas.** Un trabajo sabe cuánto dinero costó, no cuánto tiempo. Es la
+3. **Las horas.** Un trabajo sabe cuánto dinero costó, no cuánto tiempo. Es la
    mitad que falta del «cuánto deja»: un trabajo que dejó 40 % pero se comió
    tres semanas de dos personas no dejó 40 %.
 
@@ -463,6 +464,41 @@ La nota de la tarjeta cuenta cosas distintas y no vencimientos: una
 suscripción mensual aporta seis ocurrencias en trece semanas, y decir «6
 gastos fijos» haría buscar cinco que no existen.
 
+### F5-3 · Lo puntual también es caja
+
+Hecho el 24/11. Con esto la proyección ve **las cuatro cosas** que mueven la
+caja: los cobros de las cotizaciones, los gastos fijos, las facturas de
+proveedor y los cobros y pagos de una sola vez.
+
+Lo importante de esta pieza es que **no hay tabla nueva**.
+`payment_schedule_items` se escribió el 5/11 con este comentario dentro:
+
+> Nulos cuando la cuota no venga de una cotización. Hoy siempre vienen de una;
+> en F3 habrá pagos previstos a proveedores que no tienen detrás ninguna, y
+> por eso `direction` ya distingue entrada de salida.
+
+Es decir: la tabla ya tenía `quote_id` nulable y `direction`, y lo que faltaban
+eran las puertas —`guardar_previsto`, `saldar_previsto`, `quitar_previsto`—.
+Una tabla nueva habría dejado dos definiciones de «dinero previsto», dos
+índices para la proyección y dos sitios donde arreglar el mismo error.
+
+Las decisiones están en INV-15.4. Las dos que más cuesta ver:
+
+- **El estado se deriva del dinero, no de un botón.** Saldar crea el
+  movimiento y la asignación, y el estado lo pone un disparador. Un «marcar
+  como pagado» sería un estado que puede discrepar del dinero, y entonces la
+  proyección tendría dos verdades.
+- **El tope no se vigila, y es a propósito.** Una cuota de cotización no
+  admite más de lo que vale, porque es un derecho de cobro acordado (INV-3).
+  Un previsto es una estimación: si la cámara pactada en 3 000 costó 3 200,
+  negarse a registrar el pago sería obligar a editar el plan para poder anotar
+  la realidad.
+
+Y de paso se arregló lo que la misma revisión dejó a la vista: **una cuota con
+su documento cobrado a medias proyectaba el importe entero**. Una cuota de
+5 000 con 2 000 ya en el banco proyectaba 5 000, que es el mismo dinero
+contado dos veces en la única cifra que existe para no equivocarse.
+
 ### Pendiente de Marcelo, no de código
 
 - **SMTP propio (D-7).** El correo de Supabase **solo escribe a miembros de su
@@ -489,7 +525,7 @@ gastos fijos» haría buscar cinco que no existen.
   sigue siendo la buena: en cuanto el CLI pueda, regenerar el archivo entero.
   Para arreglarlo hace falta un token de acceso personal con permiso sobre el
   proyecto (`supabase login`), que es algo de Marcelo, no de código.
-- El bundle principal va por 720 kB en crudo (≈204 kB comprimidos). jsPDF y
+- El bundle principal va por 738 kB en crudo (≈208 kB comprimidos). jsPDF y
   sus dependencias ya van en trozos aparte, cargados solo al descargar; falta
   dividir las rutas con `React.lazy` antes de que entre F3.
 - La aritmética de la cotización está escrita dos veces: en

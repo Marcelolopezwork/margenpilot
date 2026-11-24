@@ -118,6 +118,20 @@ jobs:
                 raise exception 'ningún trabajo se llevó su parte de lo facturado';
               end if;
 
+              -- Dos previstos de una sola vez, sin cotización detrás.
+              select count(*) into v_cuantas from payment_schedule_items
+               where organization_id = v_org and quote_id is null;
+              if v_cuantas <> 2 then raise exception 'la demo necesita dos previstos, hay %', v_cuantas; end if;
+
+              -- Y el que se adelantó a medias sigue siendo un plan: si pasara a
+              -- «settled», la proyección dejaría de ver los 2000 que faltan.
+              if not exists (
+                select 1 from payment_schedule_items
+                 where organization_id = v_org and quote_id is null
+                   and label like 'Cámara%' and status = 'planned') then
+                raise exception 'el previsto adelantado a medias no sigue siendo un plan';
+              end if;
+
               raise notice 'Demo comprobada: % hechos económicos', v_cuantas;
             end \$$;"
           psql -v ON_ERROR_STOP=1 -f supabase/seed/borrar-demo.sql

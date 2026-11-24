@@ -4,6 +4,7 @@ import { puedeEscribirDinero, useOrg, useOrgElegida } from '../app/org-context';
 import { mensajeDeError } from '../lib/errors';
 import { formatoFecha } from '../lib/format';
 import {
+  add,
   currencyOf,
   format,
   fromRow,
@@ -16,7 +17,7 @@ import {
 import { requireSupabase } from '../lib/supabase';
 import { Aviso, Boton, Cargando, Etiqueta, Tarjeta } from '../components/ui';
 import { FiltradoPor } from '../components/piezas';
-import { cobradoPorDocumento } from './finanzas/cobrado';
+import { asignadoPorCuota, cobradoPorDocumento } from './finanzas/cobrado';
 import { diasDeAtraso, enRojo, pendienteDe, porMoneda, vencido } from './finanzas/cartera';
 import type { DocumentoEnCartera } from './finanzas/cartera';
 import {
@@ -25,6 +26,8 @@ import {
   proyeccion,
   salidasDeCompras,
   salidasEsperadas,
+  salidasPrevistas,
+  type PrevistoPorSalir,
   saldoProyectado,
   sumarSemanas,
 } from './finanzas/proyeccion';
@@ -217,14 +220,47 @@ export default function Home() {
     queryFn: async () => {
       let q = requireSupabase()
         .from('payment_schedule_items')
-        .select('id, label, due_date, amount, currency_code, status, quote_id, billing_document_id')
+        .select('id, label, direction, due_date, amount, currency_code, status, quote_id, billing_document_id')
         .eq('organization_id', organizacion.id)
         .in('status', ['planned', 'documented'])
         .order('due_date');
       if (entidad) q = q.eq('legal_entity_id', entidad.id);
       const { data, error } = await q;
       if (error) throw error;
-      return data ?? [];
+      const items = data ?? [];
+      if (items.length === 0) return [];
+
+      /*
+        Cuánto de cada cuota ya está en el banco. Son dos sitios distintos y
+        no se solapan: una cuota de cotización se cobra contra su **documento**
+        y un previsto suelto contra la **cuota** misma. Restarlo es la decisión
+        2 de la proyección —lo cobrado no se proyecta— aplicada en el único
+        sitio donde no se estaba aplicando.
+      */
+      const documentos = items
+        .map((i) => i.billing_document_id)
+        .filter((x): x is string => typeof x === 'string');
+      const [cobradoDeDocumento, asignadoACuota] = await Promise.all([
+        cobradoPorDocumento(documentos),
+        asignadoPorCuota(items.map((i) => i.id)),
+      ]);
+
+      return items.map((i) => {
+        let yaEntro = '0.00';
+        try {
+          const moneda = currencyOf(i.currency_code);
+          const deSuDocumento = i.billing_document_id
+            ? cobradoDeDocumento.get(i.billing_document_id) ?? zero(moneda)
+            : zero(moneda);
+          const deLaCuota = asignadoACuota.get(i.id) ?? zero(moneda);
+          yaEntro = toDb(add(deSuDocumento, deLaCuota));
+        } catch {
+          // Moneda que el producto no conoce, o dos monedas que no se pueden
+          // sumar: se proyecta el importe entero antes que una cifra inventada.
+          yaEntro = '0.00';
+        }
+        return { ...i, cobrado: yaEntro };
+      });
     },
   });
 
@@ -334,12 +370,36 @@ export default function Home() {
   );
   const vencidasDeCompra = deudas.filter((d) => d.atraso > 0);
 
-  const esperadas: CuotaEsperada[] = (cuotas.data ?? []).map((c) => ({
-    due_date: c.due_date,
-    amount: String(c.amount),
-    currency_code: c.currency_code,
-    status: c.status,
-  }));
+  // Lo que entra: las cuotas de cotización y los previstos de entrada. Lo que
+  // sale va por el otro camino, con los gastos (INV-15.4).
+  const esperadas: CuotaEsperada[] = (cuotas.data ?? [])
+    .filter((c) => c.direction !== 'out')
+    .map((c) => ({
+      due_date: c.due_date,
+      amount: String(c.amount),
+      currency_code: c.currency_code,
+      status: c.status,
+      cobrado: c.cobrado,
+    }));
+
+  const previstosQueSalen: PrevistoPorSalir[] = (cuotas.data ?? [])
+    .filter((c) => c.direction === 'out')
+    .map((c) => {
+      let pendiente = String(c.amount);
+      try {
+        const moneda = currencyOf(c.currency_code);
+        pendiente = toDb(subtract(fromRow(c.amount, moneda), fromRow(c.cobrado, moneda)));
+      } catch {
+        pendiente = String(c.amount);
+      }
+      return {
+        id: c.id,
+        label: c.label,
+        due_date: c.due_date,
+        currency_code: c.currency_code,
+        pendiente,
+      };
+    });
 
   // La ventana arranca tres meses atrás para que lo atrasado entre en la
   // proyección: la primera semana se lo queda y lo señala.
@@ -375,6 +435,7 @@ export default function Home() {
   */
   const salidas = [
     ...salidasEsperadas(gastosFijos, pagos, ventanaDesde, ventanaHasta),
+    ...salidasPrevistas(previstosQueSalen),
     ...salidasDeCompras(
       deudas.map((d) => ({
         id: d.id,
@@ -675,11 +736,16 @@ export default function Home() {
             const cuantasCompras = new Set(
               suyas.filter((x) => x.origen === 'compra').map((x) => x.gasto),
             ).size;
+            const cuantosPrevistos = new Set(
+              suyas.filter((x) => x.origen === 'previsto').map((x) => x.gasto),
+            ).size;
             const incluye = [
               cuantosGastos > 0 &&
                 `${cuantosGastos} ${cuantosGastos === 1 ? 'gasto fijo' : 'gastos fijos'}`,
               cuantasCompras > 0 &&
                 `${cuantasCompras} ${cuantasCompras === 1 ? 'factura de proveedor sin pagar' : 'facturas de proveedor sin pagar'}`,
+              cuantosPrevistos > 0 &&
+                `${cuantosPrevistos} ${cuantosPrevistos === 1 ? 'pago previsto' : 'pagos previstos'}`,
             ].filter((x): x is string => typeof x === 'string');
 
             return (
@@ -803,8 +869,8 @@ export default function Home() {
 
                 <p className="mt-3 max-w-prose text-xs text-subtle">
                   {incluye.length === 0
-                    ? 'Solo entradas: en esta moneda no hay ningún gasto fijo ni ninguna factura de proveedor sin pagar, así que la proyección es optimista por construcción.'
-                    : `Incluye ${incluye.join(' y ')}. De las compras entra lo que falta por pagar, con su IGV dentro: del banco sale el total, aunque el impuesto no sea gasto tuyo. Lo que no incluye todavía son los pagos de una sola vez con fecha futura.`}
+                    ? 'Solo entradas: en esta moneda no hay ningún gasto fijo, ninguna factura de proveedor sin pagar ni ningún pago previsto, así que la proyección es optimista por construcción.'
+                    : `Incluye ${incluye.join(', ')}. De todo entra lo que falta por pagar o cobrar, nunca lo que ya está en el saldo. Y de las compras, con su IGV dentro: del banco sale el total, aunque el impuesto no sea gasto tuyo.`}
                 </p>
               </Tarjeta>
             );

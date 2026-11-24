@@ -5,9 +5,9 @@
 set -eu
 cd "$(dirname "$0")/../.."
 SALIDA=supabase/seed/demo.sql
-MIG=supabase/migrations/20261123120000_cuanto_deja_cada_trabajo.sql
-VERSION=20261123120000
-NOMBRE=cuanto_deja_cada_trabajo
+MIG=supabase/migrations/20261124120000_lo_puntual_tambien_es_caja.sql
+VERSION=20261124120000
+NOMBRE=lo_puntual_tambien_es_caja
 
 cat > "$SALIDA" <<'CAB'
 -- ===========================================================================
@@ -17,16 +17,15 @@ cat > "$SALIDA" <<'CAB'
 --
 -- Hace tres cosas, en este orden y en una sola pasada:
 --
---  1. aplica la migración de «cuánto deja cada trabajo» (F5), que es la única
---     que falta en el proyecto, y la deja apuntada en el historial de
+--  1. aplica la migración de «lo puntual también es caja» (F5-3), que es la
+--     única que falta en el proyecto, y la deja apuntada en el historial de
 --     migraciones para que no se vuelva a aplicar;
---  2. borra la organización «Margen Demo» si existe de una pasada anterior.
---     Los trabajos nacen al aprobar una cotización, así que una demo creada
---     antes de esta migración no tiene ninguno y la pantalla nueva saldría
---     vacía. Esto NO toca «Margen Pilot»: borra una sola fila, la de la demo,
---     y lo demás cae por cascada;
---  3. vuelve a crear «Margen Demo» con datos de prueba en todo, ahora con sus
---     trabajos y con dos compras atribuidas.
+--  2. borra la organización «Margen Demo» si existe de una pasada anterior,
+--     para volver a crearla con los datos nuevos. Esto NO toca «Margen
+--     Pilot»: borra una sola fila, la de la demo, y lo demás cae por cascada;
+--  3. vuelve a crear «Margen Demo» con datos de prueba en todo: sus trabajos
+--     con dos compras atribuidas, y dos previstos de una sola vez, uno de
+--     ellos adelantado a medias.
 --
 -- Para quitar la demo después, sin volver a crearla: borrar-demo.sql.
 -- ===========================================================================

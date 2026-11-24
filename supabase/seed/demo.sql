@@ -5,692 +5,271 @@
 --
 -- Hace tres cosas, en este orden y en una sola pasada:
 --
---  1. aplica la migración de «cuánto deja cada trabajo» (F5), que es la única
---     que falta en el proyecto, y la deja apuntada en el historial de
+--  1. aplica la migración de «lo puntual también es caja» (F5-3), que es la
+--     única que falta en el proyecto, y la deja apuntada en el historial de
 --     migraciones para que no se vuelva a aplicar;
---  2. borra la organización «Margen Demo» si existe de una pasada anterior.
---     Los trabajos nacen al aprobar una cotización, así que una demo creada
---     antes de esta migración no tiene ninguno y la pantalla nueva saldría
---     vacía. Esto NO toca «Margen Pilot»: borra una sola fila, la de la demo,
---     y lo demás cae por cascada;
---  3. vuelve a crear «Margen Demo» con datos de prueba en todo, ahora con sus
---     trabajos y con dos compras atribuidas.
+--  2. borra la organización «Margen Demo» si existe de una pasada anterior,
+--     para volver a crearla con los datos nuevos. Esto NO toca «Margen
+--     Pilot»: borra una sola fila, la de la demo, y lo demás cae por cascada;
+--  3. vuelve a crear «Margen Demo» con datos de prueba en todo: sus trabajos
+--     con dos compras atribuidas, y dos previstos de una sola vez, uno de
+--     ellos adelantado a medias.
 --
 -- Para quitar la demo después, sin volver a crearla: borrar-demo.sql.
 -- ===========================================================================
 
 -- ============================================================================
--- Margen Pilot · F5 · Cuánto deja cada trabajo
+-- Margen Pilot · F5-3 · Lo puntual también es caja
 --
--- Es la pregunta con la que empezó el producto y la única grande que faltaba.
--- Hoy el margen existe en dos sitios y ninguno sirve para decidir: al abrir
--- una cotización se ve el margen de **esa propuesta** (lo que prometía), y en
--- Análisis el resultado del **mes entero** (lo que pasó con todo junto). Lo
--- que no había es el del medio: «la campaña de lanzamiento me dejó esto y la
--- gestión de redes esto otro».
+-- Lo último que la proyección de trece semanas no veía: un cobro o un pago de
+-- **una sola vez**, con fecha futura y sin factura detrás. Un adelanto que te
+-- van a pasar, la cámara que pactaste para el 15 de enero, el adelanto que le
+-- diste al freelance. No cabía en ninguna de las tres cosas que ya existían:
+-- no es una cuota de una cotización, no es un gasto fijo que se repite, y no
+-- es una factura de proveedor porque no hay factura.
 --
 -- ---------------------------------------------------------------------------
--- INV-14 — Un trabajo es una línea aprobada, y el dinero se le atribuye
+-- No hay tabla nueva, y eso es lo importante de esta migración
 -- ---------------------------------------------------------------------------
 --
--- 1. **Un trabajo nace de una línea aprobada.** Al aprobar una cotización,
---    cada línea de la versión vigente se convierte en un trabajo. Así
---    «cuánto deja la campaña» tiene sujeto antes de que llegue la primera
---    factura, y no depende de que alguien se acuerde de crear nada.
+-- `payment_schedule_items` se escribió el 5/11 con este comentario dentro:
 --
--- 2. **El trabajo guarda la foto del día que se aprobó.** `price_net` es el
---    neto de su línea en la versión aceptada y `expected_cost` el costo que
---    estaba estimado en ese momento, con la misma aritmética que usó
---    `emitir_cotizacion`. Ninguno de los dos se edita después: la frase
---    «cotizaste 40 % y te quedó 22 %» exige que el 40 % no se mueva.
+--     Nulos cuando la cuota no venga de una cotización. Hoy siempre vienen de
+--     una; en F3 habrá pagos previstos a proveedores que no tienen detrás
+--     ninguna, y por eso `direction` ya distingue entrada de salida.
 --
--- 3. **El ingreso del trabajo se deriva; no se atribuye.** Una cotización de
---    tres líneas se factura con un documento por cuota, y ese documento no es
---    de una línea: es de la cotización. Pero el reparto entre líneas ya está
---    decidido y escrito —cada línea tiene su neto en la versión—, así que la
---    parte del trabajo es `price_net / quote_net` de lo facturado. Al derivarlo
---    no hay nada que se pueda atribuir mal, y nada que se desincronice.
+-- Es decir: la tabla ya tenía `quote_id` nulable y `direction`, y lo que
+-- faltaba eran las puertas. Hacer una tabla nueva habría dejado dos
+-- definiciones de «dinero previsto», dos índices para la proyección y dos
+-- sitios donde arreglar el mismo error. Un apunte previsto suelto es una fila
+-- de esta tabla con `quote_id` nulo, y se llama **previsto** para distinguirlo
+-- de una **cuota**, que es la que viene de una cotización.
 --
--- 4. **El costo del trabajo sí se atribuye a mano**, porque no hay nada de
---    donde derivarlo: ninguna factura de proveedor sabe para qué trabajo era.
---    Por eso `job_id` existe en las compras y en los gastos, y **no** en las
---    ventas: una venta ya tiene su parte calculada y atribuirla además sería
---    contarla dos veces.
+-- ---------------------------------------------------------------------------
+-- INV-15.4 — Un previsto es un plan; se salda con dinero, no con un botón
+-- ---------------------------------------------------------------------------
 --
--- 5. **El margen se calcula sobre netos de los dos lados.** El IGV que cobras
---    no es tuyo y el que pagas es crédito fiscal (INV-12.2). Un margen
---    calculado sobre totales se equivoca en los dos sentidos a la vez.
+-- 1. **No mueve dinero.** Igual que una cuota prevista o un gasto fijo: entra
+--    en la proyección y no toca el saldo (INV-1). Existe de verdad el día que
+--    se registra el movimiento.
 --
--- 6. **Es margen de lo facturado, no de lo cobrado** (INV-6): el hecho es el
---    documento. Un trabajo puede tener 45 % de margen y cero en el banco, y
---    las dos cosas son verdad al mismo tiempo. Para la segunda está la caja.
+-- 2. **Su estado se deriva de lo asignado, no se declara.** `saldar_previsto`
+--    crea el movimiento y la asignación; el estado lo pone
+--    `app.recalcula_estado_previsto`, por los mismos disparadores que ya
+--    siguen a un documento. Un botón «marcar como pagado» sería un estado que
+--    puede discrepar del dinero, y entonces la proyección tendría dos
+--    verdades.
 --
--- 7. **Dos monedas no se suman** (INV-10). El lente devuelve una fila por
---    trabajo y moneda. Un costo en dólares de un trabajo en soles se enseña
---    aparte y sin convertir: convertirlo en silencio sería inventar un margen
---    que depende del día.
+-- 3. **Saldado a medias sigue proyectando lo que falta.** Si pactaste 3 000 y
+--    adelantaste 1 000, lo que queda en la curva es 2 000: los 1 000 ya están
+--    en el saldo y contarlos otra vez sería contarlos dos veces (INV-15.1).
 --
--- 8. **Este lente no es el resultado del mes y no lo alimenta.** El reparto
---    por línea redondea, así que los céntimos de los trabajos de una
---    cotización pueden no sumar exactamente su documento. El resultado del
---    periodo sigue saliendo de `economic_facts` sin pasar por aquí, que es
---    donde los céntimos tienen que cuadrar.
+-- 4. **El dinero va en el sentido del previsto.** Un previsto de salida no se
+--    salda con una entrada, igual que un ingreso no paga una factura de
+--    proveedor (`direccion_no_concuerda`). Esto sí se vigila.
+--
+-- 5. **Lo que NO se vigila es el tope, y es deliberado.** A una cuota de una
+--    cotización no se le puede asignar más de lo que vale, porque es un
+--    derecho de cobro con un importe acordado (INV-3). Un previsto es una
+--    estimación tuya: si la cámara que pactaste en 3 000 terminó costando
+--    3 200, negarse a registrar el pago sería obligarte a editar el plan para
+--    poder anotar la realidad. El movimiento es el dinero y es correcto; el
+--    plan solo queda saldado.
+--
+-- 6. **Mientras es un plan se puede quitar; en cuanto tiene dinero, no.** Un
+--    previsto sin asignaciones se borra —una proyección no es un hecho
+--    económico, el mismo razonamiento que ya usa `guardar_cronograma`— y
+--    `audit_log` guarda el rastro. Con dinero asignado, no: borrarlo dejaría
+--    un movimiento señalando a algo que no existe.
+--
+-- 7. **Una cuota de cotización no entra por aquí.** Se emite su documento y
+--    se cobra, que es lo que la pone en la cartera. Si estas puertas la
+--    aceptaran, habría dos caminos para cobrar una venta y uno de los dos no
+--    dejaría documento.
 -- ============================================================================
 
 -- ---------------------------------------------------------------------------
--- La tabla
+-- El estado de un previsto, derivado de lo que se le asignó
 -- ---------------------------------------------------------------------------
 
-create table jobs (
-  id               uuid primary key default gen_random_uuid(),
-  organization_id  uuid not null references organizations (id) on delete cascade,
-  legal_entity_id  uuid not null,
-  quote_id         uuid not null,
-  quote_version_id uuid not null,
-  -- La línea de la que nació. Nulo solo si la versión es tan antigua que su
-  -- snapshot no llevaba el id de la línea.
-  quote_line_id    uuid,
-  service_id       uuid,
-  client_id        uuid not null,
-  name             text not null check (btrim(name) <> ''),
-  currency_code    char(3) not null references currencies (code),
-
-  -- La foto del día que se aprobó (INV-14.2).
-  price_net        numeric(18, 2) not null check (price_net >= 0),
-  quote_net        numeric(18, 2) not null check (quote_net >= 0),
-  expected_cost    numeric(18, 2) not null default 0 check (expected_cost >= 0),
-
-  status           text not null default 'open'
-                     check (status in ('open', 'done', 'cancelled')),
-  notes            text,
-  created_at       timestamptz not null default now(),
-  updated_at       timestamptz not null default now(),
-
-  -- La línea no puede valer más que la cotización entera de la que es parte.
-  constraint la_linea_cabe_en_la_cotizacion check (price_net <= quote_net),
-
-  foreign key (legal_entity_id, organization_id)
-    references legal_entities (id, organization_id) on delete cascade,
-  foreign key (quote_id, organization_id)
-    references quotes (id, organization_id) on delete cascade,
-  foreign key (quote_version_id, organization_id)
-    references quote_versions (id, organization_id),
-  foreign key (quote_line_id, organization_id)
-    references quote_lines (id, organization_id),
-  foreign key (service_id, organization_id)
-    references services (id, organization_id),
-  foreign key (client_id, organization_id)
-    references clients (id, organization_id),
-
-  unique (id, organization_id),
-  -- Esta es la clave que impone INV-11 en la atribución: un documento de otra
-  -- empresa no tiene cómo apuntar a este trabajo (ADR-16).
-  constraint jobs_id_org_entidad_key unique (id, organization_id, legal_entity_id)
-);
-
--- Una línea aprobada es un trabajo, no dos. Aprobar, renegociar y volver a
--- aprobar no duplica nada.
-create unique index trabajo_por_linea on jobs (quote_line_id)
-  where quote_line_id is not null;
-
-create index jobs_cotizacion_idx on jobs (organization_id, quote_id);
-create index jobs_servicio_idx   on jobs (organization_id, service_id)
-  where service_id is not null;
-create index jobs_abiertos_idx   on jobs (organization_id, legal_entity_id, status);
-
-create trigger jobs_touch before update on jobs
-  for each row execute function app.touch_updated_at();
-create trigger jobs_audit
-  after insert or update or delete on jobs
-  for each row execute function app.audit_changes();
-
-comment on table jobs is
-  'Un trabajo vendido: una línea de la versión que el cliente aceptó, con el precio y el costo estimado congelados el día de la aprobación (INV-14).';
-comment on column jobs.price_net is
-  'Neto de esta línea en la versión aceptada. No se edita: es el denominador de «cotizaste tanto».';
-comment on column jobs.quote_net is
-  'Neto de la versión entera. Con price_net da la parte de este trabajo en lo que se facture (INV-14.3).';
-
-grant select on jobs to authenticated;
-
-alter table jobs enable row level security;
-alter table jobs force  row level security;
-
--- Un trabajo lleva el costo estimado dentro, así que se lee con el mismo
--- permiso que los costos de una versión: el rol comercial cotiza y aprueba,
--- pero el margen no es suyo (ADR-34).
-create policy jobs_select on jobs for select
-  using (organization_id in (select app.current_orgs())
-         and app.can_see_costs(organization_id));
-
--- Sin insert ni update para `authenticated`: los crea la aprobación y los
--- cambia `actualizar_trabajo`, que deja el precio en paz.
-
--- ---------------------------------------------------------------------------
--- La atribución
--- ---------------------------------------------------------------------------
-
-alter table billing_documents add column job_id uuid;
-
--- INV-14.4: solo las compras. Una venta ya tiene su parte derivada.
-alter table billing_documents
-  add constraint el_trabajo_solo_en_las_compras
-  check (job_id is null or direction = 'purchase');
-
-alter table billing_documents
-  add constraint billing_documents_trabajo_fkey
-  foreign key (job_id, organization_id, legal_entity_id)
-  references jobs (id, organization_id, legal_entity_id);
-
-create index billing_documents_trabajo_idx
-  on billing_documents (organization_id, job_id) where job_id is not null;
-
-alter table cash_movements add column job_id uuid;
-
--- Un gasto, nunca una entrada: el ingreso del trabajo es el derivado y una
--- entrada atribuida lo contaría por segunda vez. Y nunca una pata de
--- transferencia ni una apertura, que no son hechos económicos (INV-5).
-alter table cash_movements
-  add constraint el_trabajo_solo_en_los_gastos
-  check (job_id is null
-         or (direction = 'out' and kind not in ('transfer', 'opening')));
-
-alter table cash_movements
-  add constraint cash_movements_trabajo_fkey
-  foreign key (job_id, organization_id, legal_entity_id)
-  references jobs (id, organization_id, legal_entity_id);
-
-create index cash_movements_trabajo_idx
-  on cash_movements (organization_id, job_id) where job_id is not null;
-
--- ---------------------------------------------------------------------------
--- El hecho económico, ahora con el trabajo al que se atribuyó
--- ---------------------------------------------------------------------------
---
--- Tercera vez que se recrea la vista, y por el mismo motivo que las dos
--- anteriores: `create or replace view` solo deja añadir columnas al final, y
--- `job_id` se entiende al lado de las otras dos contrapartes.
-
-drop view economic_facts;
-
-create view economic_facts with (security_invoker = true) as
-
-select d.organization_id,
-       d.legal_entity_id,
-       d.currency_code,
-       'documento'::text                                   as origen,
-       d.id                                                as source_id,
-       d.issue_date                                         as fecha,
-       case when d.direction = 'sale' then 'in' else 'out' end::cash_direction as direction,
-       'operating'::flow_class                              as flow_class,
-       null::cash_kind                                      as kind,
-       d.amount_total,
-       d.amount_net,
-       d.amount_tax,
-       d.category_id,
-       d.client_id,
-       d.supplier_id,
-       d.job_id,
-       coalesce(nullif(btrim(d.description), ''),
-                nullif(btrim(d.series_number), ''),
-                case when d.direction = 'sale'
-                     then 'Documento sin número'
-                     else 'Compra sin número' end)          as concepto
-  from billing_documents d
- where d.status <> 'void'
-   and not d.is_opening
-
-union all
-
-select m.organization_id,
-       m.legal_entity_id,
-       m.currency_code,
-       'movimiento'::text,
-       m.id,
-       m.value_date,
-       m.direction,
-       m.flow_class,
-       m.kind,
-       m.amount,
-       coalesce(m.amount_net, m.amount),
-       coalesce(m.amount_tax, 0),
-       m.category_id,
-       m.client_id,
-       m.supplier_id,
-       m.job_id,
-       m.description
-  from cash_movements m
- where not m.is_void
-   and m.flow_class in ('operating', 'non_operating')
-   and not exists (
-         select 1 from payment_allocations a
-          where a.cash_movement_id = m.id
-            and a.billing_document_id is not null);
-
-comment on view economic_facts is
-  'INV-6 escrito una vez: los documentos emitidos —ventas y compras— más los movimientos que no saldan ninguno. Excluye las patas de transferencia y las aperturas por definición, no por filtro.';
-
-grant select on economic_facts to authenticated;
-
--- ---------------------------------------------------------------------------
--- El lente: cuánto deja cada trabajo
--- ---------------------------------------------------------------------------
---
--- Una fila por trabajo y moneda (INV-14.7). Devuelve sumas y cuentas, no
--- porcentajes: el margen de un conjunto es Σutilidad / Σneto y eso ya está
--- escrito y probado una vez, en `aggregateMarginPercent`. Dos definiciones
--- del mismo porcentaje es como se termina enseñando dos cifras distintas.
-
-create view job_margins with (security_invoker = true) as
-with facturado as (
-  -- La parte de este trabajo en lo que se facturó de su cotización (INV-14.3).
-  -- Se suman primero los documentos y se reparte después, para que el reparto
-  -- redondee una vez y no una por factura.
-  select j.id                as job_id,
-         j.organization_id,
-         j.legal_entity_id,
-         d.currency_code,
-         'in'::text          as lado,
-         round(sum(d.amount_net) * j.price_net / nullif(j.quote_net, 0),
-               c.minor_units) as neto,
-         count(*)::int        as cuantos
-    from jobs j
-    join quote_versions v
-      on v.quote_id = j.quote_id
-     and v.organization_id = j.organization_id
-    join billing_documents d
-      on d.quote_version_id = v.id
-     and d.organization_id = j.organization_id
-    join currencies c on c.code = d.currency_code
-   where d.direction = 'sale'
-     and d.status <> 'void'
-     and not d.is_opening
-   group by j.id, j.organization_id, j.legal_entity_id, d.currency_code,
-            j.price_net, j.quote_net, c.minor_units
-),
-gastado as (
-  -- Y lo que se le atribuyó, por INV-6: la factura de compra cuando hay
-  -- factura, y el movimiento cuando el movimiento es el hecho. Un pago que
-  -- salda una factura ya atribuida no entra aquí, porque la vista lo excluye.
-  select f.job_id,
-         f.organization_id,
-         f.legal_entity_id,
-         f.currency_code,
-         'out'::text   as lado,
-         sum(f.amount_net) as neto,
-         count(*)::int  as cuantos
-    from economic_facts f
-   where f.job_id is not null
-     and f.direction = 'out'
-   group by 1, 2, 3, 4
-)
-select organization_id,
-       legal_entity_id,
-       job_id,
-       currency_code,
-       sum(case when lado = 'in'  then neto    else 0 end) as ingreso_neto,
-       sum(case when lado = 'out' then neto    else 0 end) as costo_neto,
-       sum(case when lado = 'in'  then cuantos else 0 end) as documentos,
-       sum(case when lado = 'out' then cuantos else 0 end) as costos
-  from (select * from facturado union all select * from gastado) as partes
- group by 1, 2, 3, 4;
-
-comment on view job_margins is
-  'Cuánto deja cada trabajo, por moneda: su parte de lo facturado menos lo que se le atribuyó, los dos en neto (INV-14). Sin porcentajes a propósito: el margen de un conjunto se calcula una sola vez, en el cliente.';
-
-grant select on job_margins to authenticated;
-
--- ---------------------------------------------------------------------------
--- Crear los trabajos al aprobar
--- ---------------------------------------------------------------------------
---
--- Igual que el cronograma: lo que tiene que pasar siempre no puede depender
--- de que la pantalla se acuerde. Se lee del snapshot de la versión y no de
--- las líneas vivas, porque lo que se vendió es lo que el cliente aceptó, no
--- lo que la cotización diga mañana.
-
-create or replace function app.crear_trabajos(p_quote uuid) returns void
+create or replace function app.recalcula_estado_previsto(p_item uuid) returns void
 language plpgsql security definer set search_path = public, pg_temp as $fn$
 declare
-  v_q     record;
-  v_vid   uuid;
-  v_snap  jsonb;
-  v_neto  numeric;
-  v_dec   int;
-  v_linea jsonb;
-  v_id    uuid;
-  v_cant  numeric;
-  v_costo numeric;
+  v_item   record;
+  v_pagado numeric;
+  v_estado schedule_status;
 begin
-  -- Idempotente: aprobar, renegociar y volver a aprobar no rehace nada. Los
-  -- trabajos ya pueden tener costos atribuidos, y rehacerlos los perdería.
-  if exists (select 1 from jobs where quote_id = p_quote) then
-    return;
-  end if;
+  if p_item is null then return; end if;
 
-  select q.organization_id, q.legal_entity_id, q.currency_code, q.client_id
-    into v_q
-    from quotes q where q.id = p_quote;
+  select i.id, i.amount, i.status, i.quote_id into v_item
+    from payment_schedule_items i where i.id = p_item;
+  if v_item.id is null then return; end if;
 
-  select qv.id, qv.snapshot, (qv.totals->>'neto')::numeric
-    into v_vid, v_snap, v_neto
-    from quote_versions qv
-   where qv.quote_id = p_quote
-   order by qv.version_no desc
-   limit 1;
+  -- Una cuota de cotización sigue a su documento y no a sus asignaciones: de
+  -- eso se encarga `app.recalcula_estado_documento`. Y una cancelada se queda
+  -- cancelada: un pago posterior no la revive.
+  if v_item.quote_id is not null or v_item.status = 'cancelled' then return; end if;
 
-  -- Sin versión no hay nada que partir, y no debería pasar: a «aprobada» solo
-  -- se llega desde «enviada» o «en negociación», y a las dos se llega
-  -- emitiendo. Si pasa, aprobar no es el momento de quejarse.
-  if v_vid is null or v_neto is null then
-    return;
-  end if;
+  select coalesce(sum(a.amount), 0) into v_pagado
+    from payment_allocations a
+    join cash_movements m on m.id = a.cash_movement_id
+   where a.payment_schedule_item_id = p_item and not m.is_void;
 
-  select c.minor_units into v_dec from currencies c where c.code = v_q.currency_code;
+  v_estado := case when v_pagado >= v_item.amount then 'settled' else 'planned' end::schedule_status;
 
-  for v_linea in
-    select e.valor from jsonb_array_elements(coalesce(v_snap->'lineas', '[]'::jsonb)) as e(valor)
-  loop
-    v_id   := nullif(v_linea->>'id', '')::uuid;
-    v_cant := coalesce((v_linea->>'cantidad')::numeric, 1);
-
-    -- El costo estimado de la línea, con la misma aritmética que usó
-    -- `emitir_cotizacion`: cada componente redondeado, sumados, y el total
-    -- por la cantidad de la línea. Si cambia una, tiene que cambiar la otra.
-    select round(coalesce(sum(round(round(qlc.unit_cost, v_dec) * qlc.quantity, v_dec)), 0) * v_cant,
-                 v_dec)
-      into v_costo
-      from quote_line_costs qlc
-     where qlc.quote_line_id = v_id and qlc.is_active;
-
-    insert into jobs (
-      organization_id, legal_entity_id, quote_id, quote_version_id,
-      quote_line_id, service_id, client_id, name, currency_code,
-      price_net, quote_net, expected_cost)
-    select v_q.organization_id, v_q.legal_entity_id, p_quote, v_vid,
-           v_id,
-           (select ql.service_id from quote_lines ql where ql.id = v_id),
-           v_q.client_id,
-           coalesce(nullif(btrim(v_linea->>'descripcion'), ''), 'Trabajo sin nombre'),
-           v_q.currency_code,
-           round(coalesce((v_linea->>'neto')::numeric, 0), v_dec),
-           round(v_neto, v_dec),
-           coalesce(v_costo, 0)
-    on conflict do nothing;
-  end loop;
-end $fn$;
-
-revoke all on function app.crear_trabajos(uuid) from public, anon;
-
--- El disparador de estados gana una línea, por el mismo motivo por el que ya
--- creaba el cronograma.
-
-create or replace function app.anota_cambio_de_estado() returns trigger
-language plpgsql security definer set search_path = public, pg_temp as $$
-declare
-  v_motivo text := nullif(btrim(coalesce(current_setting('app.motivo_de_cambio', true), '')), '');
-  v_accion text := nullif(btrim(coalesce(current_setting('app.accion_de_cambio', true), '')), '');
-begin
-  if new.status = old.status then
-    return new;
-  end if;
-
-  if not app.transicion_de_cotizacion(old.status, new.status) then
-    raise exception 'transicion_invalida: una cotización en «%» no puede pasar a «%»',
-      old.status, new.status;
-  end if;
-
-  -- Anular es definitivo y conserva todo (§8.9). Sin motivo, dentro de un mes
-  -- nadie sabe por qué se anuló, y eso es justo lo que la bitácora evita.
-  if new.status = 'void' and v_motivo is null then
-    raise exception 'motivo_requerido: para anular una cotización hay que decir por qué';
-  end if;
-
-  insert into quote_events (organization_id, quote_id, actor_id, from_status, to_status, action, note)
-  values (new.organization_id, new.id, auth.uid(), old.status, new.status,
-          coalesce(v_accion, 'status'), v_motivo);
-
-  if new.status = 'approved' then
-    perform app.cronograma_por_defecto(new.id);
-    perform app.crear_trabajos(new.id);
-  end if;
-
-  perform set_config('app.motivo_de_cambio', '', true);
-  perform set_config('app.accion_de_cambio', '', true);
-  return new;
-end $$;
-
--- ---------------------------------------------------------------------------
--- Puerta · atribuir una compra a un trabajo
--- ---------------------------------------------------------------------------
---
--- `authenticated` no tiene UPDATE en `billing_documents` ni en
--- `cash_movements`, y así se queda. Atribuir pasa por aquí, con un trabajo
--- nulo para desatribuir.
-
-create or replace function app.comprueba_el_trabajo(
-  p_job    uuid,
-  p_org    uuid,
-  p_entity uuid
-) returns void
-language plpgsql security definer set search_path = public, pg_temp as $fn$
-declare
-  v_job  record;
-  v_suya text;
-  v_mia  text;
-begin
-  select j.id, j.name, j.legal_entity_id into v_job
-    from jobs j where j.id = p_job and j.organization_id = p_org;
-
-  if v_job.id is null then
-    raise exception 'trabajo_no_encontrado: ese trabajo no existe o no es de tu organización';
-  end if;
-
-  if v_job.legal_entity_id <> p_entity then
-    select e.legal_name into v_suya from legal_entities e where e.id = v_job.legal_entity_id;
-    select e.legal_name into v_mia  from legal_entities e where e.id = p_entity;
-    raise exception
-      'trabajo_de_otra_empresa: «%» es un trabajo de % y esto es de %. El dinero no cruza de una empresa a otra: el costo de un trabajo de % tiene que anotarse en %',
-      v_job.name, v_suya, v_mia, v_suya, v_suya;
+  if v_estado is distinct from v_item.status then
+    update payment_schedule_items set status = v_estado where id = p_item;
   end if;
 end $fn$;
 
-revoke all on function app.comprueba_el_trabajo(uuid, uuid, uuid) from public, anon;
+revoke all on function app.recalcula_estado_previsto(uuid) from public, anon;
 
-create or replace function atribuir_compra(p_document uuid, p_job uuid default null)
-returns setof billing_documents
+-- Los dos disparadores que ya seguían a un documento ahora siguen también al
+-- previsto. Se vuelven a declarar enteros porque son cuerpos de cinco líneas
+-- y partirlos en dos funciones costaría más de lo que ahorra.
+
+create or replace function app.al_cambiar_una_asignacion() returns trigger
 language plpgsql security definer set search_path = public, pg_temp as $fn$
-declare
-  v_doc record;
 begin
-  select d.* into v_doc from billing_documents d where d.id = p_document for update;
-
-  if v_doc.id is null or not app.can_write_money(v_doc.organization_id) then
-    raise exception 'documento_no_encontrado: ese documento no existe o no es de tu organización';
-  end if;
-
-  if v_doc.direction <> 'purchase' then
-    raise exception
-      'no_es_una_compra: a un trabajo se le atribuye lo que costó, no lo que se vendió. Lo que se vendió ya tiene su parte calculada desde la línea que se aprobó';
-  end if;
-
-  if v_doc.status = 'void' then
-    raise exception 'documento_ya_anulado: esta compra está anulada; no cuenta en ningún trabajo';
-  end if;
-
-  if p_job is not null then
-    perform app.comprueba_el_trabajo(p_job, v_doc.organization_id, v_doc.legal_entity_id);
-  end if;
-
-  update billing_documents set job_id = p_job where id = p_document;
-
-  return query select * from billing_documents where id = p_document;
+  perform app.recalcula_estado_documento(
+    coalesce(new.billing_document_id, old.billing_document_id));
+  perform app.recalcula_estado_previsto(
+    coalesce(new.payment_schedule_item_id, old.payment_schedule_item_id));
+  return null;
 end $fn$;
 
-comment on function atribuir_compra(uuid, uuid) is
-  'Dice para qué trabajo era una factura de proveedor. Con p_job nulo, la desatribuye (F5).';
+create or replace function app.al_anular_un_movimiento() returns trigger
+language plpgsql security definer set search_path = public, pg_temp as $fn$
+declare r record;
+begin
+  if new.is_void is distinct from old.is_void then
+    for r in select distinct a.billing_document_id
+               from payment_allocations a
+              where a.cash_movement_id = new.id and a.billing_document_id is not null
+    loop
+      perform app.recalcula_estado_documento(r.billing_document_id);
+    end loop;
 
-revoke all on function atribuir_compra(uuid, uuid) from public, anon;
-grant execute on function atribuir_compra(uuid, uuid) to authenticated;
+    for r in select distinct a.payment_schedule_item_id
+               from payment_allocations a
+              where a.cash_movement_id = new.id
+                and a.payment_schedule_item_id is not null
+    loop
+      perform app.recalcula_estado_previsto(r.payment_schedule_item_id);
+    end loop;
+  end if;
+  return null;
+end $fn$;
 
 -- ---------------------------------------------------------------------------
--- Puerta · atribuir un gasto suelto a un trabajo
+-- El tope aprende la dirección de un previsto
 -- ---------------------------------------------------------------------------
+--
+-- Se añade la comprobación de sentido (INV-15.4.4) y NO la del tope
+-- (INV-15.4.5). El resto del cuerpo es el de F3-6, sin un cambio.
 
-create or replace function atribuir_gasto(p_movement uuid, p_job uuid default null)
-returns setof cash_movements
+create or replace function app.respeta_los_topes() returns trigger
 language plpgsql security definer set search_path = public, pg_temp as $fn$
 declare
-  v_mov  record;
-  v_otra text;
+  v_tope     numeric;
+  v_asignado numeric;
+  v_kind     cash_kind;
+  v_dir      cash_direction;
+  v_doc_dir  text;
+  v_item_dir text;
+  v_etiqueta text;
 begin
-  select m.* into v_mov from cash_movements m where m.id = p_movement for update;
+  select m.amount, m.kind, m.direction into v_tope, v_kind, v_dir
+    from cash_movements m where m.id = new.cash_movement_id;
 
-  if v_mov.id is null or not app.can_write_money(v_mov.organization_id) then
-    raise exception 'movimiento_no_encontrado: ese movimiento no existe o no es de tu organización';
-  end if;
-
-  if v_mov.is_void then
-    raise exception 'movimiento_ya_anulado: ese movimiento está anulado; no cuenta en ningún trabajo';
-  end if;
-
-  if v_mov.direction <> 'out' then
+  if v_kind = 'transfer' then
     raise exception
-      'no_es_un_gasto: a un trabajo se le atribuye lo que costó. Una entrada de dinero no, porque el ingreso del trabajo sale de la línea que se aprobó y contarla además sería contarla dos veces';
+      'asignacion_de_transferencia: ese movimiento es una pata de una transferencia entre tus propias cuentas, no dinero de un cliente. Asignarlo a un documento lo daría por cobrado con dinero que no vino de fuera';
   end if;
 
-  if v_mov.kind in ('transfer', 'opening') then
+  -- INV-2 · un cobro de S/ 400 no se puede asignar a S/ 500 de facturas.
+  select coalesce(sum(a.amount), 0) into v_asignado
+    from payment_allocations a where a.cash_movement_id = new.cash_movement_id;
+
+  if v_asignado > v_tope then
     raise exception
-      'no_es_un_gasto: mover dinero entre tus cuentas o anotar un saldo inicial no es un costo de ningún trabajo (INV-5)';
+      'asignacion_excede_movimiento: el movimiento es de % y se le han asignado %',
+      to_char(v_tope, 'FM999999999990.00'), to_char(v_asignado, 'FM999999999990.00');
   end if;
 
-  -- Un pago que salda una factura no es el hecho económico: la factura lo es
-  -- (INV-6). Atribuir el pago no sumaría nada, y dejaría al usuario creyendo
-  -- que ya lo hizo.
-  if p_job is not null then
-    select coalesce(nullif(btrim(d.description), ''),
-                    nullif(btrim(d.series_number), ''),
-                    to_char(d.issue_date, 'DD/MM/YYYY'))
-      into v_otra
-      from payment_allocations a
-      join billing_documents d on d.id = a.billing_document_id
-     where a.cash_movement_id = p_movement
-     limit 1;
+  -- INV-3 · lo asignado a un documento no puede pasar de su total, y el dinero
+  -- tiene que ir en el sentido del documento.
+  if new.billing_document_id is not null then
+    select d.amount_total, d.direction into v_tope, v_doc_dir
+      from billing_documents d where d.id = new.billing_document_id;
 
-    if v_otra is not null then
+    if v_doc_dir = 'sale' and v_dir = 'out' then
       raise exception
-        'el_pago_no_se_atribuye: este pago salda la factura «%». Lo que cuenta en el trabajo es la factura, no el pago: atribuye la factura',
-        v_otra;
+        'direccion_no_concuerda: ese documento es una venta tuya y eso es dinero que salió. Un pago no cobra una factura';
+    end if;
+    if v_doc_dir = 'purchase' and v_dir = 'in' then
+      raise exception
+        'direccion_no_concuerda: ese documento es una compra y eso es dinero que entró. Un cobro no paga una factura de proveedor';
     end if;
 
-    perform app.comprueba_el_trabajo(p_job, v_mov.organization_id, v_mov.legal_entity_id);
+    select coalesce(sum(a.amount), 0) into v_asignado
+      from payment_allocations a
+      join cash_movements m on m.id = a.cash_movement_id and not m.is_void
+     where a.billing_document_id = new.billing_document_id;
+
+    if v_asignado > v_tope then
+      raise exception
+        'cobro_excede_documento: el documento es de % y se le han asignado %',
+        to_char(v_tope, 'FM999999999990.00'), to_char(v_asignado, 'FM999999999990.00');
+    end if;
   end if;
 
-  update cash_movements set job_id = p_job where id = p_movement;
+  -- INV-15.4.4 · el dinero va en el sentido del previsto. Sin tope: un
+  -- previsto es una estimación, no un derecho de cobro.
+  if new.payment_schedule_item_id is not null then
+    select i.direction, i.label into v_item_dir, v_etiqueta
+      from payment_schedule_items i where i.id = new.payment_schedule_item_id;
 
-  return query select * from cash_movements where id = p_movement;
+    if v_item_dir = 'in' and v_dir = 'out' then
+      raise exception
+        'direccion_no_concuerda: «%» es dinero que esperas cobrar y eso es dinero que salió. Un pago no salda un cobro previsto',
+        v_etiqueta;
+    end if;
+    if v_item_dir = 'out' and v_dir = 'in' then
+      raise exception
+        'direccion_no_concuerda: «%» es dinero que esperas pagar y eso es dinero que entró. Un cobro no salda un pago previsto',
+        v_etiqueta;
+    end if;
+  end if;
+
+  return null;
 end $fn$;
 
-comment on function atribuir_gasto(uuid, uuid) is
-  'Dice para qué trabajo era un gasto sin factura detrás. Con p_job nulo, lo desatribuye (F5).';
-
-revoke all on function atribuir_gasto(uuid, uuid) from public, anon;
-grant execute on function atribuir_gasto(uuid, uuid) to authenticated;
-
 -- ---------------------------------------------------------------------------
--- Puerta · cambiar lo que de un trabajo se puede cambiar
+-- Puerta · guardar un previsto
 -- ---------------------------------------------------------------------------
---
--- El nombre, el estado y las notas. Nunca el precio acordado ni el costo
--- estimado: son la foto del día que se aprobó, y editarlos convertiría
--- «cotizaste 40 %» en una cifra que se puede acomodar al resultado.
 
-create or replace function actualizar_trabajo(
-  p_job    uuid,
-  p_name   text default null,
-  p_status text default null,
-  p_notes  text default null
-) returns setof jobs
-language plpgsql security definer set search_path = public, pg_temp as $fn$
-declare
-  v_job record;
-begin
-  select j.* into v_job from jobs j where j.id = p_job for update;
-
-  if v_job.id is null or not app.can_see_costs(v_job.organization_id) then
-    raise exception 'trabajo_no_encontrado: ese trabajo no existe o no es de tu organización';
-  end if;
-
-  if p_name is not null and btrim(p_name) = '' then
-    raise exception 'nombre_obligatorio: un trabajo sin nombre no se reconoce en una lista';
-  end if;
-
-  if p_status is not null and p_status not in ('open', 'done', 'cancelled') then
-    raise exception 'estado_invalido: un trabajo está en curso, terminado o cancelado';
-  end if;
-
-  update jobs
-     set name   = coalesce(nullif(btrim(coalesce(p_name, '')), ''), name),
-         status = coalesce(p_status, status),
-         notes  = case when p_notes is null then notes
-                       else nullif(btrim(p_notes), '') end
-   where id = p_job;
-
-  return query select * from jobs where id = p_job;
-end $fn$;
-
-comment on function actualizar_trabajo(uuid, text, text, text) is
-  'Cambia el nombre, el estado o las notas de un trabajo. El precio acordado y el costo estimado no se tocan (INV-14.2).';
-
-revoke all on function actualizar_trabajo(uuid, text, text, text) from public, anon;
-grant execute on function actualizar_trabajo(uuid, text, text, text) to authenticated;
-
--- ---------------------------------------------------------------------------
--- Las dos puertas que ya existían, ahora con trabajo
--- ---------------------------------------------------------------------------
---
--- Se vuelven a declarar enteras y se tira la firma anterior. Añadir un
--- parámetro con valor por defecto **no** reemplaza una función en Postgres:
--- crea una sobrecarga y deja la vieja viva, y entonces hay dos puertas para
--- lo mismo y una de ellas no sabe de trabajos.
---
--- Podría atribuirse en una segunda llamada después de anotar, y se descartó:
--- si la segunda falla, el costo queda anotado y sin trabajo, que es
--- exactamente el agujero por el que este lente se queda vacío. Dentro de una
--- función es una transacción: o las dos cosas, o ninguna.
-
-drop function registrar_compra(uuid, text, numeric, text, document_type, text, date, date, numeric, uuid, text);
-
-create or replace function registrar_compra(
-  p_entity      uuid,
-  p_supplier    text,
-  p_amount      numeric,
-  p_currency    text,
-  p_doc_type    document_type default 'invoice',
-  p_series      text default null,
-  p_issue_date  date default null,
-  p_due_date    date default null,
-  p_tax_rate    numeric default null,
-  p_category    uuid default null,
-  p_description text default null,
-  p_job         uuid default null
-) returns setof billing_documents
+create or replace function guardar_previsto(
+  p_entity    uuid,
+  p_direction text,
+  p_label     text,
+  p_amount    numeric,
+  p_currency  text,
+  p_due_date  date,
+  p_account   uuid default null,
+  p_id        uuid default null
+) returns setof payment_schedule_items
 language plpgsql security definer set search_path = public, pg_temp as $fn$
 declare
   v_ent     record;
-  v_cat     record;
+  v_previo  record;
   v_moneda  char(3);
   v_dec     int;
   v_importe numeric;
-  v_tasa    numeric;
-  v_neto    numeric;
-  v_fecha   date;
-  v_vence   date;
-  v_nombre  text;
-  v_serie   text;
-  v_prov    uuid;
-  v_otra    text;
-  v_doc     uuid;
+  v_dir     text;
+  v_etiqueta text;
+  v_cuenta  record;
+  v_item    uuid;
 begin
   select le.id, le.organization_id, le.legal_name into v_ent
     from legal_entities le where le.id = p_entity;
@@ -699,9 +278,18 @@ begin
     raise exception 'entidad_no_encontrada: esa empresa no existe o no tienes permiso de finanzas en ella';
   end if;
 
-  v_nombre := btrim(coalesce(p_supplier, ''));
-  if v_nombre = '' then
-    raise exception 'proveedor_obligatorio: una compra necesita saber a quién se le compró. Sin eso, dentro de tres meses el gasto no se puede reclamar ni cuadrar con el extracto';
+  v_dir := lower(btrim(coalesce(p_direction, '')));
+  if v_dir not in ('in', 'out') then
+    raise exception 'direccion_invalida: un previsto es dinero que entra o dinero que sale';
+  end if;
+
+  v_etiqueta := btrim(coalesce(p_label, ''));
+  if v_etiqueta = '' then
+    raise exception 'etiqueta_obligatoria: el previsto necesita un nombre, el que vas a reconocer en la proyección dentro de dos meses';
+  end if;
+
+  if p_due_date is null then
+    raise exception 'fecha_obligatoria: un previsto sin fecha no cae en ninguna semana, y entonces no proyecta nada';
   end if;
 
   v_moneda := upper(btrim(coalesce(p_currency, '')));
@@ -720,256 +308,221 @@ begin
   select c.minor_units into v_dec from currencies c where c.code = v_moneda;
   v_importe := round(coalesce(p_amount, 0), v_dec);
   if v_importe <= 0 then
-    raise exception 'importe_invalido: el total de la compra tiene que ser mayor que cero';
+    raise exception 'importe_invalido: el importe tiene que ser mayor que cero';
   end if;
 
-  -- Sin tasa dicha, la de la empresa. No se asume 18 %: una factura exonerada
-  -- existe, y un IGV inventado se convierte en crédito fiscal que no tienes.
-  v_tasa := p_tax_rate;
-  if v_tasa is null then
-    select t.rate into v_tasa
-      from tax_rates t
-     where t.legal_entity_id = p_entity and t.is_default and t.is_active;
-  end if;
-  v_tasa := coalesce(v_tasa, 0);
-  if v_tasa < 0 then
-    raise exception 'impuesto_invalido: el impuesto no puede ser negativo';
-  end if;
+  -- La cuenta esperada, si se dice cuál, es del mismo libro y la misma
+  -- moneda. La clave compuesta lo impone igual; esto lo explica antes.
+  if p_account is not null then
+    select a.id, a.name into v_cuenta
+      from cash_accounts a
+     where a.id = p_account
+       and a.organization_id = v_ent.organization_id
+       and a.legal_entity_id = p_entity
+       and a.currency_code = v_moneda;
 
-  v_fecha := coalesce(p_issue_date, current_date);
-  v_vence := p_due_date;
-  if v_vence is not null and v_vence < v_fecha then
-    raise exception
-      'vencimiento_antes_de_la_fecha: la factura es del % y pones vencimiento el %. Así aparecería vencida desde el día que llegó',
-      to_char(v_fecha, 'DD/MM/YYYY'), to_char(v_vence, 'DD/MM/YYYY');
-  end if;
-
-  if p_category is not null then
-    select fc.name, fc.direction into v_cat
-      from financial_categories fc
-     where fc.id = p_category and fc.organization_id = v_ent.organization_id;
-    if v_cat.name is null then
-      raise exception 'categoria_no_encontrada: esa categoría no existe en esta organización';
-    end if;
-    if v_cat.direction = 'in' then
+    if v_cuenta.id is null then
       raise exception
-        'categoria_de_ingreso: «%» es una categoría de ingresos y esto es una compra. Elige una de gastos o cámbiala a «ambas» en Configuración → Categorías',
-        v_cat.name;
+        'cuenta_de_otro_libro: esa cuenta no es de % en %. De una cuenta sale el dinero de su empresa y en su moneda',
+        v_ent.legal_name, v_moneda;
     end if;
   end if;
 
-  -- El trabajo se comprueba antes de crear nada: si es de otra empresa, que
-  -- no quede ni la compra ni el proveedor nuevo.
-  if p_job is not null then
-    perform app.comprueba_el_trabajo(p_job, v_ent.organization_id, p_entity);
-  end if;
+  if p_id is null then
+    insert into payment_schedule_items (
+      organization_id, legal_entity_id, direction, label, due_date, amount,
+      currency_code, expected_cash_account_id, status)
+    values (
+      v_ent.organization_id, p_entity, v_dir, v_etiqueta, p_due_date, v_importe,
+      v_moneda, p_account, 'planned')
+    returning id into v_item;
+  else
+    select i.* into v_previo
+      from payment_schedule_items i where i.id = p_id for update;
 
-  -- Se busca sin distinguir mayúsculas ni espacios de más, que es como se
-  -- teclea el mismo nombre dos veces.
-  select s.id into v_prov
-    from suppliers s
-   where s.organization_id = v_ent.organization_id
-     and lower(btrim(s.name)) = lower(v_nombre);
+    if v_previo.id is null or v_previo.organization_id <> v_ent.organization_id then
+      raise exception 'previsto_no_encontrado: ese previsto no existe o no es de tu organización';
+    end if;
 
-  if v_prov is null then
-    insert into suppliers (organization_id, name)
-    values (v_ent.organization_id, v_nombre)
-    returning id into v_prov;
-  end if;
-
-  v_serie := nullif(btrim(coalesce(p_series, '')), '');
-
-  if v_serie is not null then
-    select coalesce(nullif(btrim(d.description), ''), to_char(d.issue_date, 'DD/MM/YYYY'))
-      into v_otra
-      from billing_documents d
-     where d.organization_id = v_ent.organization_id
-       and d.direction = 'purchase'
-       and d.supplier_id = v_prov
-       and upper(btrim(d.series_number)) = upper(v_serie)
-       and d.status <> 'void'
-     limit 1;
-
-    if v_otra is not null then
+    if v_previo.quote_id is not null then
       raise exception
-        'compra_repetida: ya hay una compra de % con el número % (%). Si es otra factura, revisa el número; si es la misma, ya está anotada',
-        v_nombre, v_serie, v_otra;
+        'cuota_de_cotizacion: «%» es una cuota de una cotización y se edita en su cronograma, no aquí',
+        v_previo.label;
     end if;
+
+    -- Con dinero asignado no se cambia el importe ni el libro: habría que
+    -- decidir qué pasa con lo ya asignado, y la respuesta honesta es que se
+    -- anula el movimiento primero.
+    if exists (select 1 from payment_allocations a
+                where a.payment_schedule_item_id = p_id) then
+      raise exception
+        'previsto_con_dinero: «%» ya tiene un movimiento asignado. Anula ese movimiento desde Caja antes de cambiarlo',
+        v_previo.label;
+    end if;
+
+    update payment_schedule_items
+       set direction = v_dir,
+           label = v_etiqueta,
+           due_date = p_due_date,
+           amount = v_importe,
+           currency_code = v_moneda,
+           legal_entity_id = p_entity,
+           expected_cash_account_id = p_account
+     where id = p_id;
+    v_item := p_id;
   end if;
 
-  -- El total lleva el impuesto dentro, igual que en una venta: es como viene
-  -- escrito en la factura y es lo que se va a pagar.
-  v_neto := round(v_importe / (1 + v_tasa / 100), v_dec);
-
-  insert into billing_documents (
-    organization_id, legal_entity_id, direction, doc_type, series_number,
-    supplier_id, category_id, description, issue_date, due_date, currency_code,
-    amount_net, amount_tax, amount_total, tax_rate, status, job_id)
-  values (
-    v_ent.organization_id, p_entity, 'purchase', p_doc_type, v_serie,
-    v_prov, p_category, nullif(btrim(coalesce(p_description, '')), ''),
-    v_fecha, v_vence, v_moneda,
-    v_neto, v_importe - v_neto, v_importe, v_tasa, 'open', p_job)
-  returning id into v_doc;
-
-  return query select * from billing_documents where id = v_doc;
+  return query select * from payment_schedule_items where id = v_item;
 end $fn$;
 
-comment on function registrar_compra(uuid, text, numeric, text, document_type, text, date, date, numeric, uuid, text, uuid) is
-  'Anota la factura de un proveedor: crea el documento de compra, el proveedor si hace falta, y la atribuye al trabajo si se dice cuál (F3-6, F5).';
+comment on function guardar_previsto(uuid, text, text, numeric, text, date, uuid, uuid) is
+  'Crea o corrige un cobro o pago previsto de una sola vez, sin cotización ni factura detrás (F5-3).';
 
-revoke all on function registrar_compra(uuid, text, numeric, text, document_type, text, date, date, numeric, uuid, text, uuid) from public, anon;
-grant execute on function registrar_compra(uuid, text, numeric, text, document_type, text, date, date, numeric, uuid, text, uuid) to authenticated;
+revoke all on function guardar_previsto(uuid, text, text, numeric, text, date, uuid, uuid) from public, anon;
+grant execute on function guardar_previsto(uuid, text, text, numeric, text, date, uuid, uuid) to authenticated;
 
 -- ---------------------------------------------------------------------------
+-- Puerta · quitar un previsto que todavía es solo un plan
+-- ---------------------------------------------------------------------------
 
-drop function registrar_movimiento(uuid, cash_direction, numeric, text, date, cash_kind, uuid, uuid, text, numeric, numeric, uuid);
+create or replace function quitar_previsto(p_item uuid) returns void
+language plpgsql security definer set search_path = public, pg_temp as $fn$
+declare v_item record;
+begin
+  select i.* into v_item from payment_schedule_items i where i.id = p_item for update;
 
-create or replace function registrar_movimiento(
+  if v_item.id is null or not app.can_write_money(v_item.organization_id) then
+    raise exception 'previsto_no_encontrado: ese previsto no existe o no es de tu organización';
+  end if;
+
+  if v_item.quote_id is not null then
+    raise exception
+      'cuota_de_cotizacion: «%» es una cuota de una cotización. Se quita desde su cronograma, que comprueba que las demás sigan sumando el total',
+      v_item.label;
+  end if;
+
+  if exists (select 1 from payment_allocations a where a.payment_schedule_item_id = p_item) then
+    raise exception
+      'previsto_con_dinero: «%» ya tiene un movimiento asignado. Si el pago no era este, anula el movimiento desde Caja; borrar el previsto dejaría ese dinero señalando a algo que no existe',
+      v_item.label;
+  end if;
+
+  -- Se borra, y se puede: una proyección no es un hecho económico, no hay
+  -- documento ni dinero detrás, y `audit_log` guarda la fila que había. Es el
+  -- mismo razonamiento de `guardar_cronograma` con las cuotas previstas.
+  delete from payment_schedule_items where id = p_item;
+end $fn$;
+
+comment on function quitar_previsto(uuid) is
+  'Borra un previsto que todavía no tiene dinero asignado. Con dinero, se niega y dice qué anular primero (F5-3).';
+
+revoke all on function quitar_previsto(uuid) from public, anon;
+grant execute on function quitar_previsto(uuid) to authenticated;
+
+-- ---------------------------------------------------------------------------
+-- Puerta · saldar un previsto con dinero de verdad
+-- ---------------------------------------------------------------------------
+--
+-- Es el hermano de `app.saldar_documento` para lo que no tiene documento:
+-- crea el movimiento en la cuenta y la asignación que lo ata al previsto. El
+-- estado lo deriva el disparador, no esta función.
+
+create or replace function saldar_previsto(
+  p_item         uuid,
   p_account      uuid,
-  p_direction    cash_direction,
   p_amount       numeric,
-  p_description  text,
   p_value_date   date default null,
-  p_kind         cash_kind default 'operating',
-  p_category     uuid default null,
-  p_client       uuid default null,
   p_external_ref text default null,
-  p_amount_net   numeric default null,
-  p_amount_tax   numeric default null,
-  p_recurring    uuid default null,
-  p_job          uuid default null
+  p_description  text default null
 ) returns setof cash_movements
 language plpgsql security definer set search_path = public, pg_temp as $fn$
 declare
-  v_cuenta record;
-  v_gasto  record;
-  v_suya   text;
-  v_mia    text;
-  v_dec    int;
-  v_importe numeric;
-  v_neto   numeric;
-  v_imp    numeric;
-  v_mov    uuid;
+  v_item      record;
+  v_cuenta    record;
+  v_dec       int;
+  v_importe   numeric;
+  v_asignado  numeric;
+  v_mov       uuid;
 begin
-  select a.* into v_cuenta from cash_accounts a where a.id = p_account;
+  select i.* into v_item from payment_schedule_items i where i.id = p_item for update;
+
+  if v_item.id is null or not app.can_write_money(v_item.organization_id) then
+    raise exception 'previsto_no_encontrado: ese previsto no existe o no es de tu organización';
+  end if;
+
+  if v_item.quote_id is not null then
+    raise exception
+      'cuota_de_cotizacion: «%» es una cuota de una cotización: emite su documento y cóbralo, que es lo que la mete en la cartera',
+      v_item.label;
+  end if;
+
+  if v_item.status = 'cancelled' then
+    raise exception 'previsto_cancelado: «%» está cancelado', v_item.label;
+  end if;
+
+  select a.* into v_cuenta
+    from cash_accounts a
+   where a.id = p_account
+     and a.organization_id = v_item.organization_id
+     and a.legal_entity_id = v_item.legal_entity_id
+     and a.currency_code   = v_item.currency_code;
 
   if v_cuenta.id is null then
-    raise exception 'cuenta_no_encontrada: esa cuenta no existe';
+    raise exception
+      'cuenta_de_otro_libro: «%» está en % y hay que saldarlo desde una cuenta de la misma empresa y moneda',
+      v_item.label, v_item.currency_code;
   end if;
 
-  if not app.can_write_money(v_cuenta.organization_id) then
-    raise exception 'cuenta_no_encontrada: esa cuenta no existe o no es de tu organización';
-  end if;
-
-  if btrim(coalesce(p_description, '')) = '' then
-    raise exception 'descripcion_obligatoria: un movimiento sin concepto no se puede conciliar después';
-  end if;
-
-  select c.minor_units into v_dec from currencies c where c.code = v_cuenta.currency_code;
+  select c.minor_units into v_dec from currencies c where c.code = v_item.currency_code;
   v_importe := round(coalesce(p_amount, 0), v_dec);
 
   if v_importe <= 0 then
-    raise exception 'importe_invalido: el importe va siempre en positivo; el signo lo da la dirección';
+    raise exception 'importe_invalido: un movimiento tiene que ser mayor que cero';
   end if;
 
-  -- -------------------------------------------------------------------------
-  -- Si dice que paga un gasto fijo, se comprueba aquí y con nombres. Lo que
-  -- viene después es la clave compuesta, que impide lo mismo pero sin
-  -- explicarlo.
-  -- -------------------------------------------------------------------------
-  if p_recurring is not null then
-    -- Un gasto recurrente solo se paga; no se cobra. Marcar una entrada como
-    -- pago de una suscripción dejaría la proyección creyendo que ese mes está
-    -- saldado con dinero que entró.
-    if p_direction <> 'out' then
-      raise exception 'recurrente_solo_sale: un gasto recurrente se paga, no se cobra';
-    end if;
+  select coalesce(sum(a.amount), 0) into v_asignado
+    from payment_allocations a
+    join cash_movements m on m.id = a.cash_movement_id and not m.is_void
+   where a.payment_schedule_item_id = p_item;
 
-    select r.* into v_gasto from recurring_expenses r where r.id = p_recurring;
-
-    if v_gasto.id is null or v_gasto.organization_id <> v_cuenta.organization_id then
-      raise exception 'gasto_no_encontrado: ese gasto recurrente no existe o no es de tu organización';
-    end if;
-
-    if v_gasto.legal_entity_id <> v_cuenta.legal_entity_id then
-      select e.legal_name into v_suya from legal_entities e where e.id = v_gasto.legal_entity_id;
-      select e.legal_name into v_mia  from legal_entities e where e.id = v_cuenta.legal_entity_id;
-      raise exception
-        'gasto_de_otra_empresa: «%» lo paga % y % es una cuenta de %. El dinero no cruza de una empresa a otra: elige una cuenta de %, o cambia de empresa el gasto si todavía no tiene pagos',
-        v_gasto.label, v_suya, v_cuenta.name, v_mia, v_suya;
-    end if;
-
-    if v_gasto.currency_code <> v_cuenta.currency_code then
-      select e.legal_name into v_suya from legal_entities e where e.id = v_gasto.legal_entity_id;
-      raise exception
-        'gasto_en_otra_moneda: «%» está en % y % es una cuenta en %. Un pago en otra moneda no salda ese gasto: hace falta una cuenta en % de %, o el gasto en %',
-        v_gasto.label, v_gasto.currency_code, v_cuenta.name, v_cuenta.currency_code,
-        v_gasto.currency_code, v_suya, v_cuenta.currency_code;
-    end if;
-  end if;
-
-  -- -------------------------------------------------------------------------
-  -- Y si dice para qué trabajo es, se comprueba igual: con nombres propios
-  -- antes de que la clave compuesta lo impida sin explicarlo (F5).
-  -- -------------------------------------------------------------------------
-  if p_job is not null then
-    if p_direction <> 'out' then
-      raise exception
-        'no_es_un_gasto: a un trabajo se le atribuye lo que costó. Una entrada de dinero no, porque el ingreso del trabajo sale de la línea que se aprobó y contarla además sería contarla dos veces';
-    end if;
-
-    if p_kind in ('transfer', 'opening') then
-      raise exception
-        'no_es_un_gasto: mover dinero entre tus cuentas o anotar un saldo inicial no es un costo de ningún trabajo (INV-5)';
-    end if;
-
-    perform app.comprueba_el_trabajo(p_job, v_cuenta.organization_id, v_cuenta.legal_entity_id);
-  end if;
-
-  v_neto := case when p_amount_net is null then null else round(p_amount_net, v_dec) end;
-  v_imp  := case when p_amount_tax is null then null else round(p_amount_tax, v_dec) end;
-
-  if v_neto is not null or v_imp is not null then
-    v_neto := coalesce(v_neto, v_importe - coalesce(v_imp, 0));
-    v_imp  := coalesce(v_imp, v_importe - v_neto);
-    if round(v_neto + v_imp, v_dec) <> v_importe then
-      raise exception
-        'desglose_descuadrado: el neto y el impuesto suman % y el movimiento es de %',
-        to_char(v_neto + v_imp, 'FM999999999990.00'), to_char(v_importe, 'FM999999999990.00');
-    end if;
+  if v_asignado >= v_item.amount then
+    raise exception
+      'previsto_ya_saldado: «%» ya está saldado del todo con % de los % previstos',
+      v_item.label,
+      to_char(v_asignado, 'FM999999999990.00'),
+      to_char(v_item.amount, 'FM999999999990.00');
   end if;
 
   insert into cash_movements (
     organization_id, cash_account_id, legal_entity_id, direction, amount,
-    currency_code, value_date, kind, category_id, counterparty_kind, client_id,
-    description, external_ref, amount_net, amount_tax, source, recurring_expense_id,
-    job_id)
+    currency_code, value_date, kind, description, external_ref, source)
   values (
-    v_cuenta.organization_id, p_account, v_cuenta.legal_entity_id, p_direction, v_importe,
-    v_cuenta.currency_code, coalesce(p_value_date, current_date), p_kind, p_category,
-    case when p_client is not null then 'client' else null end, p_client,
-    btrim(p_description), nullif(btrim(coalesce(p_external_ref, '')), ''),
-    v_neto, v_imp,
-    case when p_kind = 'opening' then 'opening'
-         when p_recurring is not null then 'recurring'
-         else 'manual' end,
-    p_recurring, p_job)
+    v_item.organization_id, p_account, v_item.legal_entity_id, v_item.direction::cash_direction,
+    v_importe, v_item.currency_code, coalesce(p_value_date, current_date), 'operating',
+    coalesce(nullif(btrim(coalesce(p_description, '')), ''), v_item.label),
+    nullif(btrim(coalesce(p_external_ref, '')), ''), 'manual')
   returning id into v_mov;
+
+  insert into payment_allocations (
+    organization_id, legal_entity_id, currency_code, cash_movement_id,
+    payment_schedule_item_id, amount)
+  values (
+    v_item.organization_id, v_item.legal_entity_id, v_item.currency_code, v_mov,
+    p_item, v_importe);
 
   return query select * from cash_movements where id = v_mov;
 end $fn$;
 
-comment on function registrar_movimiento(uuid, cash_direction, numeric, text, date, cash_kind, uuid, uuid, text, numeric, numeric, uuid, uuid) is
-  'Alta manual en el libro de caja. Con p_recurring marca qué gasto fijo salda; con p_job, para qué trabajo fue el costo (F3-1, F3-3, F5).';
+comment on function saldar_previsto(uuid, uuid, numeric, date, text, text) is
+  'Registra el dinero de un previsto: crea el movimiento y la asignación. El estado lo deriva el disparador (F5-3).';
 
-revoke all on function registrar_movimiento(uuid, cash_direction, numeric, text, date, cash_kind, uuid, uuid, text, numeric, numeric, uuid, uuid) from public, anon;
-grant execute on function registrar_movimiento(uuid, cash_direction, numeric, text, date, cash_kind, uuid, uuid, text, numeric, numeric, uuid, uuid) to authenticated;
+revoke all on function saldar_previsto(uuid, uuid, numeric, date, text, text) from public, anon;
+grant execute on function saldar_previsto(uuid, uuid, numeric, date, text, text) to authenticated;
 
 -- Queda apuntada en el historial: si no, un despliegue futuro intentaría
 -- aplicarla otra vez y fallaría a mitad.
 insert into supabase_migrations.schema_migrations (version, name)
-values ('20261123120000', 'cuanto_deja_cada_trabajo')
+values ('20261124120000', 'lo_puntual_tambien_es_caja')
 on conflict (version) do nothing;
 
 -- La demo de la pasada anterior, si está. Solo la demo: el slug es exacto y
@@ -1041,6 +594,7 @@ declare
   v_compra uuid;
   v_trab_lanz  uuid;
   v_trab_redes uuid;
+  v_previsto   uuid;
 begin
   -- Quién es el dueño de la demo: el primer usuario del proyecto. En «Margen
   -- Pilot» hay exactamente uno, así que es él; en la CI es uno de los dos de
@@ -1348,6 +902,21 @@ begin
   perform registrar_movimiento(v_bcp, 'out', 236, 'Pauta de prueba en redes',
     current_date - 11, 'operating', v_g_proveedores, null, null, 200, 36,
     null, v_trab_redes);
+
+  -- ------------------------------------------- lo previsto de una sola vez
+  -- Lo que no cabe en una cuota, ni en un gasto fijo, ni en una compra: un
+  -- equipo pactado y un adelanto que van a pasar (INV-15.4). Son plan y no
+  -- dinero: entran en la proyección y no tocan el saldo.
+  select id into v_previsto from guardar_previsto(
+    v_pe, 'out', 'Cámara pactada para enero', 3000, 'PEN',
+    (current_date + interval '45 days')::date, v_bcp);
+  -- Adelantada una parte: la proyección tiene que seguir viendo los 2000 que
+  -- faltan, no los 3000 enteros ni cero.
+  perform saldar_previsto(v_previsto, v_bcp, 1000, current_date - 2, 'OP-771100');
+
+  perform guardar_previsto(
+    v_pe, 'in', 'Adelanto que nos pasa Nova', 1500, 'PEN',
+    (current_date + interval '20 days')::date, v_bcp);
 
   -- ----------------------------------------------------------- gastos fijos
   perform guardar_gasto_recurrente(v_us, 'Adobe Creative Cloud', 59.99, 'USD',

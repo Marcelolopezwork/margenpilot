@@ -63,6 +63,7 @@ declare
   v_compra uuid;
   v_trab_lanz  uuid;
   v_trab_redes uuid;
+  v_previsto   uuid;
 begin
   -- Quién es el dueño de la demo: el primer usuario del proyecto. En «Margen
   -- Pilot» hay exactamente uno, así que es él; en la CI es uno de los dos de
@@ -370,6 +371,21 @@ begin
   perform registrar_movimiento(v_bcp, 'out', 236, 'Pauta de prueba en redes',
     current_date - 11, 'operating', v_g_proveedores, null, null, 200, 36,
     null, v_trab_redes);
+
+  -- ------------------------------------------- lo previsto de una sola vez
+  -- Lo que no cabe en una cuota, ni en un gasto fijo, ni en una compra: un
+  -- equipo pactado y un adelanto que van a pasar (INV-15.4). Son plan y no
+  -- dinero: entran en la proyección y no tocan el saldo.
+  select id into v_previsto from guardar_previsto(
+    v_pe, 'out', 'Cámara pactada para enero', 3000, 'PEN',
+    (current_date + interval '45 days')::date, v_bcp);
+  -- Adelantada una parte: la proyección tiene que seguir viendo los 2000 que
+  -- faltan, no los 3000 enteros ni cero.
+  perform saldar_previsto(v_previsto, v_bcp, 1000, current_date - 2, 'OP-771100');
+
+  perform guardar_previsto(
+    v_pe, 'in', 'Adelanto que nos pasa Nova', 1500, 'PEN',
+    (current_date + interval '20 days')::date, v_bcp);
 
   -- ----------------------------------------------------------- gastos fijos
   perform guardar_gasto_recurrente(v_us, 'Adobe Creative Cloud', 59.99, 'USD',

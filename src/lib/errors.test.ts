@@ -131,3 +131,35 @@ describe('F5 · los trabajos', () => {
     );
   });
 });
+
+describe('F5-3 · los previstos', () => {
+  it('una cuota de cotización dice cuál es y a dónde ir', () => {
+    expect(
+      mensajeDeError({
+        message:
+          'cuota_de_cotizacion: «Pago único» es una cuota de una cotización: emite su documento y cóbralo, que es lo que la mete en la cartera',
+      }),
+    ).toContain('«Pago único»');
+  });
+
+  it('uno con dinero asignado dice qué anular primero', () => {
+    expect(
+      mensajeDeError({
+        message:
+          'previsto_con_dinero: «Cámara pactada» ya tiene un movimiento asignado. Anula ese movimiento desde Caja antes de cambiarlo',
+      }),
+    ).toContain('Anula ese movimiento desde Caja');
+  });
+
+  it('la dirección se explica por lo que decide, no por lo que prohíbe', () => {
+    const frase = mensajeDeError({ message: 'direccion_invalida: un previsto es…' });
+    expect(frase).toContain('con qué movimiento se puede saldar');
+    expect(frase).not.toContain('direccion_invalida');
+  });
+
+  it('la fecha se explica por para qué sirve', () => {
+    expect(mensajeDeError({ message: 'fecha_obligatoria: sin fecha' })).toContain(
+      'no caería en ninguna semana'.replace('caería', 'cae'),
+    );
+  });
+});

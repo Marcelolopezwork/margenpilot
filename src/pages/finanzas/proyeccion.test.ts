@@ -18,6 +18,7 @@ const cuota = (extra: Partial<CuotaEsperada> = {}): CuotaEsperada => ({
   amount: '5653.97',
   currency_code: 'PEN',
   status: 'planned',
+  cobrado: '0.00',
   ...extra,
 });
 
@@ -170,7 +171,9 @@ import {
   periodoDe,
   salidasDeCompras,
   salidasEsperadas,
+  salidasPrevistas,
   type CompraPorPagar,
+  type PrevistoPorSalir,
   type GastoRecurrente,
   type PagoRegistrado,
 } from './proyeccion';
@@ -519,5 +522,106 @@ describe('las compras sin pagar también salen', () => {
     );
     expect(toDb(sinCompras[0]!)).toBe('2000.00');
     expect(toDb(conCompras[0]!)).toBe('820.00');
+  });
+});
+
+describe('lo previsto de una sola vez', () => {
+  const previsto = (x: Partial<PrevistoPorSalir>): PrevistoPorSalir => ({
+    id: 'p-1',
+    label: 'Cámara pactada',
+    due_date: '2026-11-26',
+    currency_code: 'PEN',
+    pendiente: '3000.00',
+    ...x,
+  });
+
+  it('un pago previsto sale en su semana y se cuenta aparte', () => {
+    const semanas = proyeccion([], salidasPrevistas([previsto({})]), PEN, '2026-11-24');
+    expect(toDb(semanas[0]!.sale)).toBe('3000.00');
+    expect(semanas[0]?.previstos).toBe(1);
+    expect(semanas[0]?.gastos).toBe(0);
+    expect(semanas[0]?.compras).toBe(0);
+  });
+
+  it('saldado a medias proyecta lo que falta, no lo pactado', () => {
+    // Pactaste 3 000 y adelantaste 1 000: en la curva quedan 2 000, porque
+    // los otros mil ya están en el saldo.
+    const semanas = proyeccion([], salidasPrevistas([previsto({ pendiente: '2000.00' })]), PEN, '2026-11-24');
+    expect(toDb(semanas[0]!.sale)).toBe('2000.00');
+  });
+
+  it('saldado del todo desaparece', () => {
+    expect(salidasPrevistas([previsto({ pendiente: '0.00' })])).toHaveLength(0);
+  });
+
+  it('uno cuya fecha ya pasó cae en la primera semana y se señala', () => {
+    const semanas = proyeccion(
+      [],
+      salidasPrevistas([previsto({ due_date: '2026-10-01' })]),
+      PEN,
+      '2026-11-24',
+    );
+    expect(toDb(semanas[0]!.saleVencido)).toBe('3000.00');
+  });
+
+  it('los tres orígenes se cuentan por separado en la misma semana', () => {
+    const semanas = proyeccion(
+      [],
+      [
+        ...salidasEsperadas([gasto()], [], '2026-11-01', '2026-12-01'),
+        ...salidasDeCompras([
+          {
+            id: 'c-1',
+            concepto: 'Imprenta',
+            due_date: '2026-11-26',
+            issue_date: '2026-11-01',
+            currency_code: 'PEN',
+            pendiente: '100.00',
+          },
+        ]),
+        ...salidasPrevistas([previsto({})]),
+      ],
+      PEN,
+      '2026-11-24',
+    );
+    const semana = semanas[0]!;
+    expect(semana.gastos).toBe(1);
+    expect(semana.compras).toBe(1);
+    expect(semana.previstos).toBe(1);
+  });
+});
+
+describe('lo ya cobrado de una cuota no se proyecta otra vez', () => {
+  it('una cuota con su documento cobrado a medias proyecta lo que falta', () => {
+    const semanas = proyeccion(
+      [cuota({ due_date: '2026-11-26', amount: '5000.00', cobrado: '2000.00', status: 'documented' })],
+      [],
+      PEN,
+      '2026-11-24',
+    );
+    // Antes proyectaba 5 000 teniendo 2 000 ya en el banco: el mismo dinero
+    // contado dos veces, en la única cifra que existe para no equivocarse.
+    expect(toDb(semanas[0]!.entra)).toBe('3000.00');
+  });
+
+  it('una cuota cobrada del todo no aporta nada aunque siga en «documented»', () => {
+    const semanas = proyeccion(
+      [cuota({ due_date: '2026-11-26', amount: '5000.00', cobrado: '5000.00', status: 'documented' })],
+      [],
+      PEN,
+      '2026-11-24',
+    );
+    expect(toDb(semanas[0]!.entra)).toBe('0.00');
+    expect(semanas[0]?.cuotas).toBe(0);
+  });
+
+  it('y lo cobrado de más tampoco la vuelve negativa', () => {
+    const semanas = proyeccion(
+      [cuota({ due_date: '2026-11-26', amount: '5000.00', cobrado: '5200.00' })],
+      [],
+      PEN,
+      '2026-11-24',
+    );
+    expect(toDb(semanas[0]!.entra)).toBe('0.00');
   });
 });

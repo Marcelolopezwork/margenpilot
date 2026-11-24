@@ -1817,6 +1817,201 @@ begin
     'desatribuir un gasto lo saca del trabajo y no borra el gasto');
 end $$;
 
+-- ---------------------------------------------------------------------------
+-- F5-3 · Lo puntual también es caja (INV-15.4)
+-- ---------------------------------------------------------------------------
+--
+-- Un previsto es un plan sin cotización ni factura detrás. Lo que se vigila
+-- aquí es que su estado salga del dinero y no de un botón, que lo saldado a
+-- medias siga proyectando lo que falta, y que una cuota de cotización no
+-- pueda entrar por estas puertas: habría dos caminos para cobrar una venta y
+-- uno de los dos no dejaría documento.
+
+do $$
+declare
+  v_org     uuid;
+  v_uno     uuid;
+  v_dos     uuid;
+  v_usuario uuid := '11111111-1111-1111-1111-111111111111';
+  v_pen     uuid;
+  v_usd     uuid;
+  v_prev    uuid;
+  v_cobro   uuid;
+  v_mov     uuid;
+  v_cuota   uuid;
+  v_antes   int;
+begin
+  select id into v_org from organizations where slug = 'org-a';
+  select id into v_uno from legal_entities
+   where organization_id = v_org and legal_name = 'Entidad Uno';
+  select id into v_dos from legal_entities
+   where organization_id = v_org and legal_name = 'Entidad Dos';
+  select id into v_pen from cash_accounts
+   where organization_id = v_org and name = 'BCP Soles';
+  select id into v_usd from cash_accounts
+   where organization_id = v_org and name = 'Mercury USD';
+
+  -- -------------------------------------------------------------- la forma
+  perform assert_true(
+    not has_table_privilege('authenticated', 'payment_schedule_items', 'insert')
+    and not has_table_privilege('authenticated', 'payment_schedule_items', 'update'),
+    'un previsto se crea por su puerta: la tabla no acepta escritura suelta');
+
+  -- --------------------------------------------------------- la puerta dice no
+  perform assert_raises(
+    format('select guardar_previsto(%L, ''ambas'', ''Cámara'', 3000, ''PEN'', current_date)', v_uno),
+    'direccion_invalida',
+    'un previsto es dinero que entra o dinero que sale, no las dos cosas');
+
+  perform assert_raises(
+    format('select guardar_previsto(%L, ''out'', ''   '', 3000, ''PEN'', current_date)', v_uno),
+    'etiqueta_obligatoria',
+    'y necesita un nombre que se reconozca en la proyección dentro de dos meses');
+
+  perform assert_raises(
+    format('select guardar_previsto(%L, ''out'', ''Cámara'', 3000, ''PEN'', null)', v_uno),
+    'fecha_obligatoria',
+    'sin fecha no cae en ninguna semana, así que no proyectaría nada');
+
+  perform assert_raises(
+    format('select guardar_previsto(%L, ''out'', ''Cámara'', 0, ''PEN'', current_date)', v_uno),
+    'importe_invalido',
+    'ni con importe cero');
+
+  perform assert_raises(
+    format('select guardar_previsto(%L, ''out'', ''Cámara'', 3000, ''PEN'', current_date, %L)',
+           v_uno, v_usd),
+    'cuenta_de_otro_libro',
+    'la cuenta esperada es del mismo libro y la misma moneda, y lo dice con nombres');
+
+  -- ------------------------------------------------------------ un previsto
+  select id into v_prev from guardar_previsto(
+    v_uno, 'out', 'Cámara pactada', 3000, 'PEN', current_date + 20, v_pen);
+
+  perform assert_true(
+    (select quote_id is null and quote_version_id is null and status = 'planned'
+       and direction = 'out' and amount = 3000
+       from payment_schedule_items where id = v_prev),
+    'un previsto es una fila sin cotización detrás, y nace como plan');
+
+  -- ------------------------------------------------- se salda con dinero
+  perform assert_raises(
+    format('select saldar_previsto(%L, %L, 1000)', v_prev, v_usd),
+    'cuenta_de_otro_libro',
+    'y se salda desde una cuenta de su empresa y su moneda');
+
+  select id into v_mov from saldar_previsto(v_prev, v_pen, 1000, current_date);
+
+  perform assert_true(
+    (select direction = 'out' and amount = 1000 and kind = 'operating'
+       from cash_movements where id = v_mov),
+    'saldarlo crea el movimiento en el sentido del previsto');
+
+  perform assert_true(
+    (select status = 'planned' from payment_schedule_items where id = v_prev),
+    'saldado a medias sigue siendo un plan: faltan 2000 que la proyección tiene que seguir viendo');
+
+  -- El movimiento de un previsto es su propio hecho económico: la asignación
+  -- señala a una cuota, no a un documento, así que INV-6 no lo excluye.
+  perform assert_true(
+    exists (select 1 from economic_facts f where f.source_id = v_mov),
+    'el movimiento de un previsto cuenta en el resultado: no hay documento que lo cuente por él');
+
+  perform saldar_previsto(v_prev, v_pen, 2000, current_date);
+
+  perform assert_true(
+    (select status = 'settled' from payment_schedule_items where id = v_prev),
+    'cubierto del todo, el estado lo pone el dinero y no un botón');
+
+  perform assert_raises(
+    format('select saldar_previsto(%L, %L, 100)', v_prev, v_pen),
+    'previsto_ya_saldado',
+    'y saldado del todo no admite más');
+
+  -- ----------------------------------------------- el tope no se vigila
+  -- Un previsto es una estimación: si la cámara costó 3200 en vez de 3000,
+  -- negarse a registrar el pago sería obligar a editar el plan para poder
+  -- anotar la realidad (INV-15.4.5).
+  select id into v_cobro from guardar_previsto(
+    v_uno, 'out', 'Equipo que se encareció', 3000, 'PEN', current_date + 30);
+  perform assert_true(
+    (select count(*) from saldar_previsto(v_cobro, v_pen, 3200, current_date)) = 1,
+    'pagar más de lo previsto se puede: el plan era una estimación, el movimiento es el dinero');
+  perform assert_true(
+    (select status = 'settled' from payment_schedule_items where id = v_cobro),
+    'y queda saldado');
+
+  -- --------------------------------------------- el sentido sí se vigila
+  select id into v_cobro from guardar_previsto(
+    v_uno, 'in', 'Adelanto que nos van a pasar', 500, 'PEN', current_date + 10);
+
+  select id into v_mov from registrar_movimiento(v_pen, 'out', 500, 'Una salida cualquiera');
+  perform assert_raises(
+    format('insert into payment_allocations (organization_id, legal_entity_id, currency_code,
+              cash_movement_id, payment_schedule_item_id, amount)
+            values (%L, %L, ''PEN'', %L, %L, 500);
+            set constraints all immediate', v_org, v_uno, v_mov, v_cobro),
+    'direccion_no_concuerda',
+    'un pago no salda un cobro previsto');
+
+  -- ------------------------------------------------------------- quitarlo
+  select id into v_cobro from guardar_previsto(
+    v_uno, 'out', 'Previsto que se cae', 400, 'PEN', current_date + 15);
+  perform quitar_previsto(v_cobro);
+  perform assert_true(
+    (select count(*) from payment_schedule_items where id = v_cobro) = 0,
+    'un previsto sin dinero se borra: una proyección no es un hecho económico');
+
+  perform assert_raises(
+    format('select quitar_previsto(%L)', v_prev),
+    'previsto_con_dinero',
+    'pero con dinero asignado no, porque dejaría ese movimiento señalando a algo que no existe');
+
+  perform assert_raises(
+    format('select guardar_previsto(%L, ''out'', ''Otro nombre'', 9000, ''PEN'', current_date, null, %L)',
+           v_uno, v_prev),
+    'previsto_con_dinero',
+    'ni se le cambia el importe: habría que decidir qué pasa con lo ya asignado');
+
+  -- ------------------------------------- una cuota de cotización no entra
+  select id into v_cuota from payment_schedule_items
+   where organization_id = v_org and quote_id is not null limit 1;
+
+  if v_cuota is not null then
+    perform assert_raises(
+      format('select saldar_previsto(%L, %L, 10)', v_cuota, v_pen),
+      'cuota_de_cotizacion',
+      'una cuota de cotización se cobra emitiendo su documento, no por esta puerta');
+
+    perform assert_raises(
+      format('select quitar_previsto(%L)', v_cuota),
+      'cuota_de_cotizacion',
+      'y se quita desde su cronograma, que comprueba que las demás sumen el total');
+  end if;
+
+  -- --------------------------------------------- anular devuelve el plan
+  select id into v_cobro from guardar_previsto(
+    v_uno, 'out', 'Adelanto al freelance', 800, 'PEN', current_date + 5);
+  select id into v_mov from saldar_previsto(v_cobro, v_pen, 800, current_date);
+  perform assert_true(
+    (select status = 'settled' from payment_schedule_items where id = v_cobro),
+    'saldado');
+
+  perform anular_movimiento(v_mov, 'El pago no salió');
+  perform assert_true(
+    (select status = 'planned' from payment_schedule_items where id = v_cobro),
+    'anulado el movimiento, el previsto vuelve a ser un plan y reaparece en la proyección');
+
+  -- Y un previsto de otra empresa no se salda con una cuenta de esta: lo
+  -- impide la misma comprobación de libro.
+  select id into v_cobro from guardar_previsto(
+    v_dos, 'out', 'Algo de la otra empresa', 100, 'PEN', current_date + 3);
+  perform assert_raises(
+    format('select saldar_previsto(%L, %L, 100)', v_cobro, v_pen),
+    'cuenta_de_otro_libro',
+    'el dinero no cruza de una empresa a otra (INV-11)');
+end $$;
+
 reset request.jwt.claim.sub;
 
-select 'TODAS LAS PRUEBAS DE F1 A F5 PASARON · 204 aserciones' as resultado;
+select 'TODAS LAS PRUEBAS DE F1 A F5 PASARON · 228 aserciones' as resultado;
