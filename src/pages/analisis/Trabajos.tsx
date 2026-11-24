@@ -15,6 +15,7 @@ import {
   resumenPorMoneda,
   resumenPorServicio,
   seComenElMargen,
+  sinCostosAnotados,
   type MargenEnBase,
   type ResumenDeServicio,
   type TrabajoEnBase,
@@ -65,16 +66,35 @@ function Cifra({
   );
 }
 
-/** «45 % → 28 %», y los puntos de diferencia con su signo. */
-function Desvio({ resumen }: { resumen: Pick<ResumenDeServicio, 'margenCotizado' | 'margenReal' | 'desvio'> }) {
+/**
+ * «45 % → 28 %», y los puntos de diferencia con su signo.
+ *
+ * Cuando el margen real no se sabe —porque no se anotó un solo costo— lo dice
+ * con palabras en vez de enseñar un guion. Un «—» al lado de un 45 % se lee
+ * como un fallo de la pantalla; «sin costos» se lee como lo que es: falta un
+ * dato, y es el que hundiría la cifra.
+ */
+function Desvio({
+  resumen,
+}: {
+  resumen: Pick<ResumenDeServicio, 'margenCotizado' | 'margenReal' | 'desvio'> & {
+    costoSinAnotar?: boolean;
+  };
+}) {
   const { margenCotizado, margenReal, desvio } = resumen;
   return (
     <span className="whitespace-nowrap tabular-nums">
       {margenCotizado === null ? '—' : formatoTasa(margenCotizado)}
       <span className="mx-1 text-subtle">→</span>
-      <span className={desvio !== null && desvio < 0 ? 'text-warning' : 'text-positive'}>
-        {margenReal === null ? '—' : formatoTasa(margenReal)}
-      </span>
+      {margenReal === null ? (
+        <span className="text-muted">
+          {resumen.costoSinAnotar ? 'sin costos anotados' : '—'}
+        </span>
+      ) : (
+        <span className={desvio !== null && desvio < 0 ? 'text-warning' : 'text-positive'}>
+          {formatoTasa(margenReal)}
+        </span>
+      )}
       {desvio !== null && Math.abs(desvio) >= 0.005 && (
         <span className="ml-2 text-xs text-muted">
           {desvio > 0 ? '+' : '−'}
@@ -193,6 +213,7 @@ export default function Trabajos() {
   const porServicio = resumenPorServicio(todos);
   const conjunto = resumenPorMoneda(todos);
   const comiendo = seComenElMargen(todos);
+  const sinCostos = sinCostosAnotados(todos);
   const sinFacturar = conCostoYSinFacturar(todos);
   const nombreServicio = (id: string | null) =>
     id === null ? 'Sin servicio del catálogo' : (datos.data?.servicios.get(id) ?? 'Servicio quitado');
@@ -228,24 +249,46 @@ export default function Trabajos() {
             <Cifra
               rotulo="Costo real"
               valor={format(r.costo)}
-              nota="Compras y gastos atribuidos"
-              {...(r.costo.minor > r.estimado.minor ? { tono: 'atencion' as const } : {})}
+              nota={
+                r.sinCostos === 0
+                  ? 'Compras y gastos atribuidos'
+                  : `${r.sinCostos} de ${r.cuantos} sin un solo costo anotado`
+              }
+              {...(r.costo.minor > r.estimado.minor || r.sinCostos > 0
+                ? { tono: 'atencion' as const }
+                : {})}
             />
             <Cifra
               rotulo="Deja"
               valor={format(r.utilidad)}
               nota={
-                r.margenReal === null
-                  ? 'Sin precio acordado, no hay porcentaje'
-                  : `${formatoTasa(r.margenReal)} sobre lo acordado`
+                r.sinCostos === r.cuantos
+                  ? 'Es el techo, no el resultado: falta el costo'
+                  : r.margenReal === null
+                    ? 'Sin precio acordado, no hay porcentaje'
+                    : `${formatoTasa(r.margenReal)} sobre lo acordado`
               }
-              {...(r.utilidad.minor > 0n ? { tono: 'positivo' as const } : {})}
+              {...(r.sinCostos === r.cuantos
+                ? { tono: 'atencion' as const }
+                : r.utilidad.minor > 0n
+                  ? { tono: 'positivo' as const }
+                  : {})}
             />
           </div>
           <p className="mt-4 text-sm text-muted">
-            Cotizado <Desvio resumen={r} />
+            Cotizado <Desvio resumen={{ ...r, costoSinAnotar: r.sinCostos === r.cuantos }} />
           </p>
           <Ajenos costos={r.costosAjenos} />
+          {r.sinCostos > 0 && (
+            <p className="mt-2 max-w-prose text-xs text-warning">
+              Este margen real está inflado y sabemos cuánto: hay{' '}
+              {r.sinCostos === 1
+                ? 'un trabajo que suma su precio acordado y cero de costo'
+                : `${r.sinCostos} trabajos que suman su precio acordado y cero de costo`}
+              , porque todavía no se les anotó ninguno. No es que no costaran: es que falta el
+              dato, y es el que baja la cifra.
+            </p>
+          )}
           <p className="mt-3 max-w-prose text-xs text-subtle">
             Los cancelados no entran: su precio acordado no se va a facturar, y meterlos aquí
             hundiría el margen con dinero que nadie perdió.
@@ -288,6 +331,38 @@ export default function Trabajos() {
         </Tarjeta>
       )}
 
+      {sinCostos.length > 0 && (
+        <Tarjeta className="p-5">
+          <h2 className="font-medium">Les falta el costo</h2>
+          <p className="mb-4 mt-2 max-w-prose text-sm text-muted">
+            Se les estimó un costo al cotizar y no tienen ni un apunte. Hasta que lo tengan, su
+            margen real no se puede saber: por eso arriba dice «sin costos anotados» y no un
+            100 % que sería la cifra más cómoda y la menos cierta. Se anotan en Finanzas →
+            Compras si hay factura de proveedor, o en Caja si es un gasto suelto.
+          </p>
+          <Lista>
+            {sinCostos.map((t) => (
+              <Fila
+                key={t.id}
+                principal={
+                  <>
+                    <span className="font-medium">{t.nombre}</span>
+                    <Etiqueta tono="atencion">sin costos</Etiqueta>
+                  </>
+                }
+                secundario={
+                  <>
+                    {format(t.acordado)} acordados y {format(t.estimado)} de costo estimado al
+                    cotizar, que es {t.margenCotizado === null ? '—' : formatoTasa(t.margenCotizado)}{' '}
+                    de margen prometido.
+                  </>
+                }
+              />
+            ))}
+          </Lista>
+        </Tarjeta>
+      )}
+
       {sinFacturar.length > 0 && (
         <Aviso tipo="atencion">
           {sinFacturar.length === 1
@@ -321,10 +396,18 @@ export default function Trabajos() {
                   <>
                     {format(r.acordado)} acordados, {format(r.costo)} de costo real, deja{' '}
                     {format(r.utilidad)}.
+                    {r.sinCostos > 0 && (
+                      <span className="text-warning">
+                        {' '}
+                        Inflado: {r.sinCostos} de {r.cuantos} sin costos anotados.
+                      </span>
+                    )}
                     <Ajenos costos={r.costosAjenos} />
                   </>
                 }
-                extremo={<Desvio resumen={r} />}
+                extremo={
+                  <Desvio resumen={{ ...r, costoSinAnotar: r.sinCostos === r.cuantos }} />
+                }
               />
             ))}
           </Lista>
@@ -370,6 +453,11 @@ export default function Trabajos() {
                       Facturado {format(t.facturado)}
                       {t.porFacturar.minor > 0n && `, quedan ${format(t.porFacturar)} por facturar`}
                       .{' '}
+                      {t.costoSinAnotar && (
+                        <span className="text-warning">
+                          Sin un solo costo anotado, así que su margen real todavía no se sabe.
+                        </span>
+                      )}{' '}
                       {t.estado === 'cancelled' && (
                         <span className="text-muted">
                           Cancelado: no se le calcula margen, porque su precio acordado ya no se va

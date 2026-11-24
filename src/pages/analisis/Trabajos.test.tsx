@@ -90,15 +90,21 @@ const trabajo = (extra: Record<string, unknown>) => ({
   ...extra,
 });
 
-const cifras = (extra: Record<string, unknown>) => ({
-  job_id: 'j-1',
-  currency_code: 'PEN',
-  ingreso_neto: '0.00',
-  costo_neto: '0.00',
-  documentos: 0,
-  costos: 0,
-  ...extra,
-});
+const cifras = (extra: Record<string, unknown>) => {
+  const fila = {
+    job_id: 'j-1',
+    currency_code: 'PEN',
+    ingreso_neto: '0.00',
+    costo_neto: '0.00',
+    documentos: 0,
+    costos: 0,
+    ...extra,
+  };
+  // La vista nunca devuelve importe sin apuntes detrás (ver trabajo.test.ts).
+  if (fila.costos === 0 && Number(fila.costo_neto) !== 0) fila.costos = 1;
+  if (fila.documentos === 0 && Number(fila.ingreso_neto) !== 0) fila.documentos = 1;
+  return fila;
+};
 
 async function montar(rol: Enums<'membership_role'> = 'owner') {
   const { default: Trabajos } = await import('./Trabajos');
@@ -256,6 +262,37 @@ describe('Análisis · Trabajos', () => {
     expect(
       await screen.findByText(/ya cuesta S\/ 200.00 y no tiene ni una factura emitida/),
     ).toBeTruthy();
+  });
+
+  it('un trabajo sin costos anotados no enseña 100 %: enseña que no se sabe', async () => {
+    TRABAJOS.push(trabajo({}));
+    MARGENES.push(cifras({ ingreso_neto: '600.00' }));
+    await montar();
+
+    expect((await screen.findAllByText('sin costos anotados')).length).toBeGreaterThan(0);
+    expect(screen.queryByText('100 %')).toBeNull();
+    // Y sale en su propia lista, con lo que hay que hacer para rellenarla.
+    expect(screen.getByText('Les falta el costo')).toBeTruthy();
+    expect(screen.getByText(/Se anotan en Finanzas/)).toBeTruthy();
+  });
+
+  it('y el conjunto avisa de que su margen está inflado, y por cuántos', async () => {
+    TRABAJOS.push(trabajo({ id: 'j-con' }), trabajo({ id: 'j-sin' }));
+    MARGENES.push(cifras({ job_id: 'j-con', costo_neto: '300.00' }));
+    await montar();
+
+    expect(await screen.findByText(/1 de 2 sin un solo costo anotado/)).toBeTruthy();
+    expect(screen.getByText(/Este margen real está inflado y sabemos cuánto/)).toBeTruthy();
+  });
+
+  it('si la cotización no estimó costo, el 100 % sí se enseña', async () => {
+    TRABAJOS.push(trabajo({ expected_cost: '0.00' }));
+    MARGENES.push(cifras({ ingreso_neto: '600.00' }));
+    await montar();
+
+    await screen.findByText('El conjunto · PEN');
+    expect(screen.getAllByText('100 %').length).toBeGreaterThan(0);
+    expect(screen.queryByText('Les falta el costo')).toBeNull();
   });
 
   it('dice lo que todavía no sabe: cuántas horas se le fueron', async () => {

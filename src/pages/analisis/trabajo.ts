@@ -116,10 +116,16 @@ export interface TrabajoConMargen {
   porFacturar: Money;
   /** (acordado − estimado) / acordado. Null si no hay precio. */
   margenCotizado: number | null;
-  /** (acordado − costo) / acordado. Null si no hay precio o está cancelado. */
+  /**
+   * (acordado − costo) / acordado. Null cuando no hay precio, cuando está
+   * cancelado o cuando todavía no se anotó un solo costo teniendo estimado:
+   * entonces no es 100 %, es que no se sabe.
+   */
   margenReal: number | null;
   /** Puntos de diferencia entre los dos. Negativo = se está comiendo. */
   desvio: number | null;
+  /** Se estimó costo y no hay ni un apunte: el margen real no se sabe aún. */
+  costoSinAnotar: boolean;
   /** Cuántas compras y gastos se le atribuyeron, en su moneda. */
   cuantosCostos: number;
   /** Cuántos documentos de venta hay detrás de lo facturado. */
@@ -189,8 +195,28 @@ export function conMargen(
     }
 
     const margenCotizado = marginPercent(acordado, estimado);
-    // Un trabajo cancelado no se mide contra un precio que ya no va a cobrar.
-    const margenReal = estado === 'cancelled' ? null : marginPercent(acordado, costo);
+
+    /*
+      Un trabajo al que no se le anotó un solo costo, habiéndose estimado uno,
+      no tiene margen real del 100 %: tiene uno que todavía no se sabe. Y el
+      100 % es la mentira más cómoda que este producto podría contar, porque
+      llega con un desvío magnífico a favor justo cuando falta el dato que lo
+      hundiría. Es el mismo aviso que ya da el editor de cotizaciones cuando
+      una línea no tiene costos cargados.
+
+      Si el costo estimado también era cero, el 100 % sí es la cifra: la
+      cotización dijo que no costaba nada y el desvío sale cero, que es
+      coherente. Lo que no se puede es confundir «no cuesta» con «no se anotó».
+
+      Los costos en otra moneda no cuentan como anotados a estos efectos: el
+      costo en la moneda del trabajo sigue siendo cero, y el margen de su
+      moneda sigue sin saberse.
+    */
+    const costoSinAnotar = cuantosCostos === 0 && estimado.minor > 0n;
+
+    // Y un trabajo cancelado no se mide contra un precio que ya no va a cobrar.
+    const margenReal =
+      estado === 'cancelled' || costoSinAnotar ? null : marginPercent(acordado, costo);
 
     const pendiente = subtract(acordado, facturado);
 
@@ -211,6 +237,7 @@ export function conMargen(
       margenReal,
       desvio:
         margenCotizado === null || margenReal === null ? null : margenReal - margenCotizado,
+      costoSinAnotar,
       cuantosCostos,
       cuantosDocumentos,
       costosAjenos: ajenos.sort((a, b) => a.moneda.localeCompare(b.moneda)),
@@ -232,6 +259,13 @@ export interface ResumenDeServicio {
   margenReal: number | null;
   desvio: number | null;
   cuantos: number;
+  /**
+   * Cuántos del grupo no tienen un solo costo anotado. Mientras sea mayor que
+   * cero, el margen real de este servicio está inflado: esos trabajos siguen
+   * sumando su precio acordado y cero de costo. La cifra se enseña igual —es
+   * la que hay— pero diciendo sobre cuántos se apoya.
+   */
+  sinCostos: number;
   costosAjenos: CostoAjeno[];
 }
 
@@ -288,10 +322,25 @@ export function resumenPorServicio(
       grupo.map((t) => ({ netPrice: t.acordado, directCost: t.estimado })),
       moneda,
     );
-    const margenReal = aggregateMarginPercent(
-      grupo.map((t) => ({ netPrice: t.acordado, directCost: t.costo })),
-      moneda,
-    );
+    const sinCostos = grupo.filter((t) => t.costoSinAnotar).length;
+
+    /*
+      Si a NINGUNO del grupo se le anotó un costo, el grupo tampoco tiene
+      margen real: tendría el 100 %, que es la misma mentira cómoda de un
+      trabajo suelto pero con más autoridad, porque viene de una suma.
+
+      Si a alguno sí, la cifra se calcula y se enseña: es la que hay, está
+      inflada en una cantidad conocida, y `sinCostos` dice en cuántos
+      trabajos se apoya esa inflación. Esconderla sería peor, porque entonces
+      un servicio con nueve trabajos medidos y uno sin medir no diría nada.
+    */
+    const margenReal =
+      sinCostos === grupo.length
+        ? null
+        : aggregateMarginPercent(
+            grupo.map((t) => ({ netPrice: t.acordado, directCost: t.costo })),
+            moneda,
+          );
 
     salida.push({
       servicioId,
@@ -305,6 +354,7 @@ export function resumenPorServicio(
       desvio:
         margenCotizado === null || margenReal === null ? null : margenReal - margenCotizado,
       cuantos: grupo.length,
+      sinCostos,
       costosAjenos: [...ajenos.values()].sort((a, b) => a.moneda.localeCompare(b.moneda)),
     });
   }
@@ -341,6 +391,18 @@ export function seComenElMargen(
   return trabajos
     .filter((t) => t.estado !== 'cancelled' && t.desvio !== null && t.desvio < -puntos)
     .sort((a, b) => (a.desvio ?? 0) - (b.desvio ?? 0));
+}
+
+/**
+ * Los trabajos a los que no se les anotó un solo costo teniendo estimado. Son
+ * los que hay que rellenar antes de que el margen por servicio signifique
+ * algo, y van en su propia lista: sin ellos a la vista, el resumen enseña un
+ * margen inflado y nadie sabe por qué.
+ */
+export function sinCostosAnotados(
+  trabajos: readonly TrabajoConMargen[],
+): TrabajoConMargen[] {
+  return trabajos.filter((t) => t.estado !== 'cancelled' && t.costoSinAnotar);
 }
 
 /** Los trabajos que ya cuestan y todavía no tienen una sola factura emitida. */

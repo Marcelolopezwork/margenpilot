@@ -130,6 +130,8 @@ Implantado el 23/11/2026 (F5). Un trabajo (`jobs`) nace al aprobar una cotizaci�
 7. **Dos monedas no se suman** (INV-10). `job_margins` devuelve una fila por trabajo y moneda. Un costo en dólares de un trabajo en soles se enseña aparte y sin convertir: convertirlo en silencio daría un margen que depende del día.
 8. **Este lente no es el resultado del mes y no lo alimenta.** El reparto por línea redondea, así que los céntimos de los trabajos de una cotización pueden no sumar exactamente su documento. El resultado del periodo sigue saliendo de `economic_facts` sin pasar por aquí, que es donde los céntimos tienen que cuadrar.
 
+9. **Un costo que no se anotó no es un costo de cero.** Si a un trabajo con costo estimado no se le atribuyó ni un apunte, su margen real **no se sabe**: no es el 100 %. Enseñar el 100 % sería la mentira más cómoda del producto, porque llega con un desvío magnífico a favor justo cuando falta el dato que lo hundiría. Si el costo estimado también era cero, el 100 % sí es la cifra —la cotización dijo que no costaba nada y el desvío sale cero—: lo que no se puede es confundir «no costó» con «no se anotó». Lo mismo en grupo: si a ninguno del servicio se le anotó costo, el servicio tampoco tiene margen real; si a alguno sí, la cifra se enseña diciendo en cuántos trabajos se apoya, porque esconderla haría que un servicio con nueve medidos y uno sin medir no dijera nada. Encontrado el 24/11 mirando los datos reales: una cotización aprobada antes de esta migración enseñaba «cotizaste 46 % y te está dejando 100 %».
+
 Lo que esto **todavía no** permite: repartir una factura entre dos trabajos, y saber cuántas horas se le fueron a cada uno. Un trabajo sabe cuánto dinero costó, no cuánto tiempo.
 
 ---

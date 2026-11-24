@@ -27,15 +27,24 @@ const trabajo = (x: Partial<TrabajoEnBase>): TrabajoEnBase => ({
   ...x,
 });
 
-const cifras = (x: Partial<MargenEnBase>): MargenEnBase => ({
-  job_id: 'j-1',
-  currency_code: 'PEN',
-  ingreso_neto: '0.00',
-  costo_neto: '0.00',
-  documentos: 0,
-  costos: 0,
-  ...x,
-});
+const cifras = (x: Partial<MargenEnBase>): MargenEnBase => {
+  const fila: MargenEnBase = {
+    job_id: 'j-1',
+    currency_code: 'PEN',
+    ingreso_neto: '0.00',
+    costo_neto: '0.00',
+    documentos: 0,
+    costos: 0,
+    ...x,
+  };
+  // La vista nunca devuelve importe sin apuntes detrás: si hay costo, hay al
+  // menos una fila que lo produjo. El ayudante lo respeta para que ninguna
+  // prueba se apoye en datos que la base no puede dar —y «no hay ni un
+  // apunte» es justo lo que distingue «no costó» de «no se anotó»—.
+  if (fila.costos === 0 && Number(fila.costo_neto) !== 0) fila.costos = 1;
+  if (fila.documentos === 0 && Number(fila.ingreso_neto) !== 0) fila.documentos = 1;
+  return fila;
+};
 
 describe('los dos márgenes de un trabajo se miden con la misma vara', () => {
   it('el cotizado y el real comparten denominador, así que su diferencia significa algo', () => {
@@ -62,14 +71,46 @@ describe('los dos márgenes de un trabajo se miden con la misma vara', () => {
     expect(format(marzo!.porFacturar)).toBe('S/ 0.00');
   });
 
-  it('un trabajo sin nada todavía tiene margen cotizado y ningún costo', () => {
+  it('sin un solo costo anotado el margen real no es 100 %: no se sabe', () => {
     const [t] = conMargen([trabajo({})], []);
 
     expect(t!.margenCotizado).toBeCloseTo(50);
-    expect(t!.margenReal).toBeCloseTo(100);
+    // El 100 % sería la cifra más cómoda y la menos cierta: llega con un
+    // desvío magnífico a favor justo cuando falta el dato que lo hundiría.
+    expect(t!.margenReal).toBeNull();
+    expect(t!.desvio).toBeNull();
+    expect(t!.costoSinAnotar).toBe(true);
     expect(format(t!.costo)).toBe('S/ 0.00');
-    expect(format(t!.facturado)).toBe('S/ 0.00');
     expect(t!.cuantosCostos).toBe(0);
+  });
+
+  it('pero si la cotización dijo que no costaba nada, el 100 % sí es la cifra', () => {
+    const [t] = conMargen([trabajo({ expected_cost: '0.00' })], []);
+
+    expect(t!.costoSinAnotar).toBe(false);
+    expect(t!.margenCotizado).toBeCloseTo(100);
+    expect(t!.margenReal).toBeCloseTo(100);
+    // Y el desvío sale cero, que es lo coherente: salió como se cotizó.
+    expect(t!.desvio).toBeCloseTo(0);
+  });
+
+  it('un costo en otra moneda no cuenta como anotado: el de su moneda sigue sin saberse', () => {
+    const [t] = conMargen(
+      [trabajo({})],
+      [cifras({ currency_code: 'USD', costo_neto: '50.00' })],
+    );
+
+    expect(t!.costoSinAnotar).toBe(true);
+    expect(t!.margenReal).toBeNull();
+    expect(t!.costosAjenos).toHaveLength(1);
+  });
+
+  it('un trabajo con un apunte ya tiene margen real, aunque sea mejor que el cotizado', () => {
+    const [t] = conMargen([trabajo({})], [cifras({ costo_neto: '100.00' })]);
+
+    expect(t!.costoSinAnotar).toBe(false);
+    expect(t!.margenReal).toBeCloseTo(83.333, 2);
+    expect(t!.desvio).toBeCloseTo(33.333, 2);
   });
 
   it('un trabajo cancelado no se mide contra un precio que ya no va a cobrar', () => {
@@ -309,5 +350,44 @@ describe('el conjunto', () => {
       [],
     );
     expect(resumenPorMoneda(trabajos).map((w) => w.moneda)).toEqual(['PEN', 'USD']);
+  });
+});
+
+describe('el margen que no se sabe, en grupo', () => {
+  it('si a ninguno se le anotó costo, el grupo tampoco tiene margen real', () => {
+    const trabajos = conMargen(
+      [trabajo({ id: 'j-1' }), trabajo({ id: 'j-2' })],
+      [],
+    );
+
+    const [fila] = resumenPorServicio(trabajos);
+    expect(fila!.sinCostos).toBe(2);
+    expect(fila!.cuantos).toBe(2);
+    // El 100 % de una suma es la misma mentira con más autoridad.
+    expect(fila!.margenReal).toBeNull();
+    expect(fila!.desvio).toBeNull();
+    // Pero lo acordado y lo estimado son hechos y siguen ahí.
+    expect(format(fila!.acordado)).toBe('S/ 1,200.00');
+    expect(fila!.margenCotizado).toBeCloseTo(50);
+  });
+
+  it('si a alguno sí, la cifra se enseña y se dice en cuántos se apoya', () => {
+    const trabajos = conMargen(
+      [trabajo({ id: 'j-medido' }), trabajo({ id: 'j-sin' })],
+      [cifras({ job_id: 'j-medido', costo_neto: '300.00' })],
+    );
+
+    const [fila] = resumenPorServicio(trabajos);
+    expect(fila!.sinCostos).toBe(1);
+    // (1 200 − 300) / 1 200 = 75 %, inflado por el que falta, y se dice.
+    expect(fila!.margenReal).toBeCloseTo(75);
+  });
+
+  it('un grupo sin costos estimados sí tiene su 100 %: se cotizó así', () => {
+    const trabajos = conMargen([trabajo({ expected_cost: '0.00' })], []);
+    const [fila] = resumenPorServicio(trabajos);
+    expect(fila!.sinCostos).toBe(0);
+    expect(fila!.margenReal).toBeCloseTo(100);
+    expect(fila!.desvio).toBeCloseTo(0);
   });
 });
