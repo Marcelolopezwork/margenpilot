@@ -23,6 +23,7 @@ import {
   lunesDe,
   monedasConMovimiento,
   proyeccion,
+  salidasDeCompras,
   salidasEsperadas,
   saldoProyectado,
   sumarSemanas,
@@ -130,7 +131,7 @@ export default function Home() {
     queryFn: async () => {
       let q = requireSupabase()
         .from('billing_documents')
-        .select('id, description, series_number, due_date, currency_code, amount_total, amount_tax, status, legal_entity_id')
+        .select('id, description, series_number, issue_date, due_date, currency_code, amount_total, amount_tax, status, legal_entity_id')
         .eq('organization_id', organizacion.id)
         .eq('direction', 'purchase')
         .in('status', ['open', 'partially_paid'])
@@ -151,6 +152,7 @@ export default function Home() {
             (d.series_number ?? '').trim() ||
             'Compra sin número',
           due_date: d.due_date,
+          issue_date: d.issue_date,
           currency_code: d.currency_code,
           atraso:
             d.due_date && d.due_date < hoy
@@ -362,7 +364,28 @@ export default function Home() {
     value_date: p.value_date,
     is_void: p.is_void,
   }));
-  const salidas = salidasEsperadas(gastosFijos, pagos, ventanaDesde, ventanaHasta);
+  /*
+    Las facturas de proveedor sin pagar se suman a lo que sale. No se les
+    aplica la ventana de trece semanas hacia atrás que sí llevan los gastos
+    fijos, y la asimetría es deliberada: los meses sin pagar de una
+    suscripción se **deducen** —nadie afirmó que no se pagaran—, mientras que
+    una factura sin pagar es un hecho anotado que sigue siendo deuda hasta
+    que se pague o se anule, sin fecha de caducidad. Si venció hace cinco
+    meses, la debes igual, y la primera semana se la queda y lo señala.
+  */
+  const salidas = [
+    ...salidasEsperadas(gastosFijos, pagos, ventanaDesde, ventanaHasta),
+    ...salidasDeCompras(
+      deudas.map((d) => ({
+        id: d.id,
+        concepto: d.concepto,
+        due_date: d.due_date,
+        issue_date: d.issue_date,
+        currency_code: d.currency_code,
+        pendiente: toDb(d.pendiente),
+      })),
+    ),
+  ];
   const monedasProyectadas = monedasConMovimiento(esperadas, salidas);
 
   // Qué concepto cae en qué semana. La aritmética la lleva `proyeccion`; esto
@@ -629,6 +652,35 @@ export default function Home() {
             const conMovimiento = semanas.filter(
               (x) => x.entra.minor > 0n || x.sale.minor > 0n,
             );
+            /*
+              Qué hay detrás de esta curva, en ESTA moneda. Se cuentan cosas
+              distintas y no vencimientos: una suscripción mensual aporta seis
+              ocurrencias en trece semanas y decir «6 gastos fijos» haría
+              buscar cinco que no existen.
+
+              El corte por fecha es el mismo que usa `proyeccion`, para que el
+              recuento no mencione nada que no esté dibujado encima.
+            */
+            const suyas = salidas.filter((x) => {
+              if (x.due_date >= ventanaHasta) return false;
+              try {
+                return currencyOf(x.currency_code) === moneda;
+              } catch {
+                return false;
+              }
+            });
+            const cuantosGastos = new Set(
+              suyas.filter((x) => x.origen === 'recurrente').map((x) => x.gasto),
+            ).size;
+            const cuantasCompras = new Set(
+              suyas.filter((x) => x.origen === 'compra').map((x) => x.gasto),
+            ).size;
+            const incluye = [
+              cuantosGastos > 0 &&
+                `${cuantosGastos} ${cuantosGastos === 1 ? 'gasto fijo' : 'gastos fijos'}`,
+              cuantasCompras > 0 &&
+                `${cuantasCompras} ${cuantasCompras === 1 ? 'factura de proveedor sin pagar' : 'facturas de proveedor sin pagar'}`,
+            ].filter((x): x is string => typeof x === 'string');
 
             return (
               <Tarjeta key={moneda} className="p-5">
@@ -750,9 +802,9 @@ export default function Home() {
                 )}
 
                 <p className="mt-3 max-w-prose text-xs text-subtle">
-                  {gastosFijos.length === 0
-                    ? 'Solo entradas: todavía no hay ningún gasto fijo cargado, así que la proyección es optimista por construcción.'
-                    : `Incluye ${gastosFijos.length} ${gastosFijos.length === 1 ? 'gasto fijo' : 'gastos fijos'}. Lo que no incluye todavía son las compras con documento y los pagos de una sola vez.`}
+                  {incluye.length === 0
+                    ? 'Solo entradas: en esta moneda no hay ningún gasto fijo ni ninguna factura de proveedor sin pagar, así que la proyección es optimista por construcción.'
+                    : `Incluye ${incluye.join(' y ')}. De las compras entra lo que falta por pagar, con su IGV dentro: del banco sale el total, aunque el impuesto no sea gasto tuyo. Lo que no incluye todavía son los pagos de una sola vez con fecha futura.`}
                 </p>
               </Tarjeta>
             );

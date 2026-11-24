@@ -255,6 +255,30 @@ describe('Inicio', () => {
     expect(screen.getByText(/Incluye 1 gasto fijo/)).toBeTruthy();
   });
 
+  /**
+   * La proyección era optimista por construcción: sabía que debías 1 180 el
+   * día 30 y la curva no se enteraba. Esto es lo que lo vigila.
+   */
+  it('una factura de proveedor sin pagar resta de la proyección', async () => {
+    CUENTAS.push(cuenta('cta-1', 'BCP soles', 'PEN'));
+    SALDOS.push({ cash_account_id: 'cta-1', balance: '2000.00' });
+    DOCUMENTOS.push({
+      id: 'd-c1', direction: 'purchase', description: 'Impresión del lanzamiento',
+      series_number: 'F002-450', issue_date: '2026-11-02', due_date: '2026-11-20',
+      currency_code: 'PEN', amount_total: '1180.00', amount_tax: '180.00',
+      status: 'open', legal_entity_id: 'e-1',
+    });
+    await montar();
+    await screen.findByText(/Flujo de caja/);
+
+    // Sale el total, con el IGV dentro: del banco salen 1 180, no 1 000.
+    expect(screen.getAllByText('-S/ 1,180.00').length).toBeGreaterThan(0);
+    expect(screen.getAllByText(/pagas Impresión del lanzamiento/).length).toBeGreaterThan(0);
+    expect(screen.getByText(/Incluye 1 factura de proveedor sin pagar/)).toBeTruthy();
+    // Y en trece semanas cierra con 820, no con los 2 000 de hoy.
+    expect(screen.getAllByText('S/ 820.00').length).toBeGreaterThan(0);
+  });
+
   it('avisa de la semana en que el saldo proyectado cruza el cero', async () => {
     CUENTAS.push(cuenta('cta-1', 'BCP soles', 'PEN'));
     SALDOS.push({ cash_account_id: 'cta-1', balance: '300.00' });

@@ -179,7 +179,7 @@ caja (BCP soles en PEN, Mercury en USD), un cliente y una cotización de prueba.
 
 ### Verificación
 
-- **353 pruebas** de Vitest: dinero, errores, formato, armazón, altas, el A4,
+- **363 pruebas** de Vitest: dinero, errores, formato, armazón, altas, el A4,
   la propuesta, la aritmética de la cotización, el panel de emisión, la
   reimpresión de una versión emitida, el reparto en cuotas, el margen
   agregado, la cartera, la pantalla de finanzas, la proyección de caja con sus
@@ -355,20 +355,15 @@ Lo que resuelve, y por qué cada cosa es estructura y no aviso:
 
 Lo que falta de F3, por orden:
 
-1. **Las compras anotadas no entran en la proyección de caja.** Desde F3-6 el
-   sistema sabe que debes 1.180 el día 30, pero la proyección de trece semanas
-   solo mira las cuotas de cobro y los gastos fijos. Es la pieza más barata que
-   queda y la que más cambia la cifra: hoy la proyección es optimista por
-   construcción.
-2. **Conciliación bancaria** (INV-8) e importación de extractos.
-3. **Pagos de una sola vez con fecha futura** sin factura detrás: un adelanto,
+1. **Conciliación bancaria** (INV-8) e importación de extractos.
+2. **Pagos de una sola vez con fecha futura** sin factura detrás: un adelanto,
    una compra de equipo pactada. No caben ni en las cuotas, ni en los gastos
-   fijos, ni en las compras.
-4. **Repartir una factura entre dos trabajos.** Hoy una compra pertenece a un
+   fijos, ni en las compras. Es lo único que le falta ya a la proyección.
+3. **Repartir una factura entre dos trabajos.** Hoy una compra pertenece a un
    trabajo o a ninguno. Si una imprenta factura dos campañas juntas, hay que
    pedir dos facturas o anotarla en la que pese más. Hace falta una tabla de
    reparto con su propio tope, como `payment_allocations`.
-5. **Las horas.** Un trabajo sabe cuánto dinero costó, no cuánto tiempo. Es la
+4. **Las horas.** Un trabajo sabe cuánto dinero costó, no cuánto tiempo. Es la
    mitad que falta del «cuánto deja»: un trabajo que dejó 40 % pero se comió
    tres semanas de dos personas no dejó 40 %.
 
@@ -448,6 +443,25 @@ quedarían dos puertas de las que una no sabe de trabajos.
 Análisis pasó a tener dos lentes: `/analisis/resultado` (lo que había) y
 `/analisis/trabajos`. `Analisis.tsx` es ahora el armazón con las dos pestañas
 y la pantalla de antes se llama `Resultados.tsx`.
+
+### F5-2 · La proyección cuenta lo que sale
+
+Hecho el 24/11. Era la pieza más barata que quedaba y la que más mueve la
+cifra: el sistema sabía que debías 1 180 el día 30 y la curva de trece semanas
+no se enteraba, porque solo miraba cobros previstos y gastos fijos. Era
+optimista **por construcción**, que es la peor forma de equivocarse en una
+cifra que existe para decidir si llegas a fin de mes.
+
+Las facturas de proveedor sin pagar se convierten en salidas esperadas en vez
+de proyectarse por su cuenta, así que la aritmética de las semanas sigue
+escrita una sola vez y una compra vencida cae en la primera semana por la
+misma regla que ya tenía una suscripción atrasada. Lo demás está en INV-15: lo
+que falta por pagar y no el total, con el IGV dentro porque esto es caja y no
+resultado, y por el vencimiento o, si no hay, por el día de la factura.
+
+La nota de la tarjeta cuenta cosas distintas y no vencimientos: una
+suscripción mensual aporta seis ocurrencias en trece semanas, y decir «6
+gastos fijos» haría buscar cinco que no existen.
 
 ### Pendiente de Marcelo, no de código
 

@@ -115,6 +115,15 @@ Implantado el 10/11/2026 (F3-6). Las ventas y las compras viven en la misma tabl
 
 Lo que faltaba —saber para qué trabajo era cada compra— lo resuelve INV-14. La categoría dice en qué se fue el dinero y el proveedor dice a quién; ninguna de las dos decía para qué trabajo.
 
+### INV-15 — La proyección de caja cuenta todo lo que sale, o es optimista por construcción
+Añadida el 24/11/2026. La proyección de trece semanas vive en `src/pages/finanzas/proyeccion.ts` y sus cinco decisiones están escritas ahí. La que faltaba: **una factura de proveedor sin pagar también sale.** Hasta hoy la curva miraba los cobros previstos y los gastos fijos, y nada más, así que el sistema sabía que debías 1 180 el día 30 y la curva no se enteraba. Tres corolarios:
+
+1. **Entra lo que falta por pagar, no el total.** Lo ya pagado está en el saldo, y contarlo otra vez sería contar el mismo dinero dos veces (decisión 2 de la proyección, que es INV-1 aplicada).
+2. **Con el IGV dentro.** Esto es caja, no resultado: el impuesto de una compra no es gasto tuyo (INV-12.4) pero sale del banco igual. Una proyección que lo descontara se quedaría corta en el 18 % de cada factura.
+3. **La fecha es el vencimiento y, si no hay, el día de la factura.** Una compra sin plazo acordado se paga al recibirla; suponerle treinta días empujaría el dinero a una semana futura y dejaría la curva optimista otra vez. Y lo vencido no se descarta ni se esconde en su semana pasada: cae en la primera y se señala, igual que una suscripción atrasada. A las compras no se les aplica el tope de trece semanas hacia atrás que sí llevan los gastos fijos, y la asimetría es deliberada: los meses sin pagar de una suscripción se **deducen** —nadie afirmó que no se pagaran—, mientras que una factura sin pagar es un hecho anotado que sigue siendo deuda hasta que se pague o se anule.
+
+Lo que la proyección **todavía no** ve: los pagos de una sola vez con fecha futura sin factura detrás —un adelanto, un equipo pactado—, que no caben ni en las cuotas, ni en los gastos fijos, ni en las compras.
+
 ### INV-13 — Un documento se anula; no se borra ni se vacía
 `anular_documento` marca `status='void'` con su motivo escrito, y se **niega** si el documento tiene movimientos vivos asignados (`documento_con_dinero`): anularlo dejando sus cobros o pagos vivos convertiría ese dinero en una entrada o salida sin hecho que la explique. El orden es: primero el movimiento, después el documento. Al anularlo, la cuota de la que salió vuelve a `planned` con su `billing_document_id` en nulo, porque si no quedaría «documentada» señalando a un documento anulado y no habría forma de volver a facturarla.
 

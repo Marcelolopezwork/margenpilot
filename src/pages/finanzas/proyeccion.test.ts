@@ -168,7 +168,9 @@ import {
   nombreCadencia,
   ocurrencias,
   periodoDe,
+  salidasDeCompras,
   salidasEsperadas,
+  type CompraPorPagar,
   type GastoRecurrente,
   type PagoRegistrado,
 } from './proyeccion';
@@ -317,7 +319,7 @@ describe('la proyección con salidas', () => {
   it('resta lo que sale y deja el neto de la semana', () => {
     const semanas = proyeccion(
       [cuota({ due_date: '2026-11-12', amount: '5000.00' })],
-      [{ gasto: 'g-1', label: 'Claude Code', due_date: '2026-11-13', amount: '800.00', currency_code: 'PEN' }],
+      [{ gasto: 'g-1', label: 'Claude Code', due_date: '2026-11-13', amount: '800.00', currency_code: 'PEN', origen: 'recurrente' }],
       PEN,
       '2026-11-06',
     );
@@ -330,7 +332,7 @@ describe('la proyección con salidas', () => {
   it('una semana con más gastos que cobros da neto negativo', () => {
     const semanas = proyeccion(
       [],
-      [{ gasto: 'g-1', label: 'Hosting', due_date: '2026-11-10', amount: '350.00', currency_code: 'PEN' }],
+      [{ gasto: 'g-1', label: 'Hosting', due_date: '2026-11-10', amount: '350.00', currency_code: 'PEN', origen: 'recurrente' }],
       PEN,
       '2026-11-06',
     );
@@ -340,7 +342,7 @@ describe('la proyección con salidas', () => {
   it('una salida atrasada cae en la primera semana y se señala', () => {
     const semanas = proyeccion(
       [],
-      [{ gasto: 'g-1', label: 'Hosting', due_date: '2026-09-05', amount: '350.00', currency_code: 'PEN' }],
+      [{ gasto: 'g-1', label: 'Hosting', due_date: '2026-09-05', amount: '350.00', currency_code: 'PEN', origen: 'recurrente' }],
       PEN,
       '2026-11-06',
     );
@@ -353,8 +355,8 @@ describe('la proyección con salidas', () => {
     const semanas = proyeccion(
       [],
       [
-        { gasto: 'g-1', label: 'Hosting', due_date: '2026-11-10', amount: '600.00', currency_code: 'PEN' },
-        { gasto: 'g-1', label: 'Hosting', due_date: '2026-11-17', amount: '600.00', currency_code: 'PEN' },
+        { gasto: 'g-1', label: 'Hosting', due_date: '2026-11-10', amount: '600.00', currency_code: 'PEN', origen: 'recurrente' },
+        { gasto: 'g-1', label: 'Hosting', due_date: '2026-11-17', amount: '600.00', currency_code: 'PEN', origen: 'recurrente' },
       ],
       PEN,
       '2026-11-06',
@@ -367,7 +369,7 @@ describe('la proyección con salidas', () => {
   it('una salida en otra moneda no entra en esta proyección', () => {
     const semanas = proyeccion(
       [],
-      [{ gasto: 'g-1', label: 'ChatGPT', due_date: '2026-11-10', amount: '20.00', currency_code: 'USD' }],
+      [{ gasto: 'g-1', label: 'ChatGPT', due_date: '2026-11-10', amount: '20.00', currency_code: 'USD', origen: 'recurrente' }],
       PEN,
       '2026-11-06',
     );
@@ -418,5 +420,104 @@ describe('qué gasto puede pagar una cuenta', () => {
   it('sin cuenta elegida no se puede decir, y la respuesta es que no', () => {
     expect(pagableDesde(claude, undefined)).toBe(false);
     expect(porQueNoSePaga(claude, undefined)).toBe('sin-cuenta');
+  });
+});
+
+describe('las compras sin pagar también salen', () => {
+  const compra = (x: Partial<CompraPorPagar>): CompraPorPagar => ({
+    id: 'c-1',
+    concepto: 'Impresión del lanzamiento',
+    due_date: '2026-11-30',
+    issue_date: '2026-11-01',
+    currency_code: 'PEN',
+    pendiente: '1180.00',
+    ...x,
+  });
+
+  it('entra por su vencimiento y por lo que falta por pagar', () => {
+    const salidas = salidasDeCompras([compra({})]);
+    expect(salidas).toHaveLength(1);
+    expect(salidas[0]).toMatchObject({
+      due_date: '2026-11-30',
+      amount: '1180.00',
+      origen: 'compra',
+      label: 'Impresión del lanzamiento',
+    });
+  });
+
+  it('lleva el IGV dentro: esto es caja, no resultado', () => {
+    // 1 180 con IGV son 1 000 de gasto y 180 de crédito fiscal, pero del
+    // banco salen 1 180. Una proyección que restara el impuesto se quedaría
+    // corta en el 18 % de cada factura.
+    // El 24 es martes, así que la semana 0 empieza el lunes 23 y el día 30
+    // cae en la siguiente.
+    const semanas = proyeccion([], salidasDeCompras([compra({})]), PEN, '2026-11-24');
+    expect(toDb(semanas[1]!.sale)).toBe('1180.00');
+  });
+
+  it('sin plazo acordado se paga el día que llegó la factura, no treinta días después', () => {
+    const salidas = salidasDeCompras([compra({ due_date: null, issue_date: '2026-11-25' })]);
+    expect(salidas[0]?.due_date).toBe('2026-11-25');
+  });
+
+  it('una compra vencida cae en la primera semana y se señala, como una suscripción atrasada', () => {
+    const semanas = proyeccion(
+      [],
+      salidasDeCompras([compra({ due_date: '2026-10-15' })]),
+      PEN,
+      '2026-11-24',
+    );
+    expect(toDb(semanas[0]!.sale)).toBe('1180.00');
+    expect(toDb(semanas[0]!.saleVencido)).toBe('1180.00');
+    expect(semanas[0]?.compras).toBe(1);
+  });
+
+  it('lo pagado a medias entra por su parte pendiente, no por el total', () => {
+    const semanas = proyeccion([], salidasDeCompras([compra({ pendiente: '500.00' })]), PEN, '2026-11-24');
+    expect(toDb(semanas[1]!.sale)).toBe('500.00');
+  });
+
+  it('una compra saldada no aporta nada ni ensucia la cuenta de la semana', () => {
+    expect(salidasDeCompras([compra({ pendiente: '0.00' })])).toHaveLength(0);
+    expect(salidasDeCompras([compra({ pendiente: '' })])).toHaveLength(0);
+  });
+
+  it('las compras y los gastos fijos se cuentan por separado', () => {
+    const semanas = proyeccion(
+      [],
+      [
+        ...salidasEsperadas([gasto()], [], '2026-11-01', '2026-12-01'),
+        ...salidasDeCompras([compra({ due_date: '2026-11-26' })]),
+      ],
+      PEN,
+      '2026-11-24',
+    );
+    const semana = semanas[0]!;
+    expect(semana.compras).toBe(1);
+    expect(semana.gastos).toBe(1);
+  });
+
+  it('una compra en otra moneda no entra en esta proyección (INV-10)', () => {
+    const semanas = proyeccion(
+      [],
+      salidasDeCompras([compra({ currency_code: 'USD' })]),
+      PEN,
+      '2026-11-24',
+    );
+    expect(toDb(semanas[1]!.sale)).toBe('0.00');
+    // Pero sí aparece como moneda con movimiento, para que se dibuje su bloque.
+    expect(monedasConMovimiento([], salidasDeCompras([compra({ currency_code: 'USD' })]))).toEqual([
+      'USD',
+    ]);
+  });
+
+  it('y el saldo proyectado baja: es lo que antes no pasaba', () => {
+    const sinCompras = saldoProyectado(fromDb('2000.00', PEN), proyeccion([], [], PEN, '2026-11-24'));
+    const conCompras = saldoProyectado(
+      fromDb('2000.00', PEN),
+      proyeccion([], salidasDeCompras([compra({ due_date: '2026-11-26' })]), PEN, '2026-11-24'),
+    );
+    expect(toDb(sinCompras[0]!)).toBe('2000.00');
+    expect(toDb(conCompras[0]!)).toBe('820.00');
   });
 });
