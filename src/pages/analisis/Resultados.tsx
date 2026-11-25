@@ -7,6 +7,7 @@ import { currencyOf, format, fromRow } from '../../lib/money';
 import { requireSupabase } from '../../lib/supabase';
 import { Aviso, Cargando, Etiqueta, Selector, Tarjeta, Vacio } from '../../components/ui';
 import { FiltradoPor, Fila, Lista, Seccion } from '../../components/piezas';
+import Barras from './Barras';
 import { nombreTipoMovimiento } from '../finanzas/cartera';
 import {
   fueraDelResultado,
@@ -16,6 +17,7 @@ import {
   nombrePeriodo,
   rangoDe,
   resultadoPorMoneda,
+  seriePorMes,
   type Hecho,
   type Periodo,
 } from './resultado';
@@ -127,6 +129,10 @@ export default function Resultados() {
   const porCategoria = gastosPorCategoria(hechos, datos.data?.categorias ?? new Map());
   const porProveedor = gastosPorProveedor(hechos, datos.data?.proveedores ?? new Map());
   const aparte = fueraDelResultado(hechos);
+  // La serie sale de los mismos hechos que las cifras de arriba, así que la
+  // suma de los meses es el total de la tarjeta por construcción. Calcularla
+  // con otra consulta sería tener dos cifras que un día discrepan.
+  const series = seriePorMes(hechos, rango.desde, rango.hasta);
 
   return (
     <Seccion
@@ -182,6 +188,16 @@ export default function Resultados() {
             {format(r.igvCobrado)} y pagado {format(r.igvPagado)}: ni uno ni otro es resultado, son
             dinero de la SUNAT que pasa por tus cuentas.
           </p>
+
+          {/* El gráfico va dentro de la tarjeta de su moneda, no aparte: una
+              serie sin moneda al lado es una serie que se puede leer mal. */}
+          <div className="mt-5 border-t border-border pt-5">
+            <h3 className="mb-3 text-xs uppercase tracking-widest text-subtle">Mes a mes</h3>
+            {(() => {
+              const serie = series.find((x) => x.moneda === r.moneda);
+              return serie ? <Barras serie={serie} /> : null;
+            })()}
+          </div>
 
           {r.noOperativo.minor !== 0n && (
             <p className="mt-2 max-w-prose text-xs text-warning">

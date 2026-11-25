@@ -253,3 +253,161 @@ export function gastosPorProveedor(
 export function fueraDelResultado(hechos: readonly Hecho[]): Hecho[] {
   return hechos.filter((h) => h.flow_class === 'non_operating');
 }
+
+/* ---------------------------------------------------------------------------
+ * La serie por mes: qué mes entró más y qué mes entró menos
+ * -------------------------------------------------------------------------*/
+
+export interface MesDeResultado {
+  /** `2026-11`. Es la clave y el orden a la vez. */
+  mes: string;
+  moneda: CurrencyCode;
+  /** Neto de lo que entró, sin impuesto: el margen no se mide sobre el IGV. */
+  ingresos: Money;
+  gastos: Money;
+  resultado: Money;
+  hechos: number;
+}
+
+export interface SeriePorMes {
+  moneda: CurrencyCode;
+  meses: MesDeResultado[];
+  /** El mes de más ingresos y el de menos. Null si no hay ni un mes con algo. */
+  mejor: MesDeResultado | null;
+  peor: MesDeResultado | null;
+  /** El ingreso del mes más alto. Es la escala de las barras. */
+  techo: Money;
+}
+
+/** `2026-11-23` → `2026-11`. Sin `Date`: una cadena ISO ya viene ordenada. */
+export function mesDe(iso: string): string {
+  return iso.slice(0, 7);
+}
+
+/** Los meses de la ventana, en orden, incluidos los que no tuvieron nada. */
+export function mesesEntre(desde: string, hasta: string): string[] {
+  const meses: string[] = [];
+  let anio = Number(desde.slice(0, 4));
+  let mes = Number(desde.slice(5, 7));
+  const fin = mesDe(hasta);
+
+  // Tope de vueltas: ninguna ventana de este producto pasa de diez años, y
+  // así una fecha corrupta no cuelga la pantalla.
+  for (let i = 0; i < 120; i += 1) {
+    const clave = `${anio}-${pad(mes)}`;
+    meses.push(clave);
+    if (clave >= fin) break;
+    mes += 1;
+    if (mes > 12) {
+      mes = 1;
+      anio += 1;
+    }
+  }
+
+  return meses;
+}
+
+/**
+ * Lo que entró y salió mes a mes, por moneda.
+ *
+ * Tres decisiones:
+ *
+ * 1. **Los meses sin nada existen.** Un mes vacío es un hueco en la serie, no
+ *    una columna que falta: si se saltara, dos meses separados por un verano
+ *    muerto aparecerían pegados y la serie mentiría sobre el ritmo del
+ *    negocio.
+ * 2. **Es el mismo lente Resultado, mes a mes.** Solo cuenta lo operativo, y
+ *    por su neto: un retiro del dueño no es un gasto y el IGV no es ingreso
+ *    (INV-6, §2.3). Así la suma de los meses es el total de arriba, y no hay
+ *    dos cifras que puedan discrepar.
+ * 3. **«El mejor» es por ingresos, no por resultado.** Es la pregunta que se
+ *    hace: qué mes vendí más. El resultado de cada mes está en su columna y en
+ *    la tabla, para que la otra pregunta también tenga respuesta.
+ */
+export function seriePorMes(
+  hechos: readonly Hecho[],
+  desde: string,
+  hasta: string,
+): SeriePorMes[] {
+  const ventana = mesesEntre(desde, hasta);
+
+  return monedasDe(hechos).map((moneda) => {
+    const vacio = (mes: string): MesDeResultado => ({
+      mes,
+      moneda,
+      ingresos: zero(moneda),
+      gastos: zero(moneda),
+      resultado: zero(moneda),
+      hechos: 0,
+    });
+
+    const porMes = new Map<string, MesDeResultado>(ventana.map((m) => [m, vacio(m)]));
+
+    for (const h of hechos) {
+      let suya: CurrencyCode;
+      try {
+        suya = currencyOf(h.currency_code);
+      } catch {
+        continue;
+      }
+      if (suya !== moneda) continue;
+      // Lo no operativo se queda fuera, igual que en el resultado del periodo.
+      if (h.flow_class !== 'operating') continue;
+
+      const clave = mesDe(h.fecha);
+      const mes = porMes.get(clave) ?? vacio(clave);
+      const neto = fromRow(h.amount_net, moneda);
+
+      if (h.direction === 'in') mes.ingresos = add(mes.ingresos, neto);
+      else mes.gastos = add(mes.gastos, neto);
+      mes.resultado = subtract(mes.ingresos, mes.gastos);
+      mes.hechos += 1;
+      porMes.set(clave, mes);
+    }
+
+    const meses = [...porMes.values()].sort((a, b) => a.mes.localeCompare(b.mes));
+    const conAlgo = meses.filter((m) => m.hechos > 0);
+
+    let mejor: MesDeResultado | null = null;
+    let peor: MesDeResultado | null = null;
+    for (const m of conAlgo) {
+      if (!mejor || m.ingresos.minor > mejor.ingresos.minor) mejor = m;
+      if (!peor || m.ingresos.minor < peor.ingresos.minor) peor = m;
+    }
+
+    // La escala de las barras: el mayor de los dos lados, para que entradas y
+    // salidas se puedan comparar a ojo. Dos escalas distintas en el mismo
+    // gráfico inventarían una relación que no está en los datos.
+    let techo = zero(moneda);
+    for (const m of meses) {
+      if (m.ingresos.minor > techo.minor) techo = m.ingresos;
+      if (m.gastos.minor > techo.minor) techo = m.gastos;
+    }
+
+    return { moneda, meses, mejor, peor, techo };
+  });
+}
+
+/** `2026-11` → `nov 2026`. Para el eje, donde el espacio es poco. */
+export function nombreMes(clave: string): string {
+  const anio = Number(clave.slice(0, 4));
+  const mes = Number(clave.slice(5, 7));
+  if (!Number.isFinite(anio) || !Number.isFinite(mes) || mes < 1 || mes > 12) return clave;
+  return new Intl.DateTimeFormat('es-PE', { month: 'short', year: 'numeric', timeZone: 'UTC' })
+    .format(new Date(Date.UTC(anio, mes - 1, 1)))
+    .replace('.', '');
+}
+
+/**
+ * La altura de una barra en porcentaje, de 0 a 100.
+ *
+ * Es el único sitio de este producto donde un importe pasa por `number`, y se
+ * puede porque el resultado son **píxeles y no dinero**: una barra con medio
+ * píxel de más no descuadra nada. La cifra que se lee sale siempre de
+ * `format`, nunca de aquí.
+ */
+export function alturaDeBarra(valor: Money, techo: Money): number {
+  if (techo.minor <= 0n || valor.minor <= 0n) return 0;
+  const alto = (Number(valor.minor) / Number(techo.minor)) * 100;
+  return Math.max(1, Math.min(100, alto));
+}

@@ -24,6 +24,16 @@
   --info-bg: #e8edf7;
   --neu: #5e5952;
   --neu-bg: #f0eee9;
+
+  /* Las dos series del gráfico mes a mes. No son --pos y --neg a propósito:
+     verde contra rojo da ΔE 5,2 en deuteranopia —lo dice el validador de
+     paletas— y ocho de cada cien hombres verían dos barras del mismo color.
+     Este azul contra este ocre dan 22,6, y pasan además la banda de
+     luminosidad, el suelo de croma y el contraste contra la superficie. Los
+     dos son de la familia de la paleta: el azul es primo del acento y el
+     ocre, del --warn. */
+  --serie-entra: #3a6fb0;
+  --serie-sale: #b07c1e;
 }
 
 @media (prefers-color-scheme: dark) {
@@ -47,6 +57,11 @@
     --info-bg: #16203a;
     --neu: #9a948c;
     --neu-bg: #262421;
+
+    /* Pasos propios del modo oscuro, no el claro invertido: estos son los que
+       caben en la banda 0,48–0,67 de luminosidad sobre #1c1b19. */
+    --serie-entra: #4e85cc;
+    --serie-sale: #b98a2c;
   }
 }
 
@@ -70,6 +85,9 @@
   --info-bg: #16203a;
   --neu: #9a948c;
   --neu-bg: #262421;
+
+  --serie-entra: #4e85cc;
+  --serie-sale: #b98a2c;
 }
 
 html,

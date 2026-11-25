@@ -161,7 +161,8 @@ y vuelve a crear Margen Demo para que traiga los datos nuevos.
   entero y la anulación con motivo. **Gastos fijos**: las reglas de lo que sale
   cada mes
 - **Análisis** · dos lentes. **Resultado**: ingresos, gastos y resultado del
-  periodo por moneda, de qué cliente vino, en qué se fue, a quién se le pagó,
+  periodo por moneda, el gráfico de barras mes a mes con su tabla,
+  de qué cliente vino, en qué se fue, a quién se le pagó,
   y lo no operativo aparte. El periodo son meses y años completos, y el rango
   viaja a la base como filtro de fechas: la pantalla no recorta nada que la
   vista no haya decidido. **Trabajos**: cuánto deja cada trabajo y cuánto deja
@@ -182,7 +183,7 @@ caja (BCP soles en PEN, Mercury en USD), un cliente y una cotización de prueba.
 
 ### Verificación
 
-- **396 pruebas** de Vitest: dinero, errores, formato, armazón, altas, el A4,
+- **422 pruebas** de Vitest: dinero, errores, formato, armazón, altas, el A4,
   la propuesta, la aritmética de la cotización, el panel de emisión, la
   reimpresión de una versión emitida, el reparto en cuotas, el margen
   agregado, la cartera, la pantalla de finanzas, la proyección de caja con sus
@@ -499,6 +500,41 @@ su documento cobrado a medias proyectaba el importe entero**. Una cuota de
 5 000 con 2 000 ya en el banco proyectaba 5 000, que es el mismo dinero
 contado dos veces en la única cifra que existe para no equivocarse.
 
+### F5-4 · El gráfico mes a mes
+
+Hecho el 24/11, a petición de Marcelo: «puro texto y números es medio denso».
+Dentro de la tarjeta de cada moneda en Análisis → Resultado, una columna por
+mes con dos barras, lo que entró y lo que salió.
+
+**Los colores no son el verde y el rojo del resto de la app, y no es un
+capricho.** El validador de paletas dice que ese par da ΔE 5,2 en
+deuteranopia: ocho de cada cien hombres verían dos barras del mismo color,
+pegadas y sin signo que las distinga. El azul y el ocre que se usan dan 22,6,
+y pasan además la banda de luminosidad, el suelo de croma y el contraste
+contra la superficie, en los dos temas por separado. Viven en `index.css`
+como `--serie-entra` y `--serie-sale`. Para un número suelto el verde sigue
+bien: viene con su signo y su texto.
+
+Lo demás que gobierna el gráfico:
+
+- **Una sola escala** para las dos series, la del mayor de los dos lados. Dos
+  escalas en un mismo gráfico inventan una correlación que no está en los
+  datos.
+- **Ninguna cifra depende del color ni del ratón**: hay leyenda, cada columna
+  es un botón que dice sus tres cifras al enfocarlo, y debajo hay una tabla
+  con todos los meses.
+- **Se etiquetan dos meses, no doce.** El de más y el de menos, con una
+  palabra y no con el importe: «S/ 11,756.00» mide noventa píxeles y la
+  columna cincuenta y dos, así que el número se saldría y pisaría al vecino.
+- **Un mes sin una sola operación no es «el peor»**: es un mes sin datos.
+- **La serie sale de los mismos hechos que las cifras de arriba**, así que la
+  suma de los meses es el total de la tarjeta por construcción.
+
+La línea de base es una sola línea continua por debajo de las doce columnas.
+Dibujada columna a columna se corta en cada hueco y lo que se ve es una línea
+de puntos, que es justo lo que un eje no debe parecer. Por eso los meses van
+en su propia fila, con el mismo ancho y el mismo hueco.
+
 ### Pendiente de Marcelo, no de código
 
 - **SMTP propio (D-7).** El correo de Supabase **solo escribe a miembros de su
@@ -525,7 +561,7 @@ contado dos veces en la única cifra que existe para no equivocarse.
   sigue siendo la buena: en cuanto el CLI pueda, regenerar el archivo entero.
   Para arreglarlo hace falta un token de acceso personal con permiso sobre el
   proyecto (`supabase login`), que es algo de Marcelo, no de código.
-- El bundle principal va por 738 kB en crudo (≈208 kB comprimidos). jsPDF y
+- El bundle principal va por 745 kB en crudo (≈210 kB comprimidos). jsPDF y
   sus dependencias ya van en trozos aparte, cargados solo al descargar; falta
   dividir las rutas con `React.lazy` antes de que entre F3.
 - La aritmética de la cotización está escrita dos veces: en

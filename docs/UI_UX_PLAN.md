@@ -42,7 +42,22 @@ Semánticos (los cinco tienen variante -bg para fondos suaves):
 --warning       vence pronto, revisar
 --info          proyección, referencial
 --neutral       borrador, anulado, ignorado
+
+Series de gráfico (añadidas el 24/11/2026, F5-4):
+--serie-entra   lo que entró, en las barras
+--serie-sale    lo que salió, en las barras
 ```
+
+**Las series del gráfico no son `--positive` y `--negative`, y la razón es
+medible.** Ese par da ΔE 5,2 en deuteranopia: dos barras pegadas del mismo
+color para ocho de cada cien hombres. El azul y el ocre de las series dan
+22,6, y pasan además la banda de luminosidad (0,43–0,77 en claro, 0,48–0,67
+en oscuro), el suelo de croma y el contraste contra la superficie, validados
+en cada tema por separado y no invirtiendo el otro. Para un número suelto el
+verde sigue valiendo, porque viene con su signo y su texto; dos barras una al
+lado de otra no tienen signo. Regla general: **un color que distingue dos
+cosas a la vez se valida contra daltonismo antes de usarse; uno que adorna
+una cifra que ya se lee, no.**
 
 Cada token se redefine en `@media (prefers-color-scheme: dark)` y bajo `[data-theme="dark"]`. **Todo par texto/fondo se verifica AA (4.5:1) en ambos modos antes de darse por bueno**; los colores semánticos sobre fondo suave suelen fallar en oscuro y hay que corregirlos ahí, no esperar que funcionen.
 
