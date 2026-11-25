@@ -2445,10 +2445,20 @@ begin
     'minutos_invalidos',
     'y que sean minutos de verdad');
 
+  -- Trece horas en un día de lanzamiento son reales, así que 800 entra. Lo
+  -- que el tope ataja es el dedo que teclea 25 horas donde quería 2,5, o el
+  -- que se come un decimal: cifras que nadie revisa y que dejan el margen
+  -- por hora en ridículo seis meses después.
+  perform assert_true(
+    (select count(*) from anotar_horas(v_job, 'Chelo', 800, current_date - 20)) = 1,
+    'un día de trece horas es largo pero posible, y se puede anotar');
+  perform quitar_horas((select id from job_time_entries
+                         where job_id = v_job and minutes = 800 limit 1));
+
   perform assert_raises(
-    format('select anotar_horas(%L, ''Chelo'', 800)', v_job),
+    format('select anotar_horas(%L, ''Chelo'', 1500)', v_job),
     'minutos_invalidos',
-    'ochocientos minutos en un día son trece horas de más que nadie notaría después');
+    'pero veinticinco horas en un día no caben en un día');
 
   perform assert_raises(
     'select anotar_horas(''99999999-9999-9999-9999-999999999999'', ''Chelo'', 60)',
@@ -2472,4 +2482,4 @@ end $$;
 
 reset request.jwt.claim.sub;
 
-select 'TODAS LAS PRUEBAS DE F1 A F6 PASARON · 283 aserciones' as resultado;
+select 'TODAS LAS PRUEBAS DE F1 A F6 PASARON · 284 aserciones' as resultado;
