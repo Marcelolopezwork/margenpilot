@@ -190,6 +190,15 @@ comment on table bank_statement_lines is
 -- ---------------------------------------------------------------------------
 -- El emparejamiento
 -- ---------------------------------------------------------------------------
+--
+-- La clave compuesta de `cash_movements` va **antes** de la tabla que la usa.
+-- Postgres exige que la clave única exista cuando se declara la foránea que
+-- la referencia, y escribirla después da «there is no unique constraint
+-- matching given keys», que no dice ni cuál falta ni dónde.
+
+alter table cash_movements
+  add constraint cash_movements_id_org_cuenta_moneda_key
+  unique (id, organization_id, cash_account_id, currency_code);
 
 create table bank_line_matches (
   id               uuid primary key default gen_random_uuid(),
@@ -224,12 +233,6 @@ create trigger bank_line_matches_audit
 
 comment on table bank_line_matches is
   'Esta línea del banco es este movimiento mío. Es lo único que conciliar escribe (INV-8).';
-
--- `cash_movements` necesita la clave compuesta por cuenta para que el
--- emparejamiento pueda exigir que los dos lados sean de la misma cuenta.
-alter table cash_movements
-  add constraint cash_movements_id_org_cuenta_moneda_key
-  unique (id, organization_id, cash_account_id, currency_code);
 
 -- ---------------------------------------------------------------------------
 -- Permisos · se lee, no se escribe
