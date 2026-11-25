@@ -24,6 +24,7 @@ import Caja from './pages/finanzas/Caja';
 import Compras from './pages/finanzas/Compras';
 import GastosFijos from './pages/finanzas/GastosFijos';
 import Previstos from './pages/finanzas/Previstos';
+import Conciliacion from './pages/finanzas/Conciliacion';
 import Propuesta from './pages/comercial/Propuesta';
 import PropuestaEmitida from './pages/comercial/PropuestaEmitida';
 import CategoriasServicio from './pages/catalogo/CategoriasServicio';
@@ -126,6 +127,7 @@ function ConOrganizacion() {
           <Route path="compras" element={<Compras />} />
           <Route path="gastos-fijos" element={<GastosFijos />} />
           <Route path="previstos" element={<Previstos />} />
+          <Route path="conciliacion" element={<Conciliacion />} />
         </Route>
         <Route path="pipeline" element={<Pipeline />} />
         <Route path="analisis" element={<Analisis />}>

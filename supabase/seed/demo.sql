@@ -5,15 +5,16 @@
 --
 -- Hace tres cosas, en este orden y en una sola pasada:
 --
---  1. aplica la migración de «lo puntual también es caja» (F5-3), que es la
---     única que falta en el proyecto, y la deja apuntada en el historial de
+--  1. aplica la migración de «lo que el banco dice» (F6-1), que es la única
+--     que falta en el proyecto, y la deja apuntada en el historial de
 --     migraciones para que no se vuelva a aplicar;
 --  2. borra la organización «Margen Demo» si existe de una pasada anterior,
 --     para volver a crearla con los datos nuevos. Esto NO toca «Margen
 --     Pilot»: borra una sola fila, la de la demo, y lo demás cae por cascada;
 --  3. vuelve a crear «Margen Demo» con datos de prueba en todo: sus trabajos
---     con dos compras atribuidas, y dos previstos de una sola vez, uno de
---     ellos adelantado a medias.
+--     con dos compras atribuidas, dos previstos de una sola vez —uno
+--     adelantado a medias— y un extracto de banco de tres líneas, una
+--     cuadrada y dos que no están en el libro.
 --
 -- Todo va dentro de una transacción: o entra el archivo entero o no entra
 -- nada. Si algo falla a mitad, la base se queda exactamente como estaba, sin
@@ -27,510 +28,519 @@
 begin;
 
 -- ============================================================================
--- Margen Pilot · F5-3 · Lo puntual también es caja
+-- Margen Pilot · F6-1 · Lo que el banco dice
 --
--- Lo último que la proyección de trece semanas no veía: un cobro o un pago de
--- **una sola vez**, con fecha futura y sin factura detrás. Un adelanto que te
--- van a pasar, la cámara que pactaste para el 15 de enero, el adelanto que le
--- diste al freelance. No cabía en ninguna de las tres cosas que ya existían:
--- no es una cuota de una cotización, no es un gasto fijo que se repite, y no
--- es una factura de proveedor porque no hay factura.
+-- Hasta aquí el sistema sabe **lo que tú anotaste**. El banco sabe **lo que de
+-- verdad pasó**. Son dos listas que deberían coincidir y nunca coinciden del
+-- todo: una comisión que no anotaste, un cobro que anotaste el 3 y entró el 5,
+-- un cliente que pagó 1 180 y no 1 200, un cargo que no reconoces.
 --
--- ---------------------------------------------------------------------------
--- No hay tabla nueva, y eso es lo importante de esta migración
--- ---------------------------------------------------------------------------
---
--- `payment_schedule_items` se escribió el 5/11 con este comentario dentro:
---
---     Nulos cuando la cuota no venga de una cotización. Hoy siempre vienen de
---     una; en F3 habrá pagos previstos a proveedores que no tienen detrás
---     ninguna, y por eso `direction` ya distingue entrada de salida.
---
--- Es decir: la tabla ya tenía `quote_id` nulable y `direction`, y lo que
--- faltaba eran las puertas. Hacer una tabla nueva habría dejado dos
--- definiciones de «dinero previsto», dos índices para la proyección y dos
--- sitios donde arreglar el mismo error. Un apunte previsto suelto es una fila
--- de esta tabla con `quote_id` nulo, y se llama **previsto** para distinguirlo
--- de una **cuota**, que es la que viene de una cotización.
+-- Conciliar es cruzar las dos listas y dejar por escrito que cuadran, o en qué
+-- no cuadran. Esta migración trae la mitad de abajo: el extracto importado,
+-- sus líneas y el emparejamiento. El cierre de un periodo conciliado viene
+-- después.
 --
 -- ---------------------------------------------------------------------------
--- INV-15.4 — Un previsto es un plan; se salda con dinero, no con un botón
+-- INV-8 — Conciliar no crea dinero
 -- ---------------------------------------------------------------------------
 --
--- 1. **No mueve dinero.** Igual que una cuota prevista o un gasto fijo: entra
---    en la proyección y no toca el saldo (INV-1). Existe de verdad el día que
---    se registra el movimiento.
+-- Es la regla que gobierna todo lo demás y la única que no se puede relajar.
+-- Marcar que una línea del extracto corresponde a un movimiento tuyo **no
+-- cambia ni un céntimo del saldo**. Si conciliar pudiera crear, corregir o
+-- borrar movimientos, dejaría de ser una comprobación y pasaría a ser otra
+-- forma de escribir en el libro; y entonces no comprobaría nada, porque el
+-- libro siempre cuadraría consigo mismo.
 --
--- 2. **Su estado se deriva de lo asignado, no se declara.** `saldar_previsto`
---    crea el movimiento y la asignación; el estado lo pone
---    `app.recalcula_estado_previsto`, por los mismos disparadores que ya
---    siguen a un documento. Un botón «marcar como pagado» sería un estado que
---    puede discrepar del dinero, y entonces la proyección tendría dos
---    verdades.
+-- Aquí eso no es una promesa: ninguna de las tres tablas de abajo tiene una
+-- sola escritura hacia `cash_movements`, y `authenticated` sigue sin INSERT ni
+-- UPDATE sobre ella. Lo único que conciliar escribe es «esta línea del banco
+-- es este movimiento mío».
 --
--- 3. **Saldado a medias sigue proyectando lo que falta.** Si pactaste 3 000 y
---    adelantaste 1 000, lo que queda en la curva es 2 000: los 1 000 ya están
---    en el saldo y contarlos otra vez sería contarlos dos veces (INV-15.1).
+-- Siete reglas más:
 --
--- 4. **El dinero va en el sentido del previsto.** Un previsto de salida no se
---    salda con una entrada, igual que un ingreso no paga una factura de
---    proveedor (`direccion_no_concuerda`). Esto sí se vigila.
+-- 1. **El extracto se guarda como vino.** Cada línea conserva su fila original
+--    en `raw`, y no se edita nunca. Si una línea está mal, está mal en el
+--    banco: eso es un dato, no un error que arreglar.
 --
--- 5. **Lo que NO se vigila es el tope, y es deliberado.** A una cuota de una
---    cotización no se le puede asignar más de lo que vale, porque es un
---    derecho de cobro con un importe acordado (INV-3). Un previsto es una
---    estimación tuya: si la cámara que pactaste en 3 000 terminó costando
---    3 200, negarse a registrar el pago sería obligarte a editar el plan para
---    poder anotar la realidad. El movimiento es el dinero y es correcto; el
---    plan solo queda saldado.
+-- 2. **Una línea pertenece a una cuenta, y lleva su moneda.** La clave
+--    compuesta `(cash_account_id, organization_id, legal_entity_id,
+--    currency_code)` lo impone, igual que en los movimientos (INV-9, ADR-16).
+--    No hay forma de meter el extracto del BCP en la cuenta de Mercury.
 --
--- 6. **Mientras es un plan se puede quitar; en cuanto tiene dinero, no.** Un
---    previsto sin asignaciones se borra —una proyección no es un hecho
---    económico, el mismo razonamiento que ya usa `guardar_cronograma`— y
---    `audit_log` guarda el rastro. Con dinero asignado, no: borrarlo dejaría
---    un movimiento señalando a algo que no existe.
+-- 3. **El importe se guarda como lo guarda el libro**: positivo, con la
+--    dirección aparte. El signo del extracto decide la dirección al importar
+--    y la fila original queda en `raw`. Dos representaciones del dinero en el
+--    mismo producto serían dos sitios donde equivocarse.
 --
--- 7. **Una cuota de cotización no entra por aquí.** Se emite su documento y
---    se cobra, que es lo que la pone en la cartera. Si estas puertas la
---    aceptaran, habría dos caminos para cobrar una venta y uno de los dos no
---    dejaría documento.
+-- 4. **Un emparejamiento une una línea con un movimiento de la misma cuenta y
+--    en el mismo sentido.** Lo primero lo impone la clave compuesta; lo
+--    segundo, el gate con nombres propios. Marcar una salida del banco contra
+--    un cobro tuyo daría por cuadrado lo que no cuadra.
+--
+-- 5. **El mismo movimiento no se marca dos veces.** Índice único sobre
+--    `cash_movement_id`: una línea puede corresponder a varios movimientos
+--    —el banco junta dos depósitos del mismo día— pero un movimiento no
+--    puede estar en dos líneas. Para eso existen dos movimientos.
+--
+-- 6. **Un movimiento anulado no concilia.** No es dinero: darlo por cuadrado
+--    contra una línea del banco escondería la línea de verdad.
+--
+-- 7. **Lo que sobra se dice, no se borra.** Una línea que no es tuya —o que
+--    decides dejar para después— se marca con un motivo escrito y sale de la
+--    lista de pendientes sin desaparecer. Desemparejar también se puede: el
+--    emparejamiento es una afirmación, y una afirmación se puede retirar.
 -- ============================================================================
 
 -- ---------------------------------------------------------------------------
--- El estado de un previsto, derivado de lo que se le asignó
+-- El extracto
 -- ---------------------------------------------------------------------------
 
-create or replace function app.recalcula_estado_previsto(p_item uuid) returns void
-language plpgsql security definer set search_path = public, pg_temp as $fn$
-declare
-  v_item   record;
-  v_pagado numeric;
-  v_estado schedule_status;
-begin
-  if p_item is null then return; end if;
+create table bank_statements (
+  id              uuid primary key default gen_random_uuid(),
+  organization_id uuid not null references organizations (id) on delete cascade,
+  legal_entity_id uuid not null,
+  cash_account_id uuid not null,
+  currency_code   char(3) not null references currencies (code),
+  label           text not null check (btrim(label) <> ''),
+  /* El rango que cubre, deducido de las líneas. Sirve para avisar de que un
+     extracto nuevo pisa fechas que ya estaban importadas. */
+  desde           date not null,
+  hasta           date not null,
+  lineas          int not null check (lineas > 0),
+  /* La huella del contenido: el mismo archivo no entra dos veces en la misma
+     cuenta. Sin esto, importar dos veces duplicaría media conciliación. */
+  source_sha256   text not null,
+  imported_by     uuid not null default auth.uid(),
+  imported_at     timestamptz not null default now(),
 
-  select i.id, i.amount, i.status, i.quote_id into v_item
-    from payment_schedule_items i where i.id = p_item;
-  if v_item.id is null then return; end if;
+  constraint el_rango_tiene_sentido check (hasta >= desde),
 
-  -- Una cuota de cotización sigue a su documento y no a sus asignaciones: de
-  -- eso se encarga `app.recalcula_estado_documento`. Y una cancelada se queda
-  -- cancelada: un pago posterior no la revive.
-  if v_item.quote_id is not null or v_item.status = 'cancelled' then return; end if;
+  foreign key (cash_account_id, organization_id, legal_entity_id, currency_code)
+    references cash_accounts (id, organization_id, legal_entity_id, currency_code),
 
-  select coalesce(sum(a.amount), 0) into v_pagado
-    from payment_allocations a
-    join cash_movements m on m.id = a.cash_movement_id
-   where a.payment_schedule_item_id = p_item and not m.is_void;
+  unique (id, organization_id),
+  constraint bank_statements_id_org_cuenta_key
+    unique (id, organization_id, cash_account_id)
+);
 
-  v_estado := case when v_pagado >= v_item.amount then 'settled' else 'planned' end::schedule_status;
+create unique index extracto_sin_repetir
+  on bank_statements (cash_account_id, source_sha256);
 
-  if v_estado is distinct from v_item.status then
-    update payment_schedule_items set status = v_estado where id = p_item;
-  end if;
-end $fn$;
+create index bank_statements_cuenta_idx
+  on bank_statements (organization_id, cash_account_id, hasta desc);
 
-revoke all on function app.recalcula_estado_previsto(uuid) from public, anon;
+create trigger bank_statements_audit
+  after insert or update or delete on bank_statements
+  for each row execute function app.audit_changes();
 
--- Los dos disparadores que ya seguían a un documento ahora siguen también al
--- previsto. Se vuelven a declarar enteros porque son cuerpos de cinco líneas
--- y partirlos en dos funciones costaría más de lo que ahorra.
-
-create or replace function app.al_cambiar_una_asignacion() returns trigger
-language plpgsql security definer set search_path = public, pg_temp as $fn$
-begin
-  perform app.recalcula_estado_documento(
-    coalesce(new.billing_document_id, old.billing_document_id));
-  perform app.recalcula_estado_previsto(
-    coalesce(new.payment_schedule_item_id, old.payment_schedule_item_id));
-  return null;
-end $fn$;
-
-create or replace function app.al_anular_un_movimiento() returns trigger
-language plpgsql security definer set search_path = public, pg_temp as $fn$
-declare r record;
-begin
-  if new.is_void is distinct from old.is_void then
-    for r in select distinct a.billing_document_id
-               from payment_allocations a
-              where a.cash_movement_id = new.id and a.billing_document_id is not null
-    loop
-      perform app.recalcula_estado_documento(r.billing_document_id);
-    end loop;
-
-    for r in select distinct a.payment_schedule_item_id
-               from payment_allocations a
-              where a.cash_movement_id = new.id
-                and a.payment_schedule_item_id is not null
-    loop
-      perform app.recalcula_estado_previsto(r.payment_schedule_item_id);
-    end loop;
-  end if;
-  return null;
-end $fn$;
+comment on table bank_statements is
+  'Un extracto importado. No se edita: es lo que el banco dijo (INV-8).';
 
 -- ---------------------------------------------------------------------------
--- El tope aprende la dirección de un previsto
+-- Las líneas
+-- ---------------------------------------------------------------------------
+
+create table bank_statement_lines (
+  id              uuid primary key default gen_random_uuid(),
+  organization_id uuid not null references organizations (id) on delete cascade,
+  legal_entity_id uuid not null,
+  statement_id    uuid not null,
+  cash_account_id uuid not null,
+  currency_code   char(3) not null references currencies (code),
+  /* El orden en el archivo. Dos líneas idénticas el mismo día existen, y
+     `fila` es lo único que las distingue. */
+  fila            int not null check (fila > 0),
+  value_date      date not null,
+  direction       cash_direction not null,
+  amount          numeric(18, 2) not null check (amount > 0),
+  description     text not null,
+  external_ref    text,
+  /* La fila original, tal como venía. Nunca se lee para calcular nada: está
+     para poder mirar qué decía el banco cuando algo no cuadra. */
+  raw             jsonb not null default '{}'::jsonb,
+  /* Lo que sobra se dice, no se borra (regla 7). */
+  ignored_reason  text,
+  ignored_at      timestamptz,
+  created_at      timestamptz not null default now(),
+
+  constraint ignorar_exige_motivo
+    check (ignored_at is null or btrim(coalesce(ignored_reason, '')) <> ''),
+
+  foreign key (statement_id, organization_id, cash_account_id)
+    references bank_statements (id, organization_id, cash_account_id) on delete cascade,
+  foreign key (cash_account_id, organization_id, legal_entity_id, currency_code)
+    references cash_accounts (id, organization_id, legal_entity_id, currency_code),
+
+  unique (statement_id, fila),
+  constraint bank_statement_lines_id_org_cuenta_moneda_key
+    unique (id, organization_id, cash_account_id, currency_code)
+);
+
+create index bank_statement_lines_pendientes_idx
+  on bank_statement_lines (organization_id, cash_account_id, value_date)
+  where ignored_at is null;
+
+create trigger bank_statement_lines_audit
+  after insert or update or delete on bank_statement_lines
+  for each row execute function app.audit_changes();
+
+comment on table bank_statement_lines is
+  'Una línea del extracto, como vino. El importe va positivo con su dirección aparte, igual que en el libro; la fila original queda en raw (INV-8.3).';
+
+-- ---------------------------------------------------------------------------
+-- El emparejamiento
+-- ---------------------------------------------------------------------------
+
+create table bank_line_matches (
+  id               uuid primary key default gen_random_uuid(),
+  organization_id  uuid not null references organizations (id) on delete cascade,
+  cash_account_id  uuid not null,
+  currency_code    char(3) not null references currencies (code),
+  statement_line_id uuid not null,
+  cash_movement_id uuid not null,
+  /* Quién lo afirmó y cuándo. Un emparejamiento es la afirmación de una
+     persona, no un cálculo: tiene que saberse de quién fue. */
+  matched_by       uuid not null default auth.uid(),
+  matched_at       timestamptz not null default now(),
+
+  foreign key (statement_line_id, organization_id, cash_account_id, currency_code)
+    references bank_statement_lines (id, organization_id, cash_account_id, currency_code)
+    on delete cascade,
+  /* La misma cuenta y la misma moneda a los dos lados. No hay forma de
+     tachar una línea del BCP con un movimiento de Mercury. */
+  foreign key (cash_movement_id, organization_id, cash_account_id, currency_code)
+    references cash_movements (id, organization_id, cash_account_id, currency_code)
+);
+
+-- Regla 5: un movimiento no se marca dos veces.
+create unique index movimiento_conciliado_una_vez
+  on bank_line_matches (cash_movement_id);
+
+create index bank_line_matches_linea_idx on bank_line_matches (statement_line_id);
+
+create trigger bank_line_matches_audit
+  after insert or update or delete on bank_line_matches
+  for each row execute function app.audit_changes();
+
+comment on table bank_line_matches is
+  'Esta línea del banco es este movimiento mío. Es lo único que conciliar escribe (INV-8).';
+
+-- `cash_movements` necesita la clave compuesta por cuenta para que el
+-- emparejamiento pueda exigir que los dos lados sean de la misma cuenta.
+alter table cash_movements
+  add constraint cash_movements_id_org_cuenta_moneda_key
+  unique (id, organization_id, cash_account_id, currency_code);
+
+-- ---------------------------------------------------------------------------
+-- Permisos · se lee, no se escribe
+-- ---------------------------------------------------------------------------
+
+grant select on bank_statements, bank_statement_lines, bank_line_matches to authenticated;
+
+alter table bank_statements      enable row level security;
+alter table bank_statements      force  row level security;
+alter table bank_statement_lines enable row level security;
+alter table bank_statement_lines force  row level security;
+alter table bank_line_matches    enable row level security;
+alter table bank_line_matches    force  row level security;
+
+create policy bank_statements_select on bank_statements for select
+  using (organization_id in (select app.current_orgs())
+         and app.can_write_money(organization_id));
+create policy bank_statement_lines_select on bank_statement_lines for select
+  using (organization_id in (select app.current_orgs())
+         and app.can_write_money(organization_id));
+create policy bank_line_matches_select on bank_line_matches for select
+  using (organization_id in (select app.current_orgs())
+         and app.can_write_money(organization_id));
+
+-- ---------------------------------------------------------------------------
+-- El estado de cada línea, en un solo sitio
 -- ---------------------------------------------------------------------------
 --
--- Se añade la comprobación de sentido (INV-15.4.4) y NO la del tope
--- (INV-15.4.5). El resto del cuerpo es el de F3-6, sin un cambio.
+-- «Cuadra» se define una vez: la suma de lo emparejado es el importe de la
+-- línea. Escrito en dos sitios, un día dirían cosas distintas y nadie sabría
+-- cuál creer.
 
-create or replace function app.respeta_los_topes() returns trigger
-language plpgsql security definer set search_path = public, pg_temp as $fn$
-declare
-  v_tope     numeric;
-  v_asignado numeric;
-  v_kind     cash_kind;
-  v_dir      cash_direction;
-  v_doc_dir  text;
-  v_item_dir text;
-  v_etiqueta text;
-begin
-  select m.amount, m.kind, m.direction into v_tope, v_kind, v_dir
-    from cash_movements m where m.id = new.cash_movement_id;
+create view bank_line_status with (security_invoker = true) as
+select l.id                as line_id,
+       l.organization_id,
+       l.cash_account_id,
+       count(m.id)::int    as emparejados,
+       coalesce(sum(v.amount), 0)::numeric(18, 2) as conciliado,
+       (coalesce(sum(v.amount), 0) = l.amount)    as cuadra
+  from bank_statement_lines l
+  left join bank_line_matches m on m.statement_line_id = l.id
+  left join cash_movements   v on v.id = m.cash_movement_id and not v.is_void
+ group by l.id, l.organization_id, l.cash_account_id, l.amount;
 
-  if v_kind = 'transfer' then
-    raise exception
-      'asignacion_de_transferencia: ese movimiento es una pata de una transferencia entre tus propias cuentas, no dinero de un cliente. Asignarlo a un documento lo daría por cobrado con dinero que no vino de fuera';
-  end if;
+comment on view bank_line_status is
+  'Cuánto se le emparejó a cada línea y si cuadra. Una sola definición de «cuadra» (INV-8).';
 
-  -- INV-2 · un cobro de S/ 400 no se puede asignar a S/ 500 de facturas.
-  select coalesce(sum(a.amount), 0) into v_asignado
-    from payment_allocations a where a.cash_movement_id = new.cash_movement_id;
-
-  if v_asignado > v_tope then
-    raise exception
-      'asignacion_excede_movimiento: el movimiento es de % y se le han asignado %',
-      to_char(v_tope, 'FM999999999990.00'), to_char(v_asignado, 'FM999999999990.00');
-  end if;
-
-  -- INV-3 · lo asignado a un documento no puede pasar de su total, y el dinero
-  -- tiene que ir en el sentido del documento.
-  if new.billing_document_id is not null then
-    select d.amount_total, d.direction into v_tope, v_doc_dir
-      from billing_documents d where d.id = new.billing_document_id;
-
-    if v_doc_dir = 'sale' and v_dir = 'out' then
-      raise exception
-        'direccion_no_concuerda: ese documento es una venta tuya y eso es dinero que salió. Un pago no cobra una factura';
-    end if;
-    if v_doc_dir = 'purchase' and v_dir = 'in' then
-      raise exception
-        'direccion_no_concuerda: ese documento es una compra y eso es dinero que entró. Un cobro no paga una factura de proveedor';
-    end if;
-
-    select coalesce(sum(a.amount), 0) into v_asignado
-      from payment_allocations a
-      join cash_movements m on m.id = a.cash_movement_id and not m.is_void
-     where a.billing_document_id = new.billing_document_id;
-
-    if v_asignado > v_tope then
-      raise exception
-        'cobro_excede_documento: el documento es de % y se le han asignado %',
-        to_char(v_tope, 'FM999999999990.00'), to_char(v_asignado, 'FM999999999990.00');
-    end if;
-  end if;
-
-  -- INV-15.4.4 · el dinero va en el sentido del previsto. Sin tope: un
-  -- previsto es una estimación, no un derecho de cobro.
-  if new.payment_schedule_item_id is not null then
-    select i.direction, i.label into v_item_dir, v_etiqueta
-      from payment_schedule_items i where i.id = new.payment_schedule_item_id;
-
-    if v_item_dir = 'in' and v_dir = 'out' then
-      raise exception
-        'direccion_no_concuerda: «%» es dinero que esperas cobrar y eso es dinero que salió. Un pago no salda un cobro previsto',
-        v_etiqueta;
-    end if;
-    if v_item_dir = 'out' and v_dir = 'in' then
-      raise exception
-        'direccion_no_concuerda: «%» es dinero que esperas pagar y eso es dinero que entró. Un cobro no salda un pago previsto',
-        v_etiqueta;
-    end if;
-  end if;
-
-  return null;
-end $fn$;
+grant select on bank_line_status to authenticated;
 
 -- ---------------------------------------------------------------------------
--- Puerta · guardar un previsto
+-- Puerta · importar un extracto
 -- ---------------------------------------------------------------------------
+--
+-- Las líneas llegan ya leídas y mapeadas por la pantalla: qué columna era la
+-- fecha, cuál el importe y cuál la descripción lo decide una persona la
+-- primera vez, porque cada banco trae su formato y adivinarlo mal es peor que
+-- preguntarlo.
+--
+-- Cada elemento: {"fecha": "2026-11-03", "importe": -118.00,
+--                 "descripcion": "...", "referencia": "OP-123", "raw": {...}}
+-- El signo del importe decide la dirección.
 
-create or replace function guardar_previsto(
-  p_entity    uuid,
-  p_direction text,
-  p_label     text,
-  p_amount    numeric,
-  p_currency  text,
-  p_due_date  date,
-  p_account   uuid default null,
-  p_id        uuid default null
-) returns setof payment_schedule_items
+create or replace function importar_extracto(
+  p_account uuid,
+  p_label   text,
+  p_lines   jsonb
+) returns setof bank_statements
 language plpgsql security definer set search_path = public, pg_temp as $fn$
 declare
-  v_ent     record;
-  v_previo  record;
-  v_moneda  char(3);
-  v_dec     int;
-  v_importe numeric;
-  v_dir     text;
-  v_etiqueta text;
   v_cuenta  record;
-  v_item    uuid;
+  v_dec     int;
+  v_sha     text;
+  v_antes   record;
+  v_desde   date;
+  v_hasta   date;
+  v_cuantas int;
+  v_id      uuid;
 begin
-  select le.id, le.organization_id, le.legal_name into v_ent
-    from legal_entities le where le.id = p_entity;
+  select a.* into v_cuenta from cash_accounts a where a.id = p_account;
 
-  if v_ent.id is null or not app.can_write_money(v_ent.organization_id) then
-    raise exception 'entidad_no_encontrada: esa empresa no existe o no tienes permiso de finanzas en ella';
+  if v_cuenta.id is null or not app.can_write_money(v_cuenta.organization_id) then
+    raise exception 'cuenta_no_encontrada: esa cuenta no existe o no es de tu organización';
   end if;
 
-  v_dir := lower(btrim(coalesce(p_direction, '')));
-  if v_dir not in ('in', 'out') then
-    raise exception 'direccion_invalida: un previsto es dinero que entra o dinero que sale';
+  if btrim(coalesce(p_label, '')) = '' then
+    raise exception 'etiqueta_obligatoria: el extracto necesita un nombre, el que vas a reconocer dentro de seis meses';
   end if;
 
-  v_etiqueta := btrim(coalesce(p_label, ''));
-  if v_etiqueta = '' then
-    raise exception 'etiqueta_obligatoria: el previsto necesita un nombre, el que vas a reconocer en la proyección dentro de dos meses';
+  if jsonb_typeof(p_lines) <> 'array' or jsonb_array_length(p_lines) = 0 then
+    raise exception 'extracto_vacio: no se leyó ninguna línea de ese archivo. Revisa qué columna es la fecha y cuál el importe';
   end if;
 
-  if p_due_date is null then
-    raise exception 'fecha_obligatoria: un previsto sin fecha no cae en ninguna semana, y entonces no proyecta nada';
+  if jsonb_array_length(p_lines) > 5000 then
+    raise exception 'extracto_enorme: cinco mil líneas son más de las que trae un extracto. Pártelo por meses';
   end if;
 
-  v_moneda := upper(btrim(coalesce(p_currency, '')));
-  if not exists (select 1 from currencies c where c.code = v_moneda) then
-    raise exception 'unknown_currency: % no existe en el catálogo de monedas', v_moneda;
+  -- La huella del contenido, no del archivo: dos descargas del mismo periodo
+  -- pueden diferir en una cabecera y seguir siendo el mismo extracto.
+  v_sha := encode(sha256(convert_to(p_lines::text, 'UTF8')), 'hex');
+
+  select s.label, s.imported_at into v_antes
+    from bank_statements s
+   where s.cash_account_id = p_account and s.source_sha256 = v_sha;
+
+  if v_antes.label is not null then
+    raise exception
+      'extracto_repetido: este mismo extracto ya se importó como «%» el %. Importarlo otra vez duplicaría media conciliación',
+      v_antes.label, to_char(v_antes.imported_at, 'DD/MM/YYYY');
   end if;
-  if not exists (
-    select 1 from organization_currencies oc
-     where oc.organization_id = v_ent.organization_id
-       and oc.currency_code = v_moneda
-       and oc.is_enabled
+
+  select c.minor_units into v_dec from currencies c where c.code = v_cuenta.currency_code;
+
+  -- Se valida todo antes de escribir nada: un extracto medio importado es
+  -- peor que uno no importado.
+  select min((e.item->>'fecha')::date),
+         max((e.item->>'fecha')::date),
+         count(*)
+    into v_desde, v_hasta, v_cuantas
+    from jsonb_array_elements(p_lines) as e(item);
+
+  if v_desde is null then
+    raise exception 'fecha_obligatoria: alguna línea no trae fecha. Revisa qué columna mapeaste como fecha';
+  end if;
+
+  if exists (
+    select 1 from jsonb_array_elements(p_lines) as e(item)
+     where round(coalesce((e.item->>'importe')::numeric, 0), v_dec) = 0
   ) then
-    raise exception 'currency_not_enabled: % no está habilitada en esta organización', v_moneda;
+    raise exception 'importe_invalido: alguna línea tiene importe cero. Revisa qué columna mapeaste como importe';
   end if;
 
-  select c.minor_units into v_dec from currencies c where c.code = v_moneda;
-  v_importe := round(coalesce(p_amount, 0), v_dec);
-  if v_importe <= 0 then
-    raise exception 'importe_invalido: el importe tiene que ser mayor que cero';
-  end if;
+  insert into bank_statements (
+    organization_id, legal_entity_id, cash_account_id, currency_code,
+    label, desde, hasta, lineas, source_sha256)
+  values (
+    v_cuenta.organization_id, v_cuenta.legal_entity_id, p_account, v_cuenta.currency_code,
+    btrim(p_label), v_desde, v_hasta, v_cuantas, v_sha)
+  returning id into v_id;
 
-  -- La cuenta esperada, si se dice cuál, es del mismo libro y la misma
-  -- moneda. La clave compuesta lo impone igual; esto lo explica antes.
-  if p_account is not null then
-    select a.id, a.name into v_cuenta
-      from cash_accounts a
-     where a.id = p_account
-       and a.organization_id = v_ent.organization_id
-       and a.legal_entity_id = p_entity
-       and a.currency_code = v_moneda;
+  insert into bank_statement_lines (
+    organization_id, legal_entity_id, statement_id, cash_account_id, currency_code,
+    fila, value_date, direction, amount, description, external_ref, raw)
+  select v_cuenta.organization_id,
+         v_cuenta.legal_entity_id,
+         v_id,
+         p_account,
+         v_cuenta.currency_code,
+         e.idx::int,
+         (e.item->>'fecha')::date,
+         case when (e.item->>'importe')::numeric < 0 then 'out' else 'in' end::cash_direction,
+         abs(round((e.item->>'importe')::numeric, v_dec)),
+         coalesce(nullif(btrim(e.item->>'descripcion'), ''), 'Sin concepto'),
+         nullif(btrim(coalesce(e.item->>'referencia', '')), ''),
+         coalesce(e.item->'raw', e.item)
+    from jsonb_array_elements(p_lines) with ordinality as e(item, idx);
 
-    if v_cuenta.id is null then
-      raise exception
-        'cuenta_de_otro_libro: esa cuenta no es de % en %. De una cuenta sale el dinero de su empresa y en su moneda',
-        v_ent.legal_name, v_moneda;
-    end if;
-  end if;
-
-  if p_id is null then
-    insert into payment_schedule_items (
-      organization_id, legal_entity_id, direction, label, due_date, amount,
-      currency_code, expected_cash_account_id, status)
-    values (
-      v_ent.organization_id, p_entity, v_dir, v_etiqueta, p_due_date, v_importe,
-      v_moneda, p_account, 'planned')
-    returning id into v_item;
-  else
-    select i.* into v_previo
-      from payment_schedule_items i where i.id = p_id for update;
-
-    if v_previo.id is null or v_previo.organization_id <> v_ent.organization_id then
-      raise exception 'previsto_no_encontrado: ese previsto no existe o no es de tu organización';
-    end if;
-
-    if v_previo.quote_id is not null then
-      raise exception
-        'cuota_de_cotizacion: «%» es una cuota de una cotización y se edita en su cronograma, no aquí',
-        v_previo.label;
-    end if;
-
-    -- Con dinero asignado no se cambia el importe ni el libro: habría que
-    -- decidir qué pasa con lo ya asignado, y la respuesta honesta es que se
-    -- anula el movimiento primero.
-    if exists (select 1 from payment_allocations a
-                where a.payment_schedule_item_id = p_id) then
-      raise exception
-        'previsto_con_dinero: «%» ya tiene un movimiento asignado. Anula ese movimiento desde Caja antes de cambiarlo',
-        v_previo.label;
-    end if;
-
-    update payment_schedule_items
-       set direction = v_dir,
-           label = v_etiqueta,
-           due_date = p_due_date,
-           amount = v_importe,
-           currency_code = v_moneda,
-           legal_entity_id = p_entity,
-           expected_cash_account_id = p_account
-     where id = p_id;
-    v_item := p_id;
-  end if;
-
-  return query select * from payment_schedule_items where id = v_item;
+  return query select * from bank_statements where id = v_id;
 end $fn$;
 
-comment on function guardar_previsto(uuid, text, text, numeric, text, date, uuid, uuid) is
-  'Crea o corrige un cobro o pago previsto de una sola vez, sin cotización ni factura detrás (F5-3).';
+comment on function importar_extracto(uuid, text, jsonb) is
+  'Guarda un extracto y sus líneas tal como vinieron. No toca el libro (INV-8).';
 
-revoke all on function guardar_previsto(uuid, text, text, numeric, text, date, uuid, uuid) from public, anon;
-grant execute on function guardar_previsto(uuid, text, text, numeric, text, date, uuid, uuid) to authenticated;
-
--- ---------------------------------------------------------------------------
--- Puerta · quitar un previsto que todavía es solo un plan
--- ---------------------------------------------------------------------------
-
-create or replace function quitar_previsto(p_item uuid) returns void
-language plpgsql security definer set search_path = public, pg_temp as $fn$
-declare v_item record;
-begin
-  select i.* into v_item from payment_schedule_items i where i.id = p_item for update;
-
-  if v_item.id is null or not app.can_write_money(v_item.organization_id) then
-    raise exception 'previsto_no_encontrado: ese previsto no existe o no es de tu organización';
-  end if;
-
-  if v_item.quote_id is not null then
-    raise exception
-      'cuota_de_cotizacion: «%» es una cuota de una cotización. Se quita desde su cronograma, que comprueba que las demás sigan sumando el total',
-      v_item.label;
-  end if;
-
-  if exists (select 1 from payment_allocations a where a.payment_schedule_item_id = p_item) then
-    raise exception
-      'previsto_con_dinero: «%» ya tiene un movimiento asignado. Si el pago no era este, anula el movimiento desde Caja; borrar el previsto dejaría ese dinero señalando a algo que no existe',
-      v_item.label;
-  end if;
-
-  -- Se borra, y se puede: una proyección no es un hecho económico, no hay
-  -- documento ni dinero detrás, y `audit_log` guarda la fila que había. Es el
-  -- mismo razonamiento de `guardar_cronograma` con las cuotas previstas.
-  delete from payment_schedule_items where id = p_item;
-end $fn$;
-
-comment on function quitar_previsto(uuid) is
-  'Borra un previsto que todavía no tiene dinero asignado. Con dinero, se niega y dice qué anular primero (F5-3).';
-
-revoke all on function quitar_previsto(uuid) from public, anon;
-grant execute on function quitar_previsto(uuid) to authenticated;
+revoke all on function importar_extracto(uuid, text, jsonb) from public, anon;
+grant execute on function importar_extracto(uuid, text, jsonb) to authenticated;
 
 -- ---------------------------------------------------------------------------
--- Puerta · saldar un previsto con dinero de verdad
+-- Puerta · emparejar una línea con un movimiento
 -- ---------------------------------------------------------------------------
---
--- Es el hermano de `app.saldar_documento` para lo que no tiene documento:
--- crea el movimiento en la cuenta y la asignación que lo ata al previsto. El
--- estado lo deriva el disparador, no esta función.
 
-create or replace function saldar_previsto(
-  p_item         uuid,
-  p_account      uuid,
-  p_amount       numeric,
-  p_value_date   date default null,
-  p_external_ref text default null,
-  p_description  text default null
-) returns setof cash_movements
+create or replace function emparejar_linea(p_line uuid, p_movement uuid)
+returns setof bank_line_matches
 language plpgsql security definer set search_path = public, pg_temp as $fn$
 declare
-  v_item      record;
-  v_cuenta    record;
-  v_dec       int;
-  v_importe   numeric;
-  v_asignado  numeric;
-  v_mov       uuid;
+  v_linea  record;
+  v_mov    record;
+  v_otra   record;
+  v_id     uuid;
 begin
-  select i.* into v_item from payment_schedule_items i where i.id = p_item for update;
+  select l.* into v_linea from bank_statement_lines l where l.id = p_line;
 
-  if v_item.id is null or not app.can_write_money(v_item.organization_id) then
-    raise exception 'previsto_no_encontrado: ese previsto no existe o no es de tu organización';
+  if v_linea.id is null or not app.can_write_money(v_linea.organization_id) then
+    raise exception 'linea_no_encontrada: esa línea del extracto no existe o no es de tu organización';
   end if;
 
-  if v_item.quote_id is not null then
+  select m.* into v_mov from cash_movements m where m.id = p_movement;
+
+  if v_mov.id is null or v_mov.organization_id <> v_linea.organization_id then
+    raise exception 'movimiento_no_encontrado: ese movimiento no existe o no es de tu organización';
+  end if;
+
+  if v_mov.is_void then
     raise exception
-      'cuota_de_cotizacion: «%» es una cuota de una cotización: emite su documento y cóbralo, que es lo que la mete en la cartera',
-      v_item.label;
+      'movimiento_anulado: ese movimiento está anulado, así que no es dinero. Darlo por cuadrado contra una línea del banco escondería la línea de verdad';
   end if;
 
-  if v_item.status = 'cancelled' then
-    raise exception 'previsto_cancelado: «%» está cancelado', v_item.label;
-  end if;
-
-  select a.* into v_cuenta
-    from cash_accounts a
-   where a.id = p_account
-     and a.organization_id = v_item.organization_id
-     and a.legal_entity_id = v_item.legal_entity_id
-     and a.currency_code   = v_item.currency_code;
-
-  if v_cuenta.id is null then
+  if v_mov.cash_account_id <> v_linea.cash_account_id then
     raise exception
-      'cuenta_de_otro_libro: «%» está en % y hay que saldarlo desde una cuenta de la misma empresa y moneda',
-      v_item.label, v_item.currency_code;
+      'cuenta_de_otro_libro: esa línea es de una cuenta y ese movimiento de otra. Una línea del banco solo se tacha con dinero de la misma cuenta';
   end if;
 
-  select c.minor_units into v_dec from currencies c where c.code = v_item.currency_code;
-  v_importe := round(coalesce(p_amount, 0), v_dec);
-
-  if v_importe <= 0 then
-    raise exception 'importe_invalido: un movimiento tiene que ser mayor que cero';
-  end if;
-
-  select coalesce(sum(a.amount), 0) into v_asignado
-    from payment_allocations a
-    join cash_movements m on m.id = a.cash_movement_id and not m.is_void
-   where a.payment_schedule_item_id = p_item;
-
-  if v_asignado >= v_item.amount then
+  if v_mov.direction <> v_linea.direction then
     raise exception
-      'previsto_ya_saldado: «%» ya está saldado del todo con % de los % previstos',
-      v_item.label,
-      to_char(v_asignado, 'FM999999999990.00'),
-      to_char(v_item.amount, 'FM999999999990.00');
+      'direccion_no_concuerda: en el banco eso es dinero que % y el movimiento es dinero que %. Marcarlos juntos daría por cuadrado lo que no cuadra',
+      case when v_linea.direction = 'in' then 'entró' else 'salió' end,
+      case when v_mov.direction = 'in' then 'entró' else 'salió' end;
   end if;
 
-  insert into cash_movements (
-    organization_id, cash_account_id, legal_entity_id, direction, amount,
-    currency_code, value_date, kind, description, external_ref, source)
+  select l.value_date, l.description into v_otra
+    from bank_line_matches m
+    join bank_statement_lines l on l.id = m.statement_line_id
+   where m.cash_movement_id = p_movement;
+
+  if v_otra.value_date is not null then
+    raise exception
+      'movimiento_ya_conciliado: ese movimiento ya está marcado contra la línea «%» del %. Un movimiento no puede ser dos apuntes del banco: si de verdad lo fueron, anótalo como dos movimientos',
+      v_otra.description, to_char(v_otra.value_date, 'DD/MM/YYYY');
+  end if;
+
+  if v_linea.ignored_at is not null then
+    raise exception
+      'linea_ignorada: esa línea está apartada con el motivo «%». Quítale el motivo antes de emparejarla',
+      v_linea.ignored_reason;
+  end if;
+
+  insert into bank_line_matches (
+    organization_id, cash_account_id, currency_code, statement_line_id, cash_movement_id)
   values (
-    v_item.organization_id, p_account, v_item.legal_entity_id, v_item.direction::cash_direction,
-    v_importe, v_item.currency_code, coalesce(p_value_date, current_date), 'operating',
-    coalesce(nullif(btrim(coalesce(p_description, '')), ''), v_item.label),
-    nullif(btrim(coalesce(p_external_ref, '')), ''), 'manual')
-  returning id into v_mov;
+    v_linea.organization_id, v_linea.cash_account_id, v_linea.currency_code, p_line, p_movement)
+  returning id into v_id;
 
-  insert into payment_allocations (
-    organization_id, legal_entity_id, currency_code, cash_movement_id,
-    payment_schedule_item_id, amount)
-  values (
-    v_item.organization_id, v_item.legal_entity_id, v_item.currency_code, v_mov,
-    p_item, v_importe);
-
-  return query select * from cash_movements where id = v_mov;
+  return query select * from bank_line_matches where id = v_id;
 end $fn$;
 
-comment on function saldar_previsto(uuid, uuid, numeric, date, text, text) is
-  'Registra el dinero de un previsto: crea el movimiento y la asignación. El estado lo deriva el disparador (F5-3).';
+comment on function emparejar_linea(uuid, uuid) is
+  'Afirma que una línea del banco es un movimiento del libro. No mueve dinero (INV-8).';
 
-revoke all on function saldar_previsto(uuid, uuid, numeric, date, text, text) from public, anon;
-grant execute on function saldar_previsto(uuid, uuid, numeric, date, text, text) to authenticated;
+revoke all on function emparejar_linea(uuid, uuid) from public, anon;
+grant execute on function emparejar_linea(uuid, uuid) to authenticated;
+
+-- ---------------------------------------------------------------------------
+-- Puerta · retirar un emparejamiento
+-- ---------------------------------------------------------------------------
+--
+-- Esto sí se borra. Un emparejamiento no es un hecho económico: es la
+-- afirmación de una persona, y una afirmación se puede retirar. El rastro de
+-- quién la hizo y quién la quitó lo guarda `audit_log`.
+
+create or replace function desemparejar_linea(p_match uuid) returns void
+language plpgsql security definer set search_path = public, pg_temp as $fn$
+declare v_match record;
+begin
+  select m.* into v_match from bank_line_matches m where m.id = p_match;
+
+  if v_match.id is null or not app.can_write_money(v_match.organization_id) then
+    raise exception 'emparejamiento_no_encontrado: eso no existe o no es de tu organización';
+  end if;
+
+  delete from bank_line_matches where id = p_match;
+end $fn$;
+
+revoke all on function desemparejar_linea(uuid) from public, anon;
+grant execute on function desemparejar_linea(uuid) to authenticated;
+
+-- ---------------------------------------------------------------------------
+-- Puerta · apartar una línea que no es tuya
+-- ---------------------------------------------------------------------------
+
+create or replace function ignorar_linea(p_line uuid, p_motivo text default null)
+returns setof bank_statement_lines
+language plpgsql security definer set search_path = public, pg_temp as $fn$
+declare
+  v_linea  record;
+  v_motivo text := nullif(btrim(coalesce(p_motivo, '')), '');
+begin
+  select l.* into v_linea from bank_statement_lines l where l.id = p_line;
+
+  if v_linea.id is null or not app.can_write_money(v_linea.organization_id) then
+    raise exception 'linea_no_encontrada: esa línea del extracto no existe o no es de tu organización';
+  end if;
+
+  -- Motivo nulo = devolverla a la lista de pendientes.
+  if v_motivo is null then
+    update bank_statement_lines
+       set ignored_reason = null, ignored_at = null
+     where id = p_line;
+    return query select * from bank_statement_lines where id = p_line;
+    return;
+  end if;
+
+  if exists (select 1 from bank_line_matches m where m.statement_line_id = p_line) then
+    raise exception
+      'linea_emparejada: esa línea ya está marcada contra un movimiento. Quita el emparejamiento antes de apartarla';
+  end if;
+
+  update bank_statement_lines
+     set ignored_reason = v_motivo, ignored_at = now()
+   where id = p_line;
+
+  return query select * from bank_statement_lines where id = p_line;
+end $fn$;
+
+comment on function ignorar_linea(uuid, text) is
+  'Aparta una línea del extracto con un motivo escrito, o la devuelve a pendientes con motivo nulo. No la borra (INV-8.7).';
+
+revoke all on function ignorar_linea(uuid, text) from public, anon;
+grant execute on function ignorar_linea(uuid, text) to authenticated;
 
 -- Queda apuntada en el historial: si no, un despliegue futuro intentaría
 -- aplicarla otra vez y fallaría a mitad.
 insert into supabase_migrations.schema_migrations (version, name)
-values ('20261124120000', 'lo_puntual_tambien_es_caja')
+values ('20261124140000', 'lo_que_el_banco_dice')
 on conflict (version) do nothing;
 
 -- La demo de la pasada anterior, si está. Solo la demo: el slug es exacto y
@@ -603,6 +613,9 @@ declare
   v_trab_lanz  uuid;
   v_trab_redes uuid;
   v_previsto   uuid;
+  v_taxis      uuid;
+  v_extracto   uuid;
+  v_linea      uuid;
 begin
   -- Quién es el dueño de la demo: el primer usuario del proyecto. En «Margen
   -- Pilot» hay exactamente uno, así que es él; en la CI es uno de los dos de
@@ -818,7 +831,7 @@ begin
     current_date - 6, 'Reponer la caja chica', 5, v_bcp);
 
   -- Un gasto con su IGV declarado, sin documento: él es su propio hecho.
-  perform registrar_movimiento(v_bcp, 'out', 118, 'Taxis de la semana',
+  select id into v_taxis from registrar_movimiento(v_bcp, 'out', 118, 'Taxis de la semana',
     current_date - 4, 'operating', v_g_servicios, null, null, 100, 18);
 
   -- Y uno sin desglose: el neto es el importe entero, no se inventa un IGV.
@@ -910,6 +923,28 @@ begin
   perform registrar_movimiento(v_bcp, 'out', 236, 'Pauta de prueba en redes',
     current_date - 11, 'operating', v_g_proveedores, null, null, 200, 36,
     null, v_trab_redes);
+
+  -- ------------------------------------------------- lo que el banco dice
+  -- Un extracto de tres líneas: una que cuadra con un gasto anotado, una que
+  -- no está en el libro —la comisión que nadie anotó, que es el caso de
+  -- verdad— y una que el banco cobró y tampoco está. Importar no mueve el
+  -- saldo ni un céntimo (INV-8): lo único que hay después es la lista del
+  -- banco al lado de la tuya.
+  select id into v_extracto from importar_extracto(v_bcp, 'BCP soles · este mes',
+    jsonb_build_array(
+      jsonb_build_object('fecha', (current_date - 4)::text, 'importe', -118.00,
+                         'descripcion', 'PAGO TAXI APP', 'referencia', 'OP-330011'),
+      jsonb_build_object('fecha', (current_date - 3)::text, 'importe', -14.50,
+                         'descripcion', 'COMISION MANTENIMIENTO CUENTA'),
+      jsonb_build_object('fecha', (current_date - 2)::text, 'importe', -35.00,
+                         'descripcion', 'ITF / IMPUESTO A LAS TRANSACCIONES')));
+
+  -- La primera sí es un gasto anotado, y se empareja. Las otras dos se quedan
+  -- en «sobra del banco», que es justo lo que esta pantalla existe para
+  -- enseñar: dos cargos reales que no estaban en el libro.
+  select id into v_linea from bank_statement_lines
+   where statement_id = v_extracto and fila = 1;
+  perform emparejar_linea(v_linea, v_taxis);
 
   -- ------------------------------------------- lo previsto de una sola vez
   -- Lo que no cabe en una cuota, ni en un gasto fijo, ni en una compra: un

@@ -5,9 +5,9 @@
 set -eu
 cd "$(dirname "$0")/../.."
 SALIDA=supabase/seed/demo.sql
-MIG=supabase/migrations/20261124120000_lo_puntual_tambien_es_caja.sql
-VERSION=20261124120000
-NOMBRE=lo_puntual_tambien_es_caja
+MIG=supabase/migrations/20261124140000_lo_que_el_banco_dice.sql
+VERSION=20261124140000
+NOMBRE=lo_que_el_banco_dice
 
 cat > "$SALIDA" <<'CAB'
 -- ===========================================================================
@@ -17,15 +17,16 @@ cat > "$SALIDA" <<'CAB'
 --
 -- Hace tres cosas, en este orden y en una sola pasada:
 --
---  1. aplica la migración de «lo puntual también es caja» (F5-3), que es la
---     única que falta en el proyecto, y la deja apuntada en el historial de
+--  1. aplica la migración de «lo que el banco dice» (F6-1), que es la única
+--     que falta en el proyecto, y la deja apuntada en el historial de
 --     migraciones para que no se vuelva a aplicar;
 --  2. borra la organización «Margen Demo» si existe de una pasada anterior,
 --     para volver a crearla con los datos nuevos. Esto NO toca «Margen
 --     Pilot»: borra una sola fila, la de la demo, y lo demás cae por cascada;
 --  3. vuelve a crear «Margen Demo» con datos de prueba en todo: sus trabajos
---     con dos compras atribuidas, y dos previstos de una sola vez, uno de
---     ellos adelantado a medias.
+--     con dos compras atribuidas, dos previstos de una sola vez —uno
+--     adelantado a medias— y un extracto de banco de tres líneas, una
+--     cuadrada y dos que no están en el libro.
 --
 -- Todo va dentro de una transacción: o entra el archivo entero o no entra
 -- nada. Si algo falla a mitad, la base se queda exactamente como estaba, sin

@@ -59,6 +59,141 @@ export type Database = {
         }
         Relationships: []
       }
+      bank_statements: {
+        Row: {
+          cash_account_id: string
+          currency_code: string
+          desde: string
+          hasta: string
+          id: string
+          imported_at: string
+          imported_by: string
+          label: string
+          legal_entity_id: string
+          lineas: number
+          organization_id: string
+          source_sha256: string
+        }
+        Insert: {
+          cash_account_id: string
+          currency_code: string
+          desde: string
+          hasta: string
+          id?: string
+          imported_at?: string
+          imported_by?: string
+          label: string
+          legal_entity_id: string
+          lineas: number
+          organization_id: string
+          source_sha256: string
+        }
+        Update: {
+          cash_account_id?: string
+          currency_code?: string
+          desde?: string
+          hasta?: string
+          id?: string
+          imported_at?: string
+          imported_by?: string
+          label?: string
+          legal_entity_id?: string
+          lineas?: number
+          organization_id?: string
+          source_sha256?: string
+        }
+        Relationships: []
+      }
+      bank_statement_lines: {
+        Row: {
+          amount: number
+          cash_account_id: string
+          created_at: string
+          currency_code: string
+          description: string
+          direction: Database["public"]["Enums"]["cash_direction"]
+          external_ref: string | null
+          fila: number
+          id: string
+          ignored_at: string | null
+          ignored_reason: string | null
+          legal_entity_id: string
+          organization_id: string
+          raw: Json
+          statement_id: string
+          value_date: string
+        }
+        Insert: {
+          amount: number
+          cash_account_id: string
+          created_at?: string
+          currency_code: string
+          description: string
+          direction: Database["public"]["Enums"]["cash_direction"]
+          external_ref?: string | null
+          fila: number
+          id?: string
+          ignored_at?: string | null
+          ignored_reason?: string | null
+          legal_entity_id: string
+          organization_id: string
+          raw?: Json
+          statement_id: string
+          value_date: string
+        }
+        Update: {
+          amount?: number
+          cash_account_id?: string
+          created_at?: string
+          currency_code?: string
+          description?: string
+          direction?: Database["public"]["Enums"]["cash_direction"]
+          external_ref?: string | null
+          fila?: number
+          id?: string
+          ignored_at?: string | null
+          ignored_reason?: string | null
+          legal_entity_id?: string
+          organization_id?: string
+          raw?: Json
+          statement_id?: string
+          value_date?: string
+        }
+        Relationships: []
+      }
+      bank_line_matches: {
+        Row: {
+          cash_account_id: string
+          cash_movement_id: string
+          currency_code: string
+          id: string
+          matched_at: string
+          matched_by: string
+          organization_id: string
+          statement_line_id: string
+        }
+        Insert: {
+          cash_account_id: string
+          cash_movement_id: string
+          currency_code: string
+          id?: string
+          matched_at?: string
+          matched_by?: string
+          organization_id: string
+          statement_line_id: string
+        }
+        Update: {
+          cash_account_id?: string
+          cash_movement_id?: string
+          currency_code?: string
+          id?: string
+          matched_at?: string
+          matched_by?: string
+          organization_id?: string
+          statement_line_id?: string
+        }
+        Relationships: []
+      }
       billing_documents: {
         Row: {
           amount_net: number
@@ -2332,6 +2467,17 @@ export type Database = {
       }
     }
     Views: {
+      bank_line_status: {
+        Row: {
+          cash_account_id: string | null
+          conciliado: number | null
+          cuadra: boolean | null
+          emparejados: number | null
+          line_id: string | null
+          organization_id: string | null
+        }
+        Relationships: []
+      }
       economic_facts: {
         Row: {
           amount_net: number | null
@@ -2381,6 +2527,26 @@ export type Database = {
       }
     }
     Functions: {
+      importar_extracto: {
+        Args: {
+          p_account: string
+          p_label: string
+          p_lines: Json
+        }
+        Returns: Database["public"]["Tables"]["bank_statements"]["Row"][]
+      }
+      emparejar_linea: {
+        Args: { p_line: string; p_movement: string }
+        Returns: Database["public"]["Tables"]["bank_line_matches"]["Row"][]
+      }
+      desemparejar_linea: {
+        Args: { p_match: string }
+        Returns: undefined
+      }
+      ignorar_linea: {
+        Args: { p_line: string; p_motivo?: string }
+        Returns: Database["public"]["Tables"]["bank_statement_lines"]["Row"][]
+      }
       guardar_previsto: {
         Args: {
           p_account?: string

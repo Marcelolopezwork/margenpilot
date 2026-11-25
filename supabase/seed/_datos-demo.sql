@@ -64,6 +64,9 @@ declare
   v_trab_lanz  uuid;
   v_trab_redes uuid;
   v_previsto   uuid;
+  v_taxis      uuid;
+  v_extracto   uuid;
+  v_linea      uuid;
 begin
   -- Quién es el dueño de la demo: el primer usuario del proyecto. En «Margen
   -- Pilot» hay exactamente uno, así que es él; en la CI es uno de los dos de
@@ -279,7 +282,7 @@ begin
     current_date - 6, 'Reponer la caja chica', 5, v_bcp);
 
   -- Un gasto con su IGV declarado, sin documento: él es su propio hecho.
-  perform registrar_movimiento(v_bcp, 'out', 118, 'Taxis de la semana',
+  select id into v_taxis from registrar_movimiento(v_bcp, 'out', 118, 'Taxis de la semana',
     current_date - 4, 'operating', v_g_servicios, null, null, 100, 18);
 
   -- Y uno sin desglose: el neto es el importe entero, no se inventa un IGV.
@@ -371,6 +374,28 @@ begin
   perform registrar_movimiento(v_bcp, 'out', 236, 'Pauta de prueba en redes',
     current_date - 11, 'operating', v_g_proveedores, null, null, 200, 36,
     null, v_trab_redes);
+
+  -- ------------------------------------------------- lo que el banco dice
+  -- Un extracto de tres líneas: una que cuadra con un gasto anotado, una que
+  -- no está en el libro —la comisión que nadie anotó, que es el caso de
+  -- verdad— y una que el banco cobró y tampoco está. Importar no mueve el
+  -- saldo ni un céntimo (INV-8): lo único que hay después es la lista del
+  -- banco al lado de la tuya.
+  select id into v_extracto from importar_extracto(v_bcp, 'BCP soles · este mes',
+    jsonb_build_array(
+      jsonb_build_object('fecha', (current_date - 4)::text, 'importe', -118.00,
+                         'descripcion', 'PAGO TAXI APP', 'referencia', 'OP-330011'),
+      jsonb_build_object('fecha', (current_date - 3)::text, 'importe', -14.50,
+                         'descripcion', 'COMISION MANTENIMIENTO CUENTA'),
+      jsonb_build_object('fecha', (current_date - 2)::text, 'importe', -35.00,
+                         'descripcion', 'ITF / IMPUESTO A LAS TRANSACCIONES')));
+
+  -- La primera sí es un gasto anotado, y se empareja. Las otras dos se quedan
+  -- en «sobra del banco», que es justo lo que esta pantalla existe para
+  -- enseñar: dos cargos reales que no estaban en el libro.
+  select id into v_linea from bank_statement_lines
+   where statement_id = v_extracto and fila = 1;
+  perform emparejar_linea(v_linea, v_taxis);
 
   -- ------------------------------------------- lo previsto de una sola vez
   -- Lo que no cabe en una cuota, ni en un gasto fijo, ni en una compra: un

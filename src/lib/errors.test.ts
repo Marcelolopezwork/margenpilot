@@ -163,3 +163,35 @@ describe('F5-3 · los previstos', () => {
     );
   });
 });
+
+describe('F6-1 · la conciliación', () => {
+  it('el extracto repetido dice cuál era y cuándo entró', () => {
+    expect(
+      mensajeDeError({
+        message:
+          'extracto_repetido: este mismo extracto ya se importó como «BCP · noviembre» el 23/11/2026. Importarlo otra vez duplicaría media conciliación',
+      }),
+    ).toContain('«BCP · noviembre»');
+  });
+
+  it('un movimiento ya conciliado dice contra qué línea está', () => {
+    expect(
+      mensajeDeError({
+        message:
+          'movimiento_ya_conciliado: ese movimiento ya está marcado contra la línea «COMISION» del 03/11/2026. Un movimiento no puede ser dos apuntes del banco',
+      }),
+    ).toContain('«COMISION» del 03/11/2026');
+  });
+
+  it('un archivo del que no se leyó nada apunta a la causa de siempre', () => {
+    expect(mensajeDeError({ message: 'extracto_vacio: no se leyó nada' })).toContain(
+      'la columna marcada como fecha',
+    );
+  });
+
+  it('un movimiento anulado explica por qué no vale para cuadrar', () => {
+    expect(mensajeDeError({ message: 'movimiento_anulado: está anulado' })).toContain(
+      'escondería la línea de verdad',
+    );
+  });
+});

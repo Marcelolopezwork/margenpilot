@@ -2012,6 +2012,226 @@ begin
     'el dinero no cruza de una empresa a otra (INV-11)');
 end $$;
 
+-- ---------------------------------------------------------------------------
+-- F6-1 · Lo que el banco dice (INV-8)
+-- ---------------------------------------------------------------------------
+--
+-- La aserción que manda sobre todas es la primera: importar un extracto y
+-- emparejarlo entero no mueve el saldo ni un céntimo. Si eso falla, conciliar
+-- habría dejado de ser una comprobación para pasar a ser otra forma de
+-- escribir en el libro.
+
+do $$
+declare
+  v_org      uuid;
+  v_uno      uuid;
+  v_usuario  uuid := '11111111-1111-1111-1111-111111111111';
+  v_pen      uuid;
+  v_usd      uuid;
+  v_saldo0   numeric;
+  v_saldo1   numeric;
+  v_ext      uuid;
+  v_l1       uuid;
+  v_l2       uuid;
+  v_m1       uuid;
+  v_m2       uuid;
+  v_m3       uuid;
+  v_match    uuid;
+  v_lineas   jsonb;
+begin
+  select id into v_org from organizations where slug = 'org-a';
+  select id into v_uno from legal_entities
+   where organization_id = v_org and legal_name = 'Entidad Uno';
+  select id into v_pen from cash_accounts
+   where organization_id = v_org and name = 'BCP Soles';
+  select id into v_usd from cash_accounts
+   where organization_id = v_org and name = 'Mercury USD';
+
+  -- -------------------------------------------------------------- la forma
+  perform assert_true(
+    has_table_privilege('authenticated', 'bank_statements', 'select')
+    and not has_table_privilege('authenticated', 'bank_statements', 'insert')
+    and not has_table_privilege('authenticated', 'bank_statement_lines', 'insert')
+    and not has_table_privilege('authenticated', 'bank_line_matches', 'insert'),
+    'el extracto se lee: lo escriben las puertas, no la pantalla');
+
+  perform assert_true(
+    (select bool_and(relrowsecurity and relforcerowsecurity) from pg_class
+      where oid in ('bank_statements'::regclass, 'bank_statement_lines'::regclass,
+                    'bank_line_matches'::regclass)),
+    'las tres tablas tienen RLS, y forzada también para el dueño');
+
+  perform assert_true(
+    exists (select 1 from pg_indexes
+             where tablename = 'bank_line_matches'
+               and indexname = 'movimiento_conciliado_una_vez'),
+    'un movimiento no se marca dos veces, y lo impone un índice');
+
+  -- --------------------------------------------- la puerta dice que no
+  perform assert_raises(
+    format('select importar_extracto(%L, ''Noviembre'', ''[]''::jsonb)', v_pen),
+    'extracto_vacio',
+    'un archivo del que no se leyó ninguna línea no se importa en silencio');
+
+  perform assert_raises(
+    format('select importar_extracto(%L, ''  '', ''[{"fecha":"2026-11-03","importe":-118}]''::jsonb)', v_pen),
+    'etiqueta_obligatoria',
+    'y necesita un nombre que se reconozca dentro de seis meses');
+
+  perform assert_raises(
+    format('select importar_extracto(%L, ''Noviembre'',
+             ''[{"fecha":"2026-11-03","importe":0,"descripcion":"Nada"}]''::jsonb)', v_pen),
+    'importe_invalido',
+    'una línea de importe cero delata que la columna mapeada no era la del importe');
+
+  -- ------------------------------------------------------ importar
+  select balance into v_saldo0 from account_balances where cash_account_id = v_pen;
+
+  v_lineas := jsonb_build_array(
+    jsonb_build_object('fecha', (current_date - 3)::text, 'importe', -118.00,
+                       'descripcion', 'COMISION MANTENIMIENTO', 'referencia', 'OP-5001'),
+    jsonb_build_object('fecha', (current_date - 2)::text, 'importe', 1180.00,
+                       'descripcion', 'ABONO CLIENTE EJ', 'referencia', 'OP-5002'),
+    jsonb_build_object('fecha', (current_date - 1)::text, 'importe', -250.00,
+                       'descripcion', 'CARGO QUE NO RECONOZCO'));
+
+  select id into v_ext from importar_extracto(v_pen, 'BCP · noviembre', v_lineas);
+
+  perform assert_true(
+    (select lineas = 3 and desde = current_date - 3 and hasta = current_date - 1
+       from bank_statements where id = v_ext),
+    'el extracto guarda cuántas líneas trae y qué fechas cubre');
+
+  perform assert_true(
+    (select count(*) = 3 from bank_statement_lines where statement_id = v_ext),
+    'y sus tres líneas');
+
+  perform assert_true(
+    (select direction = 'out' and amount = 118.00
+       from bank_statement_lines where statement_id = v_ext and fila = 1),
+    'el signo del extracto decide la dirección, y el importe se guarda en positivo como en el libro');
+
+  perform assert_true(
+    (select raw->>'referencia' = 'OP-5001'
+       from bank_statement_lines where statement_id = v_ext and fila = 1),
+    'y la fila original se queda entera, por si hay que mirar qué decía el banco');
+
+  -- INV-8, la aserción que manda: importar no movió el saldo.
+  select balance into v_saldo1 from account_balances where cash_account_id = v_pen;
+  perform assert_true(
+    v_saldo1 = v_saldo0,
+    'importar un extracto no mueve el saldo ni un céntimo (INV-8)');
+
+  perform assert_raises(
+    format('select importar_extracto(%L, ''Otra vez'', %L::jsonb)', v_pen, v_lineas::text),
+    'extracto_repetido',
+    'el mismo extracto no entra dos veces: duplicaría media conciliación');
+
+  -- ----------------------------------------------------------- emparejar
+  select id into v_l1 from bank_statement_lines where statement_id = v_ext and fila = 1;
+  select id into v_l2 from bank_statement_lines where statement_id = v_ext and fila = 2;
+
+  select id into v_m1 from registrar_movimiento(
+    v_pen, 'out', 118, 'Comisión del banco', current_date - 3, 'bank_fee');
+
+  perform assert_true(
+    (select not cuadra and emparejados = 0 from bank_line_status where line_id = v_l1),
+    'una línea sin emparejar no cuadra, y lo dice');
+
+  perform emparejar_linea(v_l1, v_m1);
+
+  perform assert_true(
+    (select cuadra and emparejados = 1 and conciliado = 118.00
+       from bank_line_status where line_id = v_l1),
+    'emparejada con un movimiento del mismo importe, cuadra');
+
+  -- Y emparejar tampoco movió el saldo: lo que lo movió fue el movimiento.
+  select balance into v_saldo1 from account_balances where cash_account_id = v_pen;
+  perform assert_true(
+    v_saldo1 = v_saldo0 - 118,
+    'el saldo cambió por el movimiento, no por el emparejamiento (INV-8)');
+
+  -- ----------------------------------------------- lo que no se puede
+  select id into v_m2 from registrar_movimiento(
+    v_pen, 'in', 600, 'Cobro suelto', current_date - 2);
+  select id into v_m3 from registrar_movimiento(
+    v_pen, 'in', 580, 'Otro cobro del mismo día', current_date - 2);
+
+  perform assert_raises(
+    format('select emparejar_linea(%L, %L)', v_l1, v_m2),
+    'direccion_no_concuerda',
+    'en el banco salió dinero y el movimiento es una entrada: juntarlos daría por cuadrado lo que no cuadra');
+
+  perform assert_raises(
+    format('select emparejar_linea(%L, %L)', v_l2, v_m1),
+    'movimiento_ya_conciliado',
+    'un movimiento no puede ser dos apuntes del banco');
+
+  perform assert_raises(
+    format('select emparejar_linea(%L, (select id from cash_movements
+              where cash_account_id = %L limit 1))', v_l2, v_usd),
+    'cuenta_de_otro_libro',
+    'una línea del BCP no se tacha con dinero de Mercury');
+
+  -- ------------------------------- el banco junta dos depósitos del día
+  perform emparejar_linea(v_l2, v_m2);
+  perform assert_true(
+    (select not cuadra and conciliado = 600.00 from bank_line_status where line_id = v_l2),
+    'con la mitad emparejada, la línea todavía no cuadra');
+
+  perform emparejar_linea(v_l2, v_m3);
+  perform assert_true(
+    (select cuadra and emparejados = 2 and conciliado = 1180.00
+       from bank_line_status where line_id = v_l2),
+    'una línea puede ser varios movimientos: el banco junta dos depósitos del mismo día');
+
+  -- ------------------------------------------- anular deshace el cuadre
+  perform anular_movimiento(v_m3, 'No era de este cliente');
+  perform assert_true(
+    (select not cuadra and conciliado = 600.00 from bank_line_status where line_id = v_l2),
+    'anulado uno de los movimientos, la línea deja de cuadrar sola: el dinero anulado no es dinero');
+
+  perform assert_raises(
+    format('select emparejar_linea(%L, %L)', v_l2, v_m3),
+    'movimiento_anulado',
+    'y un movimiento anulado no se puede emparejar');
+
+  -- ------------------------------------------------------- desemparejar
+  select id into v_match from bank_line_matches where statement_line_id = v_l1;
+  perform desemparejar_linea(v_match);
+  perform assert_true(
+    (select not cuadra and emparejados = 0 from bank_line_status where line_id = v_l1),
+    'un emparejamiento es una afirmación, y una afirmación se puede retirar');
+
+  -- -------------------------------------------------------------- apartar
+  perform assert_raises(
+    format('select ignorar_linea(%L, ''No es mía'')', v_l2),
+    'linea_emparejada',
+    'una línea ya marcada contra un movimiento no se aparta sin quitar antes el emparejamiento');
+
+  perform ignorar_linea(v_l1, 'Es la comisión del banco, la anoto en diciembre');
+  perform assert_true(
+    (select ignored_at is not null and ignored_reason like 'Es la comisión%'
+       from bank_statement_lines where id = v_l1),
+    'apartar una línea deja el motivo escrito y no la borra');
+
+  perform assert_raises(
+    format('select emparejar_linea(%L, %L)', v_l1, v_m1),
+    'linea_ignorada',
+    'y mientras está apartada no se empareja, para que no esté en dos sitios a la vez');
+
+  perform ignorar_linea(v_l1, null);
+  perform assert_true(
+    (select ignored_at is null from bank_statement_lines where id = v_l1),
+    'con motivo nulo vuelve a la lista de pendientes');
+
+  -- ----------------------------------- y nada de esto tocó el libro
+  perform assert_true(
+    (select count(*) from cash_movements
+      where cash_account_id = v_pen and description = 'COMISION MANTENIMIENTO') = 0,
+    'conciliar no creó ningún movimiento a partir del extracto (INV-8)');
+end $$;
+
 reset request.jwt.claim.sub;
 
-select 'TODAS LAS PRUEBAS DE F1 A F5 PASARON · 228 aserciones' as resultado;
+select 'TODAS LAS PRUEBAS DE F1 A F6 PASARON · 256 aserciones' as resultado;

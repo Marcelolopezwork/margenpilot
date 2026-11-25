@@ -78,6 +78,10 @@ const CON_CIFRAS: readonly string[] = [
   'previsto_con_dinero',
   'previsto_ya_saldado',
   'previsto_cancelado',
+  // F6-1 · la conciliación. Traen dentro con qué línea choca y de qué fecha.
+  'extracto_repetido',
+  'movimiento_ya_conciliado',
+  'linea_ignorada',
 ];
 
 function conCifras(bruto: string): string | null {
@@ -189,6 +193,31 @@ const FIJOS: readonly (readonly [string, string])[] = [
   [
     'etiqueta_obligatoria',
     'El gasto necesita un nombre, el que vas a reconocer en el extracto del banco.',
+  ],
+  // F6-1 · la conciliación
+  [
+    'linea_no_encontrada',
+    'Esa línea del extracto ya no existe, o no tienes permiso de finanzas en esta organización.',
+  ],
+  [
+    'extracto_vacio',
+    'De ese archivo no se leyó ninguna línea. Casi siempre es que la columna marcada como fecha no era la de la fecha.',
+  ],
+  [
+    'extracto_enorme',
+    'Cinco mil líneas son más de las que trae un extracto. Pártelo por meses.',
+  ],
+  [
+    'linea_emparejada',
+    'Esa línea ya está marcada contra un movimiento. Quita el emparejamiento antes de apartarla.',
+  ],
+  [
+    'movimiento_anulado',
+    'Ese movimiento está anulado, así que no es dinero. Darlo por cuadrado contra una línea del banco escondería la línea de verdad.',
+  ],
+  [
+    'emparejamiento_no_encontrado',
+    'Ese emparejamiento ya no existe, o no tienes permiso de finanzas en esta organización.',
   ],
   // F5-3 · los previstos
   [

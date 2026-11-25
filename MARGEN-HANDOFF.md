@@ -65,7 +65,7 @@ que la clave sea secreta.
 Todo esto está **en producción y verificado contra la base real**, no solo
 compilado.
 
-### Base de datos · treinta y siete migraciones
+### Base de datos · treinta y ocho migraciones
 
 Las treinta y seis primeras están aplicadas en producción. La de compras
 (F3-6) la ejecutó Marcelo el 23/11 pegando `supabase/seed/demo.sql` en el
@@ -80,10 +80,13 @@ cascade`.
 La de los trabajos (F5) la aplicó el 24/11 por el mismo camino, y quedó
 comprobada contra la base: tres trabajos, dos compras y un gasto atribuidos.
 
-**La treinta y siete, la de lo previsto (F5-3), está escrita y verificada en la
-CI pero todavía no aplicada en producción.** Se aplica igual: `armar.sh` ya
-regeneró `supabase/seed/demo.sql` con ella dentro, y ese archivo además borra
-y vuelve a crear Margen Demo para que traiga los datos nuevos.
+La de lo previsto (F5-3) la aplicó el 24/11 por el mismo camino.
+
+**La treinta y ocho, la de la conciliación (F6-1), está escrita y verificada
+en la CI pero todavía no aplicada en producción.** Se aplica igual: `armar.sh`
+ya regeneró `supabase/seed/demo.sql` con ella dentro, dentro de una
+transacción, y ese archivo además borra y vuelve a crear Margen Demo para que
+traiga los datos nuevos.
 
 ```
 20261028120000 foundations      esquema, tablas, disparadores, auditoría
@@ -123,6 +126,7 @@ y vuelve a crear Margen Demo para que traiga los datos nuevos.
 20261110120000 lo_que_compras_tiene_proveedor   proveedores y compras (INV-12, INV-13)
 20261123120000 cuanto_deja_cada_trabajo  trabajos, atribución y job_margins (INV-14)
 20261124120000 lo_puntual_tambien_es_caja  cobros y pagos previstos de una vez (INV-15.4)
+20261124140000 lo_que_el_banco_dice  extracto, líneas y emparejamiento (INV-8)
 ```
 
 ### Pantallas
@@ -183,14 +187,14 @@ caja (BCP soles en PEN, Mercury en USD), un cliente y una cotización de prueba.
 
 ### Verificación
 
-- **422 pruebas** de Vitest: dinero, errores, formato, armazón, altas, el A4,
+- **469 pruebas** de Vitest: dinero, errores, formato, armazón, altas, el A4,
   la propuesta, la aritmética de la cotización, el panel de emisión, la
   reimpresión de una versión emitida, el reparto en cuotas, el margen
   agregado, la cartera, la pantalla de finanzas, la proyección de caja con sus
   salidas, los gastos fijos, la tasa efectiva, los destinos de una
   transferencia, el resultado del periodo, el margen por trabajo y por
   servicio, la atribución de un costo a su trabajo y el panel de inicio
-- **228 aserciones** SQL en `supabase/tests/invariants.sql`
+- **256 aserciones** SQL en `supabase/tests/invariants.sql`
 - CI en GitHub Actions: tipos, lint, pruebas, build, y las migraciones
   reaplicadas desde cero en cada push. El Postgres de la CI es pelado y no
   trae lo que Supabase pone encima, así que `supabase/stubs/auth.sql` y
@@ -357,10 +361,13 @@ Lo que resuelve, y por qué cada cosa es estructura y no aviso:
   deja el motivo, se niega si hay dinero asignado y devuelve la cuota a
   `planned` para poder volver a emitirla.
 
-Lo que falta de F3, por orden:
+Lo que falta, por orden:
 
-1. **Conciliación bancaria** (INV-8) e importación de extractos. Es lo único
-   grande que queda: convierte «lo que yo anoté» en «lo que el banco dice».
+1. **Cerrar un periodo conciliado.** La otra mitad de la conciliación:
+   «hasta el 31 de octubre está cuadrado con el banco» como fecha guardada y
+   no como creencia, y lo anterior deja de pedir atención. Con ella va
+   **crear el movimiento desde la conciliación**, que estaba en el diseño y se
+   dejó fuera a propósito (ver INV-8).
 2. **Repartir una factura entre dos trabajos.** Hoy una compra pertenece a un
    trabajo o a ninguno. Si una imprenta factura dos campañas juntas, hay que
    pedir dos facturas o anotarla en la que pese más. Hace falta una tabla de
@@ -535,6 +542,41 @@ Dibujada columna a columna se corta en cada hueco y lo que se ve es una línea
 de puntos, que es justo lo que un eje no debe parecer. Por eso los meses van
 en su propia fila, con el mismo ancho y el mismo hueco.
 
+### F6-1 · Lo que el banco dice
+
+Hecho el 24/11. Es la primera mitad de la conciliación: el extracto
+importado, sus líneas y el emparejamiento. La segunda —cerrar un periodo— es
+ahora lo primero de la lista de arriba.
+
+**La regla manda sobre la forma de la pantalla.** Conciliar no crea dinero
+(INV-8), así que desde ahí no se puede anotar, corregir ni borrar un
+movimiento: ninguna de las tres tablas tiene una escritura hacia
+`cash_movements`. De eso sale la pantalla de tres montones: lo que cuadra, lo
+que sobra del banco y **lo que sobra del libro**, que es el que casi nadie
+mira y el que más dice —un cobro que diste por hecho y no llegó—.
+
+Leer el archivo pasa entero en el cliente (`extracto.ts`) y nada de eso toca
+la base: se adivina el separador, el orden de la fecha, el separador decimal y
+qué columna es cuál, se enseña el resultado y **lo confirma una persona**. Un
+importador que se equivoca en silencio no da un error: da una contabilidad que
+cuadra con un extracto que no es el tuyo. Detalles que costaron su prueba:
+`03/11/2026` es 3 de noviembre o 11 de marzo y el orden se deduce del archivo
+entero, no de una fila; `1,180.00` y `1.180,00` son el mismo importe; un
+`(118.00)` es un negativo; y en un extracto de dos columnas el cargo es una
+salida aunque venga sin signo.
+
+La propuesta de emparejamiento tiene su propia regla, que es la que la hace
+útil: **si hay dos candidatos igual de buenos, no se propone ninguno.** Dos
+comisiones idénticas el mismo día aceptadas a ciegas dejan las dos listas
+cuadradas con los pares cambiados, que es peor que no haber conciliado.
+
+Un detalle de React que mordió y conviene no repetir: el paso de mapear
+columnas estaba escrito como un componente declarado dentro del componente
+padre y usado como `<Mapear />`. Su identidad cambia en cada render, así que
+React lo desmontaba y lo volvía a montar entero, y el campo que estuvieras
+escribiendo perdía el foco después de cada letra. Llamado como función
+—`mapear()`— es JSX del mismo árbol y no pasa.
+
 ### Pendiente de Marcelo, no de código
 
 - **SMTP propio (D-7).** El correo de Supabase **solo escribe a miembros de su
@@ -561,7 +603,7 @@ en su propia fila, con el mismo ancho y el mismo hueco.
   sigue siendo la buena: en cuanto el CLI pueda, regenerar el archivo entero.
   Para arreglarlo hace falta un token de acceso personal con permiso sobre el
   proyecto (`supabase login`), que es algo de Marcelo, no de código.
-- El bundle principal va por 745 kB en crudo (≈210 kB comprimidos). jsPDF y
+- El bundle principal va por 769 kB en crudo (≈217 kB comprimidos). jsPDF y
   sus dependencias ya van en trozos aparte, cargados solo al descargar; falta
   dividir las rutas con `React.lazy` antes de que entre F3.
 - La aritmética de la cotización está escrita dos veces: en

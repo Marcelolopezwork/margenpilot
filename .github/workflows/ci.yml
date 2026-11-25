@@ -118,6 +118,15 @@ jobs:
                 raise exception 'ningún trabajo se llevó su parte de lo facturado';
               end if;
 
+              -- Un extracto de tres líneas, una de ellas ya cuadrada.
+              select count(*) into v_cuantas from bank_statement_lines
+               where organization_id = v_org;
+              if v_cuantas <> 3 then raise exception 'la demo necesita tres líneas de extracto, hay %', v_cuantas; end if;
+
+              select count(*) into v_cuantas from bank_line_status s
+               where s.organization_id = v_org and s.cuadra;
+              if v_cuantas <> 1 then raise exception 'la demo necesita una línea cuadrada, hay %', v_cuantas; end if;
+
               -- Dos previstos de una sola vez, sin cotización detrás.
               select count(*) into v_cuantas from payment_schedule_items
                where organization_id = v_org and quote_id is null;
