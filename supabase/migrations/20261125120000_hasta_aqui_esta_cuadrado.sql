@@ -128,6 +128,8 @@ declare
   v_cuenta  record;
   v_sueltas int;
   v_primera date;
+  v_primero date;
+  v_ultimo  date;
 begin
   select a.* into v_cuenta from cash_accounts a where a.id = p_account;
 
@@ -148,12 +150,29 @@ begin
       to_char(p_hasta, 'DD/MM/YYYY');
   end if;
 
-  if not exists (
-    select 1 from bank_statements s
-     where s.cash_account_id = p_account and s.hasta >= p_hasta
-  ) then
+  /*
+    La fecha tiene que caer **dentro** de lo importado: ni antes del primer
+    día que trajo un extracto —estarías cerrando un periodo que nadie miró—
+    ni después del último —el banco todavía no ha dicho qué pasó ahí—.
+
+    Lo que esto NO detecta es un hueco en medio: si importaste septiembre y
+    noviembre y cierras a mitad de octubre, octubre no se miró y esto deja
+    pasar. Detectarlo exigiría saber que los extractos son continuos, y un
+    extracto no trae esa promesa. Queda dicho aquí en vez de fingir que se
+    comprueba.
+  */
+  select min(s.desde), max(s.hasta) into v_primero, v_ultimo
+    from bank_statements s where s.cash_account_id = p_account;
+
+  if v_primero is null then
     raise exception
-      'sin_extracto: no hay ningún extracto importado que llegue hasta el %. Cerrar sin extracto sería decir que cuadra con algo que nadie miró',
+      'sin_extracto: esta cuenta no tiene ningún extracto importado. Cerrar sin extracto sería decir que cuadra con algo que nadie miró';
+  end if;
+
+  if p_hasta < v_primero or p_hasta > v_ultimo then
+    raise exception
+      'sin_extracto: los extractos de esta cuenta van del % al %, y quieres cerrar hasta el %. Fuera de ese rango no hay nada importado con lo que cuadrar',
+      to_char(v_primero, 'DD/MM/YYYY'), to_char(v_ultimo, 'DD/MM/YYYY'),
       to_char(p_hasta, 'DD/MM/YYYY');
   end if;
 
