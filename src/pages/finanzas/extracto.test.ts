@@ -12,6 +12,7 @@ import {
   proponer,
   separarCsv,
   separarFila,
+  valoresDe,
   type LineaDelBanco,
   type MovimientoDelLibro,
 } from './extracto';
@@ -285,5 +286,156 @@ describe('proponer emparejamientos', () => {
       ['l-1', 'm-1'],
       ['l-2', 'm-2'],
     ]);
+  });
+});
+
+/**
+ * El formato real de Mercury, que es el que Marcelo usa. La cabecera es la
+ * suya, tal cual; las filas son inventadas con la misma forma, porque un
+ * extracto de verdad no se guarda en un repositorio.
+ *
+ * Dos cosas de este archivo rompían el importador y por eso están aquí:
+ * trae **las nueve cuentas en el mismo CSV**, y trae transacciones
+ * **rechazadas** que nunca ocurrieron.
+ */
+describe('el formato real de Mercury', () => {
+  const CABECERA = [
+    'Date (UTC)',
+    'Description',
+    'Amount',
+    'Status',
+    'Source Account',
+    'Bank Description',
+    'Reference',
+    'Note',
+    'Last Four Digits',
+    'Name On Card',
+    'Merchant Type',
+    'Category',
+    'Source of Category',
+    'GL Code',
+    'Source of GL Code',
+    'Timestamp',
+    'Original Currency',
+    'Check Number',
+    'Cardholder Email',
+    'Tracking ID',
+    'Failure Reason',
+  ];
+
+  const fila = (
+    fecha: string,
+    descripcion: string,
+    importe: string,
+    estado: string,
+    cuenta: string,
+    ref = '',
+  ) => [
+    fecha,
+    descripcion,
+    importe,
+    estado,
+    cuenta,
+    'BANK DESC',
+    ref,
+    '',
+    '',
+    '',
+    '',
+    '',
+    '',
+    '',
+    '',
+    `${fecha} 03:09:15`,
+    'USD',
+    '',
+    '',
+    '',
+    estado === 'Failed' ? 'Excedió el límite' : '',
+  ];
+
+  const OPERATIVA = 'OPERATING / CAJA (Mercury Checking xx6177)';
+  const TARJETA = 'Mercury Credit';
+
+  const archivo = [
+    CABECERA,
+    fila('11-25-2026', 'Explee', '-5.00', 'Sent', TARJETA),
+    fila('11-24-2026', 'Cliente del norte', '2125.00', 'Sent', OPERATIVA, 'OP-77'),
+    fila('11-13-2026', 'Proveedor de video', '-460.00', 'Sent', OPERATIVA),
+    fila('10-28-2026', 'xAI', '-102.27', 'Failed', TARJETA),
+    fila('10-23-2026', 'Anthropic', '-20.00', 'Sent', TARJETA),
+  ];
+
+  it('la fecha en mes/día/año se reconoce sola', () => {
+    // 11-25-2026 no puede ser día/mes: no hay mes veinticinco.
+    expect(adivinarMapeo(archivo).orden).toBe('mdy');
+    expect(parsearFecha('11-25-2026', 'mdy')).toBe('2026-11-25');
+  });
+
+  it('encuentra las columnas que importan entre veintiuna', () => {
+    const m = adivinarMapeo(archivo);
+    expect(m.conCabecera).toBe(true);
+    expect(m.fecha).toBe(0);
+    expect(m.descripcion).toBe(1);
+    expect(m.importe).toBe(2);
+    expect(m.referencia).toBe(6);
+  });
+
+  it('«Bank Description» no le gana a «Description»', () => {
+    expect(adivinarMapeo(archivo).descripcion).toBe(1);
+  });
+
+  it('ve que el archivo trae varias cuentas y no elige ninguna', () => {
+    const m = adivinarMapeo(archivo);
+    expect(m.cuenta).toBe(4);
+    // Sin elegir a propósito: elegir una por él sería importar las otras en
+    // silencio, y un extracto de nueve cuentas en una sola no es un extracto.
+    expect(m.cuentaValor).toBeNull();
+    expect(valoresDe(archivo, 4, true)).toEqual([
+      { valor: TARJETA, cuantas: 3 },
+      { valor: OPERATIVA, cuantas: 2 },
+    ]);
+  });
+
+  it('con la cuenta elegida, solo entran sus líneas', () => {
+    const m = { ...adivinarMapeo(archivo), cuentaValor: OPERATIVA };
+    const { lineas, fuera } = aLineas(archivo, m);
+    expect(lineas.map((l) => l.descripcion)).toEqual([
+      'Cliente del norte',
+      'Proveedor de video',
+    ]);
+    // Tres, no dos: la rechazada también es de la tarjeta, y el filtro de
+    // cuenta va primero. Cada fila sale por un solo motivo, el primero que
+    // la descarta, para que las cuentas de abajo sumen las filas del archivo.
+    expect(fuera).toContainEqual({ por: 'son de otra cuenta', cuantas: 3 });
+  });
+
+  it('las transacciones rechazadas no se importan: nunca ocurrieron', () => {
+    const m = adivinarMapeo(archivo);
+    expect(m.descartar).toEqual([{ columna: 3, valores: ['Failed'] }]);
+
+    const { lineas, fuera } = aLineas(archivo, { ...m, cuentaValor: TARJETA });
+    expect(lineas.map((l) => l.descripcion)).toEqual(['Explee', 'Anthropic']);
+    expect(fuera).toContainEqual({ por: 'Status dice «Failed»', cuantas: 1 });
+  });
+
+  it('un archivo de una sola cuenta no obliga a elegir', () => {
+    const unaSola = [CABECERA, fila('11-25-2026', 'Explee', '-5.00', 'Sent', TARJETA)];
+    expect(adivinarMapeo(unaSola).cuentaValor).toBe(TARJETA);
+  });
+
+  it('el signo manda: lo negativo sale y lo positivo entra', () => {
+    const m = { ...adivinarMapeo(archivo), cuentaValor: OPERATIVA };
+    const { lineas } = aLineas(archivo, m);
+    expect(lineas[0]?.importe).toBe('2125.00');
+    expect(lineas[1]?.importe).toBe('-460.00');
+  });
+
+  it('la fila original se guarda entera, con sus veintiuna columnas', () => {
+    const m = { ...adivinarMapeo(archivo), cuentaValor: OPERATIVA };
+    const { lineas } = aLineas(archivo, m);
+    expect(lineas[0]?.raw['Tracking ID']).toBe('');
+    expect(lineas[0]?.raw['Bank Description']).toBe('BANK DESC');
+    expect(lineas[0]?.referencia).toBe('OP-77');
   });
 });

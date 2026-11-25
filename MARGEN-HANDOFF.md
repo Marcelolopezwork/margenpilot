@@ -187,7 +187,7 @@ caja (BCP soles en PEN, Mercury en USD), un cliente y una cotización de prueba.
 
 ### Verificación
 
-- **469 pruebas** de Vitest: dinero, errores, formato, armazón, altas, el A4,
+- **479 pruebas** de Vitest: dinero, errores, formato, armazón, altas, el A4,
   la propuesta, la aritmética de la cotización, el panel de emisión, la
   reimpresión de una versión emitida, el reparto en cuotas, el margen
   agregado, la cartera, la pantalla de finanzas, la proyección de caja con sus
@@ -569,6 +569,28 @@ La propuesta de emparejamiento tiene su propia regla, que es la que la hace
 útil: **si hay dos candidatos igual de buenos, no se propone ninguno.** Dos
 comisiones idénticas el mismo día aceptadas a ciegas dejan las dos listas
 cuadradas con los pares cambiados, que es peor que no haber conciliado.
+
+**El export real de Mercury (25/11).** Marcelo mandó el suyo y trajo dos
+cosas que el importador no sabía:
+
+- **Trae las nueve cuentas en el mismo CSV.** 68 filas repartidas entre
+  OPERATING, Mercury Credit, BUSINESS TOOLS, CASH RESERVE y cinco más.
+  Importarlo entero en una cuenta no daría un extracto: daría nueve
+  mezclados, y además cada traspaso entre cuentas aparece dos veces, una por
+  cada lado. Ahora el mapeo detecta la columna «Source Account», **no elige
+  ninguna** —elegir por él sería importar ocho cuentas ajenas en silencio— y
+  la pantalla no deja importar hasta que se elija.
+- **Trae transacciones rechazadas.** Dos filas con «Failed» y su motivo. No
+  ocurrieron: importarlas sería inventar un movimiento que el banco no hizo.
+  El mapeo busca una columna de estado y descarta los valores que significan
+  eso en cualquier banco (fail, rechaz, anulad, revers, declin, cancel…).
+
+Las dos salen por un filtro genérico, no por un caso especial de Mercury:
+«de esta columna, solo estos valores». Y cada fila que queda fuera se cuenta
+y se dice, para que las cifras de abajo sumen las filas del archivo.
+
+Su fecha es **mes-día-año** (`11-25-2026`), y eso lo deduce solo: no hay mes
+veinticinco. Es justo el caso para el que se escribió `adivinarOrdenDeFecha`.
 
 Un detalle de React que mordió y conviene no repetir: el paso de mapear
 columnas estaba escrito como un componente declarado dentro del componente

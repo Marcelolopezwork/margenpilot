@@ -14,6 +14,7 @@ import {
   adivinarMapeo,
   proponer,
   separarCsv,
+  valoresDe,
   type LineaDelBanco,
   type Mapeo,
   type MovimientoDelLibro,
@@ -684,7 +685,7 @@ export default function Conciliacion() {
     const columnas = Math.max(0, ...filas.map((f) => f.length));
     const cabecera = mapeo.conCabecera ? (filas[0] ?? []) : [];
     const nombre = (i: number) => (cabecera[i] ?? '').trim() || `Columna ${i + 1}`;
-    const { lineas: leidas, descartadas } = aLineas(filas, mapeo);
+    const { lineas: leidas, descartadas, fuera } = aLineas(filas, mapeo);
     const opciones = Array.from({ length: columnas }, (_, i) => i);
 
     return (
@@ -789,6 +790,44 @@ export default function Conciliacion() {
           )}
         </div>
 
+        {mapeo.cuenta !== null && (() => {
+          const suyas = valoresDe(filas, mapeo.cuenta, mapeo.conCabecera);
+          if (suyas.length < 2) return null;
+          return (
+            <>
+              <Aviso tipo="atencion">
+                Este archivo trae {suyas.length} cuentas distintas en la columna «
+                {nombre(mapeo.cuenta)}». Mercury exporta así: todas tus cuentas en el mismo CSV.
+                Importarlo entero en una sola cuenta no daría un extracto, daría nueve mezclados,
+                y además cada traspaso entre tus cuentas aparece dos veces, una por cada lado.
+                Elige de cuál son las líneas que vas a importar y repite el archivo para cada una.
+              </Aviso>
+              <Selector
+                etiqueta="De qué cuenta son estas líneas"
+                value={mapeo.cuentaValor ?? ''}
+                onChange={(e) => setMapeo({ ...mapeo, cuentaValor: e.target.value || null })}
+                required
+              >
+                <option value="">Elige una</option>
+                {suyas.map((v) => (
+                  <option key={v.valor} value={v.valor}>
+                    {v.valor || '(en blanco)'} · {v.cuantas}{' '}
+                    {v.cuantas === 1 ? 'línea' : 'líneas'}
+                  </option>
+                ))}
+              </Selector>
+            </>
+          );
+        })()}
+
+        {fuera.length > 0 && (
+          <Aviso tipo="info">
+            De las {filas.length - (mapeo.conCabecera ? 1 : 0)} filas del archivo,{' '}
+            {fuera.map((f) => `${f.cuantas} ${f.por}`).join(', ')}. Las rechazadas no se importan
+            porque nunca ocurrieron: meterlas sería inventar un movimiento que el banco no hizo.
+          </Aviso>
+        )}
+
         <div>
           <p className="mb-2 text-xs text-subtle">
             Así quedan las {leidas.length === 1 ? 'línea' : `${leidas.length} líneas`}
@@ -826,7 +865,14 @@ export default function Conciliacion() {
           <Boton
             variante="primario"
             type="submit"
-            disabled={importar.isPending || leidas.length === 0 || etiqueta.trim() === ''}
+            disabled={
+              importar.isPending ||
+              leidas.length === 0 ||
+              etiqueta.trim() === '' ||
+              (mapeo.cuenta !== null &&
+                mapeo.cuentaValor === null &&
+                valoresDe(filas, mapeo.cuenta, mapeo.conCabecera).length > 1)
+            }
           >
             {importar.isPending ? 'Importando…' : `Importar ${leidas.length} líneas`}
           </Boton>

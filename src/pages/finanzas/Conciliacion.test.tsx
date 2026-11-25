@@ -340,6 +340,49 @@ describe('Finanzas · Conciliación', () => {
     ]);
   });
 
+  it('un archivo con varias cuentas pide elegir antes de dejar importar', async () => {
+    CUENTAS.push({
+      id: 'cta-1',
+      name: 'Mercury USD',
+      currency_code: 'USD',
+      legal_entity_id: 'e-1',
+      bank_name: 'Mercury',
+    });
+    const usuario = userEvent.setup();
+    await montar();
+    await screen.findByRole('option', { name: /Mercury USD/ });
+    await usuario.selectOptions(screen.getByLabelText('Qué cuenta'), 'cta-1');
+
+    // La forma real del export de Mercury: todas las cuentas en un CSV.
+    await usuario.click(await screen.findByLabelText('O pégalo aquí'));
+    await usuario.paste(
+      'Date (UTC),Description,Amount,Status,Source Account\n' +
+        '11-25-2026,Explee,-5.00,Sent,Mercury Credit\n' +
+        '11-24-2026,Cliente,2125.00,Sent,OPERATING\n' +
+        '10-28-2026,xAI,-102.27,Failed,Mercury Credit',
+    );
+    await usuario.click(screen.getByRole('button', { name: 'Leer el archivo' }));
+
+    expect(await screen.findByText(/trae 2 cuentas distintas/)).toBeTruthy();
+    await usuario.type(screen.getByLabelText('Cómo se llama este extracto'), 'Mercury nov');
+
+    // Mientras no se elija la cuenta, no se puede importar.
+    const boton = screen.getByRole('button', { name: /^Importar/ });
+    expect(boton).toHaveProperty('disabled', true);
+
+    await usuario.selectOptions(
+      screen.getByLabelText('De qué cuenta son estas líneas'),
+      'Mercury Credit',
+    );
+    await usuario.click(screen.getByRole('button', { name: /^Importar/ }));
+
+    await waitFor(() => expect(llamadas).toHaveLength(1));
+    // Solo la suya, y sin la rechazada: dos fuera por cuenta y una por estado.
+    expect(llamadas[0]?.args.p_lines).toMatchObject([
+      { fecha: '2026-11-25', importe: '-5.00', descripcion: 'Explee' },
+    ]);
+  });
+
   it('dice lo que todavía no hace: cerrar un periodo', async () => {
     await montar();
     expect(await screen.findByText(/Lo que todavía no hace esta pantalla: cerrar un periodo/)).toBeTruthy();

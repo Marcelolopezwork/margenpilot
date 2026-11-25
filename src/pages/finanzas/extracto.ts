@@ -223,11 +223,32 @@ export function parsearImporte(valor: string, decimal: SeparadorDecimal): string
  * El mapeo de columnas
  * -------------------------------------------------------------------------*/
 
+/** Una columna y los valores suyos que NO se importan. */
+export interface Descarte {
+  columna: number;
+  valores: string[];
+}
+
 export interface Mapeo {
   /** La fila 0 es cabecera y no un dato. */
   conCabecera: boolean;
   fecha: number;
   descripcion: number;
+  /**
+   * La columna que dice de qué cuenta es cada línea, cuando el archivo trae
+   * varias. Mercury exporta las nueve cuentas en el mismo CSV, y un extracto
+   * de nueve cuentas importado entero en una sola no es un extracto: es
+   * basura con fechas.
+   */
+  cuenta: number | null;
+  /** Cuál de sus valores es la cuenta que se está importando. */
+  cuentaValor: string | null;
+  /**
+   * Filas que no se importan por lo que dice una columna. El caso de siempre:
+   * una transacción con estado «Failed» nunca ocurrió, y meterla en el
+   * extracto sería inventar un movimiento que el banco rechazó.
+   */
+  descartar: Descarte[];
   /** Una sola columna con signo… */
   importe: number | null;
   /** …o dos, lo que sale y lo que entra. Es como lo da medio Perú. */
@@ -245,7 +266,29 @@ const PISTAS = {
   cargo: ['cargo', 'debito', 'débito', 'debit', 'salida', 'retiro'],
   abono: ['abono', 'credito', 'crédito', 'credit', 'entrada', 'deposito', 'depósito'],
   referencia: ['referencia', 'ref', 'operacion', 'operación', 'nro', 'número', 'numero', 'doc'],
+  cuenta: ['source account', 'cuenta origen', 'cuenta', 'account'],
+  estado: ['status', 'estado', 'state'],
 } as const;
+
+/** Lo que en cualquier banco significa «esto no pasó». */
+const NO_PASO = /fail|fallid|rechaz|anulad|revers|declin|error|cancel|void/i;
+
+/** Los valores distintos de una columna, con cuántas filas tiene cada uno. */
+export function valoresDe(
+  filas: readonly (readonly string[])[],
+  columna: number,
+  conCabecera: boolean,
+): { valor: string; cuantas: number }[] {
+  const datos = conCabecera ? filas.slice(1) : filas;
+  const cuenta = new Map<string, number>();
+  for (const f of datos) {
+    const v = (f[columna] ?? '').trim();
+    cuenta.set(v, (cuenta.get(v) ?? 0) + 1);
+  }
+  return [...cuenta.entries()]
+    .map(([valor, cuantas]) => ({ valor, cuantas }))
+    .sort((a, b) => b.cuantas - a.cuantas || a.valor.localeCompare(b.valor));
+}
 
 /**
  * La columna cuyo nombre encaja con alguna pista, saltándose las que ya
@@ -347,10 +390,36 @@ export function adivinarMapeo(filas: readonly (readonly string[])[]): Mapeo {
     .filter((i): i is number => i !== null)
     .flatMap((i) => columna(i));
 
+  /*
+    La columna que dice de qué cuenta es cada fila. Si trae un solo valor, el
+    archivo es de una cuenta y no hay nada que elegir; si trae varios, se deja
+    sin elegir **a propósito**, para que la pantalla lo pida. Elegir una por
+    él sería importar ocho cuentas ajenas en silencio.
+  */
+  const colCuenta = buscaColumna(cabecera, PISTAS.cuenta, tomadas);
+  const deCuenta = colCuenta === null ? [] : valoresDe(filas, colCuenta, conCabecera);
+
+  /*
+    Y las filas que no pasaron. El estado se busca por nombre y sus valores
+    por lo que significan en cualquier banco: una transacción rechazada no es
+    un movimiento, es un intento.
+  */
+  const colEstado = buscaColumna(cabecera, PISTAS.estado, tomadas);
+  const malos =
+    colEstado === null
+      ? []
+      : valoresDe(filas, colEstado, conCabecera)
+          .filter((v) => NO_PASO.test(v.valor))
+          .map((v) => v.valor);
+
   return {
     conCabecera,
     fecha: fecha ?? 0,
     descripcion: descripcion ?? (fecha === 1 ? 0 : 1),
+    cuenta: colCuenta,
+    cuentaValor: deCuenta.length === 1 ? (deCuenta[0]?.valor ?? null) : null,
+    descartar:
+      colEstado !== null && malos.length > 0 ? [{ columna: colEstado, valores: malos }] : [],
     importe: cargo !== null && abono !== null ? null : importe,
     cargo: cargo !== null && abono !== null ? cargo : null,
     abono: cargo !== null && abono !== null ? abono : null,
@@ -377,6 +446,8 @@ export interface Lectura {
   lineas: LineaImportable[];
   /** Qué filas no se pudieron leer y por qué. Se enseñan, no se tragan. */
   descartadas: { fila: number; por: string }[];
+  /** Cuántas quedaron fuera por cada filtro, y por cuál. También se enseñan. */
+  fuera: { por: string; cuantas: number }[];
 }
 
 /**
@@ -393,9 +464,30 @@ export function aLineas(
   const cabecera = mapeo.conCabecera ? (filas[0] ?? []) : [];
   const lineas: LineaImportable[] = [];
   const descartadas: { fila: number; por: string }[] = [];
+  const fuera = new Map<string, number>();
+  const nombreCol = (i: number) => (cabecera[i] ?? '').trim() || `columna ${i + 1}`;
+  const sumaFuera = (por: string) => fuera.set(por, (fuera.get(por) ?? 0) + 1);
 
   datos.forEach((fila, i) => {
     const numero = i + 1 + (mapeo.conCabecera ? 1 : 0);
+
+    // Los filtros van antes de leer nada: una fila de otra cuenta no es una
+    // fila ilegible, es una fila que no toca, y mezclarlas en el mismo aviso
+    // haría parecer roto un archivo que está bien.
+    if (mapeo.cuenta !== null && mapeo.cuentaValor !== null) {
+      if ((fila[mapeo.cuenta] ?? '').trim() !== mapeo.cuentaValor) {
+        sumaFuera('son de otra cuenta');
+        return;
+      }
+    }
+
+    for (const d of mapeo.descartar) {
+      if (d.valores.includes((fila[d.columna] ?? '').trim())) {
+        sumaFuera(`${nombreCol(d.columna)} dice «${(fila[d.columna] ?? '').trim()}»`);
+        return;
+      }
+    }
+
     const fecha = parsearFecha(fila[mapeo.fecha] ?? '', mapeo.orden);
     if (fecha === null) {
       descartadas.push({ fila: numero, por: 'no se pudo leer la fecha' });
@@ -441,7 +533,11 @@ export function aLineas(
     });
   });
 
-  return { lineas, descartadas };
+  return {
+    lineas,
+    descartadas,
+    fuera: [...fuera.entries()].map(([por, cuantas]) => ({ por, cuantas })),
+  };
 }
 
 /* ---------------------------------------------------------------------------
