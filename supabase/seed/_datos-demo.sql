@@ -375,6 +375,16 @@ begin
     current_date - 11, 'operating', v_g_proveedores, null, null, 200, 36,
     null, v_trab_redes);
 
+  -- --------------------------------------------- el tiempo de cada trabajo
+  -- Las horas no son un costo y no se convierten en uno (INV-16.1). Lo que
+  -- producen es una división: estos dos trabajos tienen margen parecido y muy
+  -- distinto por hora, que es justo lo que el porcentaje solo no dice.
+  perform anotar_horas(v_trab_lanz, 'Chelo', 240, current_date - 18, 'Guion y dirección');
+  perform anotar_horas(v_trab_lanz, 'Eli', 480, current_date - 16, 'Edición');
+  perform anotar_horas(v_trab_lanz, 'Chelo', 120, current_date - 12);
+  perform anotar_horas(v_trab_redes, 'Chelo', 180, current_date - 10);
+  perform anotar_horas(v_trab_redes, 'Eli', 120, current_date - 8);
+
   -- ------------------------------------------------- lo que el banco dice
   -- Un extracto de tres líneas: una que cuadra con un gasto anotado, una que
   -- no está en el libro —la comisión que nadie anotó, que es el caso de

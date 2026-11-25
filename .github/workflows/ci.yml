@@ -118,6 +118,12 @@ jobs:
                 raise exception 'ningún trabajo se llevó su parte de lo facturado';
               end if;
 
+              -- Y el tiempo: cinco apuntes, dos personas, y ni un céntimo de
+              -- diferencia en el costo (INV-16.1).
+              select coalesce(sum(minutos), 0) into v_cuantas from job_time t
+                join jobs j on j.id = t.job_id where j.organization_id = v_org;
+              if v_cuantas <> 1140 then raise exception 'la demo necesita 1140 minutos, hay %', v_cuantas; end if;
+
               -- Un extracto de tres líneas, una de ellas ya cuadrada.
               select count(*) into v_cuantas from bank_statement_lines
                where organization_id = v_org;

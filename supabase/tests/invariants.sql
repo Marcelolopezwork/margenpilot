@@ -2240,6 +2240,236 @@ begin
     'conciliar no creó ningún movimiento a partir del extracto (INV-8)');
 end $$;
 
+-- ---------------------------------------------------------------------------
+-- F6-2 · Hasta aquí está cuadrado (INV-8.8)
+-- ---------------------------------------------------------------------------
+--
+-- Un cierre es una afirmación con condiciones. Lo que se vigila aquí es que
+-- las condiciones no se puedan saltar: cerrar con líneas sueltas, cerrar sin
+-- extracto, cerrar hacia el futuro, o tocar lo cerrado sin reabrir.
+
+do $$
+declare
+  v_org     uuid;
+  v_uno     uuid;
+  v_pen     uuid;
+  v_ext     uuid;
+  v_l1      uuid;
+  v_l2      uuid;
+  v_m1      uuid;
+  v_mov     uuid;
+  v_match   uuid;
+  v_lineas  jsonb;
+  v_saldo0  numeric;
+begin
+  select id into v_org from organizations where slug = 'org-a';
+  select id into v_uno from legal_entities
+   where organization_id = v_org and legal_name = 'Entidad Uno';
+  select id into v_pen from cash_accounts
+   where organization_id = v_org and name = 'BCP Soles';
+
+  perform assert_true(
+    has_table_privilege('authenticated', 'bank_reconciliations', 'select')
+    and not has_table_privilege('authenticated', 'bank_reconciliations', 'insert')
+    and not has_table_privilege('authenticated', 'bank_reconciliations', 'update'),
+    'la fecha del cierre solo la pone el gate: la tabla no acepta escritura suelta');
+
+  -- Un extracto nuevo, de un mes anterior al de F6-1 para no pisarlo.
+  v_lineas := jsonb_build_array(
+    jsonb_build_object('fecha', (current_date - 60)::text, 'importe', -40.00,
+                       'descripcion', 'PORTES Y COMISIONES'),
+    jsonb_build_object('fecha', (current_date - 59)::text, 'importe', -75.00,
+                       'descripcion', 'CARGO DESCONOCIDO'));
+  select id into v_ext from importar_extracto(v_pen, 'BCP · dos meses atrás', v_lineas);
+  select id into v_l1 from bank_statement_lines where statement_id = v_ext and fila = 1;
+  select id into v_l2 from bank_statement_lines where statement_id = v_ext and fila = 2;
+
+  -- ------------------------------------------------- no se cierra en falso
+  perform assert_raises(
+    format('select cerrar_conciliacion(%L, %L)', v_pen, current_date + 5),
+    'fecha_futura',
+    'no se cierra hacia el futuro: el banco no ha dicho qué pasa mañana');
+
+  perform assert_raises(
+    format('select cerrar_conciliacion(%L, %L)', v_pen, current_date - 400),
+    'sin_extracto',
+    'ni contra un periodo del que no hay extracto importado');
+
+  perform assert_raises(
+    format('select cerrar_conciliacion(%L, %L)', v_pen, current_date - 58),
+    'quedan_lineas',
+    'ni con líneas del banco sin resolver: un cierre que las admite solo las esconde');
+
+  -- ----------------------------------- se resuelven las dos y ahora sí
+  -- La primera se anota desde la propia línea: es el gasto que el banco te
+  -- cobró y nunca apuntaste.
+  select coalesce(max(balance), 0) into v_saldo0
+    from account_balances where cash_account_id = v_pen;
+
+  select id into v_mov from crear_movimiento_desde_linea(v_l1, null, 'Portes del banco');
+
+  perform assert_true(
+    (select source = 'bank_import' and amount = 40.00 and direction = 'out'
+       and value_date = current_date - 60
+       from cash_movements where id = v_mov),
+    'anotar desde la línea copia su fecha, su importe y su sentido, y deja dicho de dónde salió');
+
+  perform assert_true(
+    (select cuadra from bank_line_status where line_id = v_l1),
+    'y la empareja en el mismo acto, porque para eso se anotó');
+
+  perform assert_true(
+    (select coalesce(max(balance), 0) from account_balances where cash_account_id = v_pen)
+      = v_saldo0 - 40,
+    'eso sí mueve el saldo, y es lo correcto: el dinero salió, solo que no estaba apuntado');
+
+  perform assert_raises(
+    format('select crear_movimiento_desde_linea(%L)', v_l1),
+    'linea_emparejada',
+    'pero no dos veces: la línea ya tiene su movimiento');
+
+  -- La segunda se aparta: no es suya.
+  perform ignorar_linea(v_l2, 'Es un cargo que el banco ya me devolvió');
+
+  perform assert_true(
+    (select count(*) from bank_reconciliations where cash_account_id = v_pen) = 0,
+    'todavía sin cerrar');
+
+  perform cerrar_conciliacion(v_pen, current_date - 58);
+
+  perform assert_true(
+    (select hasta = current_date - 58 from bank_reconciliations where cash_account_id = v_pen),
+    'resueltas las dos —una emparejada y otra apartada—, el cierre entra');
+
+  -- ---------------------------------------------- lo cerrado no se toca
+  select id into v_match from bank_line_matches where statement_line_id = v_l1;
+  perform assert_raises(
+    format('select desemparejar_linea(%L)', v_match),
+    'periodo_cerrado',
+    'desemparejar algo cerrado se rechaza con la fecha dentro');
+
+  perform assert_raises(
+    format('select ignorar_linea(%L, null)', v_l2),
+    'periodo_cerrado',
+    'devolver a pendientes algo cerrado, también');
+
+  perform assert_raises(
+    format('select importar_extracto(%L, ''Otro de hace meses'',
+             ''[{"fecha":"%s","importe":-10,"descripcion":"Tarde"}]''::jsonb)',
+           v_pen, (current_date - 59)::text),
+    'periodo_cerrado',
+    'y no se importa por debajo del cierre: dejaría líneas sin resolver bajo una fecha que dice que todo lo anterior lo está');
+
+  -- Lo de después del cierre sigue tocándose con normalidad.
+  select id into v_m1 from registrar_movimiento(
+    v_pen, 'out', 33, 'Algo de esta semana', current_date - 1);
+  perform assert_true(
+    (select count(*) from cash_movements where id = v_m1) = 1,
+    'y lo posterior al cierre no se entera de nada');
+
+  -- ------------------------------------------------------------ reabrir
+  perform cerrar_conciliacion(v_pen, null);
+  perform assert_true(
+    (select count(*) from bank_reconciliations where cash_account_id = v_pen) = 0,
+    'reabrir es explícito y sin condiciones: encontrar un error dos meses después es normal');
+
+  perform desemparejar_linea(v_match);
+  perform assert_true(
+    (select not cuadra from bank_line_status where line_id = v_l1),
+    'y reabierto, se vuelve a poder tocar');
+end $$;
+
+-- ---------------------------------------------------------------------------
+-- F5-5 · Cuánto tiempo se fue (INV-16)
+-- ---------------------------------------------------------------------------
+--
+-- Lo que se vigila: que las horas no se conviertan en dinero por ningún
+-- camino, que se guarden en minutos enteros y que un dedo torpe no meta
+-- trece horas de más sin que nadie lo note.
+
+do $$
+declare
+  v_org    uuid;
+  v_job    uuid;
+  v_otro   uuid;
+  v_apunte uuid;
+  v_antes  numeric;
+begin
+  select id into v_org from organizations where slug = 'org-a';
+  select id into v_job from jobs where name = 'Campaña de lanzamiento' limit 1;
+  select id into v_otro from jobs where name = 'Gestión de redes · trimestre 1' limit 1;
+
+  perform assert_true(
+    has_table_privilege('authenticated', 'job_time_entries', 'select')
+    and not has_table_privilege('authenticated', 'job_time_entries', 'insert'),
+    'las horas se anotan por su puerta');
+
+  perform assert_true(
+    (select relrowsecurity and relforcerowsecurity
+       from pg_class where oid = 'job_time_entries'::regclass),
+    'con RLS, y forzada también para el dueño');
+
+  -- Lo que el trabajo costaba antes de anotar una sola hora.
+  select costo_neto into v_antes from job_margins
+   where job_id = v_job and currency_code = 'PEN';
+
+  perform anotar_horas(v_job, 'Chelo', 90, current_date - 5, 'Guion y reunión');
+  perform anotar_horas(v_job, 'Eli', 240, current_date - 4);
+  perform anotar_horas(v_job, 'chelo', 60, current_date - 3);
+
+  perform assert_true(
+    (select minutos = 390 and apuntes = 3 and personas = 2
+       from job_time where job_id = v_job),
+    'suma los minutos y cuenta las personas sin distinguir mayúsculas');
+
+  -- INV-16.1, la que manda: anotar horas no toca el dinero.
+  perform assert_true(
+    coalesce((select costo_neto from job_margins
+               where job_id = v_job and currency_code = 'PEN'), 0)
+      is not distinct from coalesce(v_antes, 0),
+    'anotar horas no cambia el costo del trabajo ni un céntimo (INV-16.1)');
+
+  perform assert_true(
+    (select count(*) from economic_facts f
+      join job_time_entries t on t.id::text = f.source_id::text) = 0,
+    'y no produce ningún hecho económico: una hora no es un gasto');
+
+  -- --------------------------------------------------- lo que no se puede
+  perform assert_raises(
+    format('select anotar_horas(%L, ''  '', 60)', v_job),
+    'quien_obligatorio',
+    'hace falta saber de quién fue ese tiempo');
+
+  perform assert_raises(
+    format('select anotar_horas(%L, ''Chelo'', 0)', v_job),
+    'minutos_invalidos',
+    'y que sean minutos de verdad');
+
+  perform assert_raises(
+    format('select anotar_horas(%L, ''Chelo'', 800)', v_job),
+    'minutos_invalidos',
+    'ochocientos minutos en un día son trece horas de más que nadie notaría después');
+
+  perform assert_raises(
+    'select anotar_horas(''99999999-9999-9999-9999-999999999999'', ''Chelo'', 60)',
+    'trabajo_no_encontrado',
+    'ni horas en un trabajo que no existe');
+
+  -- ------------------------------------------------------------- quitar
+  select id into v_apunte from job_time_entries
+   where job_id = v_job and who = 'Eli' limit 1;
+  perform quitar_horas(v_apunte);
+
+  perform assert_true(
+    (select minutos = 150 and apuntes = 2 from job_time where job_id = v_job),
+    'un apunte mal puesto se borra: no es un hecho económico, y el rastro queda en la auditoría');
+
+  -- Un trabajo sin horas no aparece en la vista, que es distinto de cero.
+  perform assert_true(
+    (select count(*) from job_time where job_id = v_otro) = 0,
+    'un trabajo sin una sola hora anotada no tiene fila: «no se sabe» no es «cero»');
+end $$;
+
 reset request.jwt.claim.sub;
 
-select 'TODAS LAS PRUEBAS DE F1 A F6 PASARON · 256 aserciones' as resultado;
+select 'TODAS LAS PRUEBAS DE F1 A F6 PASARON · 283 aserciones' as resultado;

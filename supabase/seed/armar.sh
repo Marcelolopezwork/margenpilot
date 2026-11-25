@@ -5,9 +5,10 @@
 set -eu
 cd "$(dirname "$0")/../.."
 SALIDA=supabase/seed/demo.sql
-MIG=supabase/migrations/20261124140000_lo_que_el_banco_dice.sql
-VERSION=20261124140000
-NOMBRE=lo_que_el_banco_dice
+# Las migraciones que todavía no están en producción, en orden. Son varias
+# desde que una entrega lleva más de una: el archivo las aplica en el mismo
+# orden en que la CI las replica, que es el único orden que se ha probado.
+MIGS="20261125120000_hasta_aqui_esta_cuadrado 20261125130000_cuanto_tiempo_se_fue"
 
 cat > "$SALIDA" <<'CAB'
 -- ===========================================================================
@@ -17,9 +18,9 @@ cat > "$SALIDA" <<'CAB'
 --
 -- Hace tres cosas, en este orden y en una sola pasada:
 --
---  1. aplica la migración de «lo que el banco dice» (F6-1), que es la única
---     que falta en el proyecto, y la deja apuntada en el historial de
---     migraciones para que no se vuelva a aplicar;
+--  1. aplica las migraciones que faltan en el proyecto —el cierre de
+--     conciliación (F6-2) y las horas por trabajo (F5-5)— y las deja
+--     apuntadas en el historial para que no se vuelvan a aplicar;
 --  2. borra la organización «Margen Demo» si existe de una pasada anterior,
 --     para volver a crearla con los datos nuevos. Esto NO toca «Margen
 --     Pilot»: borra una sola fila, la de la demo, y lo demás cae por cascada;
@@ -41,15 +42,22 @@ begin;
 
 CAB
 
-cat "$MIG" >> "$SALIDA"
-
-cat >> "$SALIDA" <<APUNTE
+for MIG in $MIGS; do
+  VERSION=$(echo "$MIG" | cut -d_ -f1)
+  NOMBRE=$(echo "$MIG" | cut -d_ -f2-)
+  cat "supabase/migrations/$MIG.sql" >> "$SALIDA"
+  cat >> "$SALIDA" <<APUNTE
 
 -- Queda apuntada en el historial: si no, un despliegue futuro intentaría
 -- aplicarla otra vez y fallaría a mitad.
 insert into supabase_migrations.schema_migrations (version, name)
 values ('$VERSION', '$NOMBRE')
 on conflict (version) do nothing;
+
+APUNTE
+done
+
+cat >> "$SALIDA" <<'APUNTE'
 
 -- La demo de la pasada anterior, si está. Solo la demo: el slug es exacto y
 -- «margen-pilot» no se parece a «margen-demo».

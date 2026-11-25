@@ -65,9 +65,9 @@ que la clave sea secreta.
 Todo esto está **en producción y verificado contra la base real**, no solo
 compilado.
 
-### Base de datos · treinta y ocho migraciones
+### Base de datos · cuarenta migraciones
 
-Las treinta y seis primeras están aplicadas en producción. La de compras
+Las treinta y siete primeras están aplicadas en producción. La de compras
 (F3-6) la ejecutó Marcelo el 23/11 pegando `supabase/seed/demo.sql` en el
 editor SQL de Supabase, porque el modo automático no deja escribir en
 producción desde aquí. Ese mismo archivo creó la organización **Margen Demo**,
@@ -82,11 +82,11 @@ comprobada contra la base: tres trabajos, dos compras y un gasto atribuidos.
 
 La de lo previsto (F5-3) la aplicó el 24/11 por el mismo camino.
 
-**La treinta y ocho, la de la conciliación (F6-1), está escrita y verificada
-en la CI pero todavía no aplicada en producción.** Se aplica igual: `armar.sh`
-ya regeneró `supabase/seed/demo.sql` con ella dentro, dentro de una
-transacción, y ese archivo además borra y vuelve a crear Margen Demo para que
-traiga los datos nuevos.
+**Las dos últimas —el cierre de conciliación y las horas— están escritas y
+verificadas en la CI pero todavía no aplicadas en producción.** Se aplican
+igual: `armar.sh` ahora admite varias y ya regeneró `supabase/seed/demo.sql`
+con las dos dentro, en una transacción, borrando y volviendo a crear Margen
+Demo para que traiga los datos nuevos.
 
 ```
 20261028120000 foundations      esquema, tablas, disparadores, auditoría
@@ -127,6 +127,8 @@ traiga los datos nuevos.
 20261123120000 cuanto_deja_cada_trabajo  trabajos, atribución y job_margins (INV-14)
 20261124120000 lo_puntual_tambien_es_caja  cobros y pagos previstos de una vez (INV-15.4)
 20261124140000 lo_que_el_banco_dice  extracto, líneas y emparejamiento (INV-8)
+20261125120000 hasta_aqui_esta_cuadrado  cierre de periodo y alta desde la línea (INV-8.8)
+20261125130000 cuanto_tiempo_se_fue  horas por trabajo (INV-16)
 ```
 
 ### Pantallas
@@ -187,14 +189,14 @@ caja (BCP soles en PEN, Mercury en USD), un cliente y una cotización de prueba.
 
 ### Verificación
 
-- **480 pruebas** de Vitest: dinero, errores, formato, armazón, altas, el A4,
+- **496 pruebas** de Vitest: dinero, errores, formato, armazón, altas, el A4,
   la propuesta, la aritmética de la cotización, el panel de emisión, la
   reimpresión de una versión emitida, el reparto en cuotas, el margen
   agregado, la cartera, la pantalla de finanzas, la proyección de caja con sus
   salidas, los gastos fijos, la tasa efectiva, los destinos de una
   transferencia, el resultado del periodo, el margen por trabajo y por
   servicio, la atribución de un costo a su trabajo y el panel de inicio
-- **256 aserciones** SQL en `supabase/tests/invariants.sql`
+- **283 aserciones** SQL en `supabase/tests/invariants.sql`
 - CI en GitHub Actions: tipos, lint, pruebas, build, y las migraciones
   reaplicadas desde cero en cada push. El Postgres de la CI es pelado y no
   trae lo que Supabase pone encima, así que `supabase/stubs/auth.sql` y
@@ -363,18 +365,17 @@ Lo que resuelve, y por qué cada cosa es estructura y no aviso:
 
 Lo que falta, por orden:
 
-1. **Cerrar un periodo conciliado.** La otra mitad de la conciliación:
-   «hasta el 31 de octubre está cuadrado con el banco» como fecha guardada y
-   no como creencia, y lo anterior deja de pedir atención. Con ella va
-   **crear el movimiento desde la conciliación**, que estaba en el diseño y se
-   dejó fuera a propósito (ver INV-8).
-2. **Repartir una factura entre dos trabajos.** Hoy una compra pertenece a un
+1. **Repartir una factura entre dos trabajos.** Hoy una compra pertenece a un
    trabajo o a ninguno. Si una imprenta factura dos campañas juntas, hay que
    pedir dos facturas o anotarla en la que pese más. Hace falta una tabla de
    reparto con su propio tope, como `payment_allocations`.
-3. **Las horas.** Un trabajo sabe cuánto dinero costó, no cuánto tiempo. Es la
-   mitad que falta del «cuánto deja»: un trabajo que dejó 40 % pero se comió
-   tres semanas de dos personas no dejó 40 %.
+2. **Recordar el mapeo de columnas de cada banco.** Hoy se propone bien y se
+   confirma en cada importación. Guardar el mapeo por cuenta ahorraría el
+   paso entero a partir del segundo mes.
+3. **El `+` de acciones rápidas en móvil**, que el plan de interfaz describe y
+   nunca se hizo. Hay tres cosas que se hacen de pie —anotar un movimiento,
+   emitir el documento de una cuota, registrar un cobro— y falta la hoja que
+   las ofrezca.
 
 ### F4 · Pipeline
 
@@ -599,6 +600,62 @@ React lo desmontaba y lo volvía a montar entero, y el campo que estuvieras
 escribiendo perdía el foco después de cada letra. Llamado como función
 —`mapear()`— es JSX del mismo árbol y no pasa.
 
+### F6-2 · Hasta aquí está cuadrado
+
+Hecho el 25/11. Cerrar un periodo, con las condiciones en INV-8.8: no se
+cierra lo que no está resuelto, ni contra un periodo sin extracto, ni hacia
+el futuro; lo cerrado no se toca sin reabrir, y no se importa por debajo.
+
+La fecha vive en `bank_reconciliations` y **no en una columna de
+`cash_accounts`**, que es donde habría ido por costumbre. El motivo es que
+`authenticated` tiene UPDATE sobre `cash_accounts`: una fecha ahí se podría
+escribir sin pasar por una sola de las comprobaciones de arriba, y entonces
+el cierre sería un adorno.
+
+Con esto llega la excepción que INV-8 siempre admitió:
+**`crear_movimiento_desde_linea`**, el gasto que el banco te cobró y nunca
+apuntaste. Se pide línea por línea, copia fecha, importe y sentido, queda
+marcado `source = 'bank_import'` y empareja en el mismo acto. No toca ningún
+movimiento que ya existiera: solo añade el que faltaba.
+
+Una decisión que conviene no deshacer: los **movimientos sin línea del banco
+no bloquean el cierre**, pero no se esconden. El extracto es la autoridad
+sobre lo que pasó en el banco y el cierre afirma que *ese* lado está
+explicado; un cheque que nadie depositó sigue a la vista después de cerrar.
+
+### F5-5 · Cuánto tiempo se fue
+
+Hecho el 25/11. La otra mitad de «cuánto deja cada trabajo». Las reglas están
+en INV-16 y la que lo gobierna todo es la primera: **una hora no es un
+costo**. No se multiplica por ninguna tarifa ni se suma al costo del trabajo
+—contaría dos veces el sueldo de quien ya cobra, o inventaría un gasto que
+nunca salió del banco— y hay una aserción que comprueba que anotar horas no
+mueve el costo ni un céntimo.
+
+Lo que producen es una división: `utilidadPorHora`, en aritmética entera
+sobre minutos. Y una lista nueva en Trabajos, **«Lo que deja la hora»**, con
+el que menos deja primero. Es la que el porcentaje solo no puede dar: un
+trabajo al 80 % que se comió ochenta horas deja menos por hora que uno al
+30 % hecho en cinco, y el peligroso es el primero, porque su margen es
+magnífico.
+
+Los trabajos sin horas quedan **fuera** de esa lista, no al final: no es que
+dejen poco por hora, es que no se sabe. Y con el costo real sin anotar
+tampoco hay cifra por hora, por lo mismo que no hay margen real (INV-14.9).
+
+### Un día no es un instante
+
+Encontrado el 25/11 escribiendo una prueba, y llevaba desde el principio:
+`formatoFecha('2026-11-30')` daba **29 nov**. `new Date` de una fecha sin
+hora es la medianoche UTC, y formatearla en Lima —o en cualquier zona detrás
+de UTC— la corre un día. Todas las fechas que vienen de una columna `date`
+se enseñaban un día antes: vencimientos de facturas, fechas de movimiento,
+hasta cuándo vale una cotización.
+
+Arreglado distinguiendo las dos cosas: una fecha sin hora se formatea en UTC,
+porque así se escribió; un instante —`created_at`, `issued_at`— en la zona de
+quien mira, que es lo que se quiere de una hora.
+
 ### Pendiente de Marcelo, no de código
 
 - **SMTP propio (D-7).** El correo de Supabase **solo escribe a miembros de su
@@ -625,7 +682,7 @@ escribiendo perdía el foco después de cada letra. Llamado como función
   sigue siendo la buena: en cuanto el CLI pueda, regenerar el archivo entero.
   Para arreglarlo hace falta un token de acceso personal con permiso sobre el
   proyecto (`supabase login`), que es algo de Marcelo, no de código.
-- El bundle principal va por 769 kB en crudo (≈217 kB comprimidos). jsPDF y
+- El bundle principal va por 780 kB en crudo (≈221 kB comprimidos). jsPDF y
   sus dependencias ya van en trozos aparte, cargados solo al descargar; falta
   dividir las rutas con `React.lazy` antes de que entre F3.
 - La aritmética de la cotización está escrita dos veces: en

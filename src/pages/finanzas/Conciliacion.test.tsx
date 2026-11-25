@@ -24,6 +24,8 @@ const LINEAS: Record<string, unknown>[] = [];
 const ESTADOS: Record<string, unknown>[] = [];
 const MATCHES: Record<string, unknown>[] = [];
 const MOVIMIENTOS: Record<string, unknown>[] = [];
+const CIERRES: Record<string, unknown>[] = [];
+const CATEGORIAS: Record<string, unknown>[] = [];
 const llamadas: { nombre: string; args: Record<string, unknown> }[] = [];
 
 vi.mock('../../lib/supabase', () => {
@@ -34,6 +36,8 @@ vi.mock('../../lib/supabase', () => {
     if (nombre === 'bank_line_status') return ESTADOS;
     if (nombre === 'bank_line_matches') return MATCHES;
     if (nombre === 'cash_movements') return MOVIMIENTOS;
+    if (nombre === 'bank_reconciliations') return CIERRES;
+    if (nombre === 'financial_categories') return CATEGORIAS;
     return [];
   };
   const tabla = (nombre: string) => {
@@ -43,6 +47,10 @@ vi.mock('../../lib/supabase', () => {
     };
     for (const m of ['select', 'eq', 'in', 'is', 'gte', 'lte', 'order', 'limit', 'not'])
       api[m] = () => api;
+    // `maybeSingle` devuelve una fila o null, no un array: sin esto el mock
+    // reventaría justo en la consulta del cierre.
+    api['maybeSingle'] = () =>
+      Promise.resolve({ data: datosDe(nombre)[0] ?? null, error: null });
     return api;
   };
   return {
@@ -177,7 +185,9 @@ function conDatos() {
 }
 
 beforeEach(() => {
-  for (const a of [CUENTAS, EXTRACTOS, LINEAS, ESTADOS, MATCHES, MOVIMIENTOS, llamadas])
+  for (const a of [
+    CUENTAS, EXTRACTOS, LINEAS, ESTADOS, MATCHES, MOVIMIENTOS, CIERRES, CATEGORIAS, llamadas,
+  ])
     a.length = 0;
 });
 
@@ -266,18 +276,62 @@ describe('Finanzas · Conciliación', () => {
     expect(llamadas[0]?.args.p_motivo).toBe('Es la comisión de diciembre');
   });
 
-  it('desde aquí no se puede anotar un movimiento (INV-8)', async () => {
+  it('lo único que crea dinero es «Anotarlo», y se pide línea por línea', async () => {
     conDatos();
+    CATEGORIAS.push({ id: 'cat-1', name: 'Comisiones bancarias', direction: 'out' });
     const usuario = userEvent.setup();
+    await screen.findByRole; // nada: solo para mantener el orden de lectura
     await montar();
-    // El selector se dibuja antes de que lleguen las cuentas: hay que esperar
-    // a que la opción exista, no solo la etiqueta.
     await screen.findByRole('option', { name: /BCP soles/ });
     await usuario.selectOptions(screen.getByLabelText('Qué cuenta'), 'cta-1');
 
     await screen.findAllByText('Sobra del banco');
+    // No hay un botón genérico de alta: se anota una línea concreta.
     expect(screen.queryByRole('button', { name: /Anotar movimiento/ })).toBeNull();
-    expect(screen.getByText(/desde aquí no se puede anotar, corregir ni borrar/)).toBeTruthy();
+    expect(
+      screen.getByText(/no se puede corregir ni borrar un movimiento que ya existía/),
+    ).toBeTruthy();
+
+    await usuario.click((await screen.findAllByRole('button', { name: 'Anotarlo' }))[0]!);
+    expect(screen.getByText(/Esto es lo único que crea dinero desde aquí/)).toBeTruthy();
+    await usuario.selectOptions(screen.getByLabelText('Categoría'), 'cat-1');
+    await usuario.click(screen.getByRole('button', { name: 'Anotarlo y emparejar' }));
+
+    await waitFor(() => expect(llamadas).toHaveLength(1));
+    expect(llamadas[0]?.nombre).toBe('crear_movimiento_desde_linea');
+    expect(llamadas[0]?.args).toMatchObject({ p_line: 'l-1', p_category: 'cat-1' });
+  });
+
+  it('cerrar el periodo afirma una fecha, y reabrir la quita', async () => {
+    conDatos();
+    const usuario = userEvent.setup();
+    await montar();
+    await screen.findByRole('option', { name: /BCP soles/ });
+    await usuario.selectOptions(screen.getByLabelText('Qué cuenta'), 'cta-1');
+
+    expect(await screen.findByText('Sin cerrar')).toBeTruthy();
+    expect(screen.getByText(/un cierre que admite líneas sueltas no afirma nada/)).toBeTruthy();
+
+    await usuario.type(screen.getByLabelText('Cuadrado hasta'), '2026-11-30');
+    await usuario.click(screen.getByRole('button', { name: 'Cerrar el periodo' }));
+
+    await waitFor(() => expect(llamadas).toHaveLength(1));
+    expect(llamadas[0]?.nombre).toBe('cerrar_conciliacion');
+    expect(llamadas[0]?.args).toMatchObject({ p_account: 'cta-1', p_hasta: '2026-11-30' });
+  });
+
+  it('con el periodo cerrado, lo anterior deja de pedir atención', async () => {
+    conDatos();
+    CIERRES.push({ hasta: '2026-11-30', closed_at: '2026-12-01T10:00:00Z' });
+    const usuario = userEvent.setup();
+    await montar();
+    await screen.findByRole('option', { name: /BCP soles/ });
+    await usuario.selectOptions(screen.getByLabelText('Qué cuenta'), 'cta-1');
+
+    expect(await screen.findByText('Cuadrado hasta el 30 nov. 2026')).toBeTruthy();
+    // Las dos líneas son de noviembre: ninguna sigue pidiendo atención.
+    expect(screen.queryByText('COMISION MANTENIMIENTO')).toBeNull();
+    expect(screen.getByRole('button', { name: 'Reabrir' })).toBeTruthy();
   });
 
   it('leer el archivo propone el mapeo y lo enseña antes de guardar nada', async () => {
@@ -395,8 +449,10 @@ describe('Finanzas · Conciliación', () => {
     expect(await screen.findByRole('option', { name: /Mercury Credit/ })).toBeTruthy();
   });
 
-  it('dice lo que todavía no hace: cerrar un periodo', async () => {
+  it('dice lo que todavía no hace: recordar el mapeo de un mes para otro', async () => {
     await montar();
-    expect(await screen.findByText(/Lo que todavía no hace esta pantalla: cerrar un periodo/)).toBeTruthy();
+    expect(
+      await screen.findByText(/recordar de un mes para otro qué columna era cuál/),
+    ).toBeTruthy();
   });
 });

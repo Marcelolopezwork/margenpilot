@@ -3,7 +3,7 @@ import { useMutation, useQuery } from '@tanstack/react-query';
 import { puedeEscribirDinero, useOrg, useOrgElegida } from '../../app/org-context';
 import { mensajeDeError } from '../../lib/errors';
 import { formatoTasa } from '../../lib/format';
-import { format, type Money } from '../../lib/money';
+import { format, subtract, type Money } from '../../lib/money';
 import { requireSupabase } from '../../lib/supabase';
 import { Aviso, Boton, Campo, Cargando, Etiqueta, Selector, Tarjeta, Vacio } from '../../components/ui';
 import { Alta, FiltradoPor, Fila, Lista, Seccion } from '../../components/piezas';
@@ -11,13 +11,16 @@ import { useRecargar } from '../../components/recargar';
 import {
   conCostoYSinFacturar,
   conMargen,
+  enHoras,
   nombreEstadoDeTrabajo,
+  porLoQueDejaLaHora,
   resumenPorMoneda,
   resumenPorServicio,
   seComenElMargen,
   sinCostosAnotados,
   type MargenEnBase,
   type ResumenDeServicio,
+  type TiempoEnBase,
   type TrabajoEnBase,
 } from './trabajo';
 
@@ -127,6 +130,10 @@ export default function Trabajos() {
   const [editando, setEditando] = useState<string | null>(null);
   const [nombre, setNombre] = useState('');
   const [estado, setEstado] = useState('open');
+  const [anotando, setAnotando] = useState<string | null>(null);
+  const [quien, setQuien] = useState('');
+  const [cuanto, setCuanto] = useState('');
+  const [cuando, setCuando] = useState('');
 
   const datos = useQuery({
     queryKey: ['trabajos', organizacion.id, entidad?.id ?? null],
@@ -165,12 +172,40 @@ export default function Trabajos() {
         .eq('organization_id', organizacion.id);
       if (e4) throw e4;
 
+      const { data: tiempos, error: e5 } = await cliente
+        .from('job_time')
+        .select('job_id, minutos, apuntes, personas')
+        .eq('organization_id', organizacion.id);
+      if (e5) throw e5;
+
       return {
         trabajos: (trabajos ?? []) as unknown as TrabajoEnBase[],
         cifras: (cifras ?? []) as unknown as MargenEnBase[],
+        tiempos: (tiempos ?? []) as unknown as TiempoEnBase[],
         clientes: new Map((clientes ?? []).map((c) => [c.id, c.name])),
         servicios: new Map((servicios ?? []).map((s) => [s.id, s.name])),
       };
+    },
+  });
+
+  const horas = useMutation({
+    mutationFn: async (job: string) => {
+      // La pantalla admite «1,5» y manda 90: los minutos enteros son lo que
+      // se guarda, porque 0,1 + 0,2 horas no son 0,3 horas (INV-16.3).
+      const texto = cuanto.replace(',', '.').trim();
+      const minutos = Math.round(Number(texto) * 60);
+      const { error } = await requireSupabase().rpc('anotar_horas', {
+        p_job: job,
+        p_who: quien.trim(),
+        p_minutes: minutos,
+        ...(cuando ? { p_on: cuando } : {}),
+      });
+      if (error) throw error;
+    },
+    onSuccess: () => {
+      setCuanto('');
+      setAnotando(null);
+      recargar();
     },
   });
 
@@ -208,13 +243,18 @@ export default function Trabajos() {
     );
   }
 
-  const todos = conMargen(datos.data?.trabajos ?? [], datos.data?.cifras ?? []);
+  const todos = conMargen(
+    datos.data?.trabajos ?? [],
+    datos.data?.cifras ?? [],
+    datos.data?.tiempos ?? [],
+  );
   const visibles = verCerrados ? todos : todos.filter((t) => t.estado === 'open');
   const porServicio = resumenPorServicio(todos);
   const conjunto = resumenPorMoneda(todos);
   const comiendo = seComenElMargen(todos);
   const sinCostos = sinCostosAnotados(todos);
   const sinFacturar = conCostoYSinFacturar(todos);
+  const porHora = porLoQueDejaLaHora(todos);
   const nombreServicio = (id: string | null) =>
     id === null ? 'Sin servicio del catálogo' : (datos.data?.servicios.get(id) ?? 'Servicio quitado');
 
@@ -228,6 +268,7 @@ export default function Trabajos() {
       {datos.isLoading && <Cargando que="los trabajos" />}
       {datos.error && <Aviso tipo="error">{mensajeDeError(datos.error)}</Aviso>}
       {guardar.error && <Aviso tipo="error">{mensajeDeError(guardar.error)}</Aviso>}
+      {horas.error && <Aviso tipo="error">{mensajeDeError(horas.error)}</Aviso>}
 
       {!datos.isLoading && todos.length === 0 && (
         <Vacio
@@ -331,6 +372,43 @@ export default function Trabajos() {
         </Tarjeta>
       )}
 
+      {porHora.length > 1 && (
+        <Tarjeta className="p-5">
+          <h2 className="font-medium">Lo que deja la hora</h2>
+          <p className="mb-4 mt-2 max-w-prose text-sm text-muted">
+            El margen solo no basta. Un trabajo al 80 % que se comió ochenta horas deja menos por
+            hora que uno al 30 % hecho en cinco, y el que no se ve es el primero: su porcentaje
+            es magnífico. Aquí el que menos deja va primero. Los trabajos sin horas anotadas no
+            salen —no es que dejen poco por hora, es que no se sabe—.
+          </p>
+          <Lista>
+            {porHora.slice(0, 6).map((t) => (
+              <Fila
+                key={t.id}
+                principal={
+                  <>
+                    <span className="font-medium">{t.nombre}</span>
+                    <Etiqueta>{nombreServicio(t.servicioId)}</Etiqueta>
+                  </>
+                }
+                secundario={
+                  <>
+                    {enHoras(t.minutos)}
+                    {t.personas > 1 ? ` de ${t.personas} personas` : ''} · deja{' '}
+                    {format(subtract(t.acordado, t.costo))} sobre {format(t.acordado)}
+                  </>
+                }
+                extremo={
+                  <span className="num text-sm font-medium">
+                    {t.porHora ? `${format(t.porHora)} / h` : '—'}
+                  </span>
+                }
+              />
+            ))}
+          </Lista>
+        </Tarjeta>
+      )}
+
       {sinCostos.length > 0 && (
         <Tarjeta className="p-5">
           <h2 className="font-medium">Les falta el costo</h2>
@@ -406,7 +484,14 @@ export default function Trabajos() {
                   </>
                 }
                 extremo={
-                  <Desvio resumen={{ ...r, costoSinAnotar: r.sinCostos === r.cuantos }} />
+                  <>
+                    {r.porHora && r.minutos > 0 && (
+                      <span className="num whitespace-nowrap text-sm text-muted">
+                        {format(r.porHora)} / h
+                      </span>
+                    )}
+                    <Desvio resumen={{ ...r, costoSinAnotar: r.sinCostos === r.cuantos }} />
+                  </>
                 }
               />
             ))}
@@ -453,6 +538,13 @@ export default function Trabajos() {
                       Facturado {format(t.facturado)}
                       {t.porFacturar.minor > 0n && `, quedan ${format(t.porFacturar)} por facturar`}
                       .{' '}
+                      {t.minutos > 0 && (
+                        <>
+                          {enHoras(t.minutos)}
+                          {t.personas > 1 ? ` de ${t.personas} personas` : ''}
+                          {t.porHora ? `, ${format(t.porHora)} por hora` : ''}.{' '}
+                        </>
+                      )}
                       {t.costoSinAnotar && (
                         <span className="text-warning">
                           Sin un solo costo anotado, así que su margen real todavía no se sabe.
@@ -473,6 +565,16 @@ export default function Trabajos() {
                       <Boton
                         variante="sutil"
                         onClick={() => {
+                          setAnotando(anotando === t.id ? null : t.id);
+                          setCuanto('');
+                          setCuando('');
+                        }}
+                      >
+                        Horas
+                      </Boton>
+                      <Boton
+                        variante="sutil"
+                        onClick={() => {
                           setEditando(editando === t.id ? null : t.id);
                           setNombre(t.nombre);
                           setEstado(t.estado);
@@ -485,6 +587,48 @@ export default function Trabajos() {
                 />
               ))}
             </Lista>
+          )}
+
+          {anotando && (
+            <Alta
+              titulo={`Anotar horas en «${todos.find((t) => t.id === anotando)?.nombre ?? ''}»`}
+              onSubmit={() => horas.mutate(anotando)}
+            >
+              <Campo
+                etiqueta="Quién"
+                ayuda="Un nombre, no un usuario: el freelance que editó el video no tiene cuenta aquí y no la va a tener."
+                value={quien}
+                onChange={(e) => setQuien(e.target.value)}
+                required
+              />
+              <Campo
+                etiqueta="Cuántas horas"
+                ayuda="Admite «1,5». Se guarda en minutos enteros, porque 0,1 + 0,2 horas no son 0,3 horas."
+                inputMode="decimal"
+                value={cuanto}
+                onChange={(e) => setCuanto(e.target.value)}
+                required
+              />
+              <Campo
+                etiqueta="Qué día"
+                ayuda="En blanco, hoy."
+                type="date"
+                value={cuando}
+                onChange={(e) => setCuando(e.target.value)}
+              />
+              <p className="max-w-prose text-xs text-subtle">
+                Las horas no se convierten en dinero: no se multiplican por ninguna tarifa ni se
+                suman al costo del trabajo. Hacerlo contaría dos veces el sueldo de quien ya
+                cobra, o inventaría un gasto que nunca salió del banco. Lo que producen es una
+                división: cuánto deja cada hora.
+              </p>
+              <div className="flex gap-2">
+                <Boton variante="primario" type="submit" disabled={horas.isPending}>
+                  {horas.isPending ? 'Anotando…' : 'Anotar'}
+                </Boton>
+                <Boton onClick={() => setAnotando(null)}>Cancelar</Boton>
+              </div>
+            </Alta>
           )}
 
           {editando && (

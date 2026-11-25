@@ -62,6 +62,14 @@ export interface TrabajoEnBase {
   created_at: string;
 }
 
+/** Una fila de `job_time`: los minutos de un trabajo. */
+export interface TiempoEnBase {
+  job_id: string;
+  minutos: number;
+  apuntes: number;
+  personas: number;
+}
+
 /** Una fila de `job_margins`: una por trabajo y moneda. */
 export interface MargenEnBase {
   job_id: string;
@@ -131,6 +139,46 @@ export interface TrabajoConMargen {
   /** Cuántos documentos de venta hay detrás de lo facturado. */
   cuantosDocumentos: number;
   costosAjenos: CostoAjeno[];
+  /** Minutos anotados. Cero cuando no hay ni un apunte (INV-16.3). */
+  minutos: number;
+  /** Cuántas personas distintas pusieron tiempo. */
+  personas: number;
+  /**
+   * Lo que deja cada hora: utilidad ÷ horas. Null cuando no hay horas
+   * anotadas o cuando el costo real todavía no se sabe —dividir una utilidad
+   * inflada daría una cifra por hora inflada, que es peor que ninguna—.
+   */
+  porHora: Money | null;
+}
+
+/**
+ * Utilidad por hora, a partir de minutos.
+ *
+ * Aritmética entera, como todo el dinero de este producto: céntimos por
+ * sesenta, entre los minutos, redondeando al céntimo más cercano. En coma
+ * flotante, mil horas de trabajo acumularían el error justo donde la cifra
+ * se usa para decidir qué servicio dejar de vender.
+ */
+export function utilidadPorHora(utilidad: Money, minutos: number): Money | null {
+  if (minutos <= 0) return null;
+  const divisor = BigInt(minutos);
+  const dividendo = utilidad.minor * 60n;
+  const entero = dividendo / divisor;
+  const resto = dividendo % divisor;
+  const absResto = resto < 0n ? -resto : resto;
+  // Se redondea al alejarse del cero, que es lo que hace `round()` en la base.
+  const ajuste = absResto * 2n >= divisor ? (dividendo < 0n ? -1n : 1n) : 0n;
+  return { minor: entero + ajuste, currency: utilidad.currency };
+}
+
+/** `390` → `6 h 30 min`. Lo que se lee; los minutos son lo que se guarda. */
+export function enHoras(minutos: number): string {
+  if (minutos <= 0) return '0 h';
+  const h = Math.floor(minutos / 60);
+  const m = minutos % 60;
+  if (h === 0) return `${m} min`;
+  if (m === 0) return `${h} h`;
+  return `${h} h ${m} min`;
 }
 
 function estadoDe(valor: string): EstadoDeTrabajo {
@@ -146,7 +194,9 @@ function estadoDe(valor: string): EstadoDeTrabajo {
 export function conMargen(
   trabajos: readonly TrabajoEnBase[],
   filas: readonly MargenEnBase[],
+  tiempos: readonly TiempoEnBase[] = [],
 ): TrabajoConMargen[] {
+  const porTiempo = new Map(tiempos.map((t) => [t.job_id, t]));
   const porTrabajo = new Map<string, MargenEnBase[]>();
   for (const f of filas) {
     const grupo = porTrabajo.get(f.job_id);
@@ -241,6 +291,17 @@ export function conMargen(
       cuantosCostos,
       cuantosDocumentos,
       costosAjenos: ajenos.sort((a, b) => a.moneda.localeCompare(b.moneda)),
+      minutos: porTiempo.get(t.id)?.minutos ?? 0,
+      personas: porTiempo.get(t.id)?.personas ?? 0,
+      /*
+        Solo cuando el margen real se sabe. Con el costo sin anotar, la
+        utilidad está inflada y dividirla entre las horas daría una cifra por
+        hora inflada: la más peligrosa de todas, porque suena concreta.
+      */
+      porHora:
+        margenReal === null
+          ? null
+          : utilidadPorHora(subtract(acordado, costo), porTiempo.get(t.id)?.minutos ?? 0),
     });
   }
 
@@ -267,6 +328,14 @@ export interface ResumenDeServicio {
    */
   sinCostos: number;
   costosAjenos: CostoAjeno[];
+  /** Minutos sumados de los trabajos del grupo. */
+  minutos: number;
+  /**
+   * Lo que deja cada hora de este servicio. Es la cifra que compara dos
+   * servicios de verdad: uno al 50 % que se come el triple de horas que otro
+   * al 30 % deja menos por hora, y el margen solo no lo dice.
+   */
+  porHora: Money | null;
 }
 
 /**
@@ -323,6 +392,7 @@ export function resumenPorServicio(
       moneda,
     );
     const sinCostos = grupo.filter((t) => t.costoSinAnotar).length;
+    const minutos = grupo.reduce((n, t) => n + t.minutos, 0);
 
     /*
       Si a NINGUNO del grupo se le anotó un costo, el grupo tampoco tiene
@@ -356,6 +426,10 @@ export function resumenPorServicio(
       cuantos: grupo.length,
       sinCostos,
       costosAjenos: [...ajenos.values()].sort((a, b) => a.moneda.localeCompare(b.moneda)),
+      minutos,
+      // Mismo cuidado que en un trabajo suelto: sin margen real no hay cifra
+      // por hora, porque la utilidad todavía está inflada.
+      porHora: margenReal === null ? null : utilidadPorHora(subtract(acordado, costo), minutos),
     });
   }
 
@@ -403,6 +477,22 @@ export function sinCostosAnotados(
   trabajos: readonly TrabajoConMargen[],
 ): TrabajoConMargen[] {
   return trabajos.filter((t) => t.estado !== 'cancelled' && t.costoSinAnotar);
+}
+
+/**
+ * Los trabajos ordenados por lo que deja cada hora, de menos a más.
+ *
+ * Es la lista que el margen solo no puede dar: un trabajo al 50 % que se
+ * comió ochenta horas deja menos por hora que uno al 30 % que se hizo en
+ * diez. Los que no tienen horas anotadas quedan fuera, no al final: no es
+ * que dejen poco por hora, es que no se sabe.
+ */
+export function porLoQueDejaLaHora(
+  trabajos: readonly TrabajoConMargen[],
+): TrabajoConMargen[] {
+  return trabajos
+    .filter((t) => t.estado !== 'cancelled' && t.porHora !== null && t.minutos > 0)
+    .sort((a, b) => Number((a.porHora?.minor ?? 0n) - (b.porHora?.minor ?? 0n)));
 }
 
 /** Los trabajos que ya cuestan y todavía no tienen una sola factura emitida. */

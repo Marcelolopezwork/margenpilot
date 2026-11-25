@@ -195,3 +195,29 @@ describe('F6-1 · la conciliación', () => {
     );
   });
 });
+
+describe('F6-2 y F5-5 · el cierre y las horas', () => {
+  it('el periodo cerrado dice hasta cuándo y qué fecha se intentó tocar', () => {
+    expect(
+      mensajeDeError({
+        message:
+          'periodo_cerrado: esta cuenta está cuadrada hasta el 31/10/2026, y eso es del 15/10/2026. Si de verdad hay que cambiarlo, reabre el cierre primero',
+      }),
+    ).toContain('cuadrada hasta el 31/10/2026');
+  });
+
+  it('cerrar con líneas sueltas dice cuántas y la más antigua', () => {
+    expect(
+      mensajeDeError({
+        message:
+          'quedan_lineas: todavía hay 3 líneas del banco sin resolver hasta el 31/10/2026, la más antigua del 04/10/2026',
+      }),
+    ).toContain('3 líneas del banco sin resolver');
+  });
+
+  it('las horas sin dueño se explican por lo que se pierde', () => {
+    expect(mensajeDeError({ message: 'quien_obligatorio: falta' })).toContain(
+      'en qué se le va el mes al equipo',
+    );
+  });
+});

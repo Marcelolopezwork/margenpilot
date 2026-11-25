@@ -1,11 +1,14 @@
 import { describe, expect, it } from 'vitest';
-import { format } from '../../lib/money';
+import { format, fromDb } from '../../lib/money';
 import {
   conCostoYSinFacturar,
   conMargen,
   nombreEstadoDeTrabajo,
+  enHoras,
+  porLoQueDejaLaHora,
   resumenPorMoneda,
   resumenPorServicio,
+  utilidadPorHora,
   seComenElMargen,
   type MargenEnBase,
   type TrabajoEnBase,
@@ -389,5 +392,107 @@ describe('el margen que no se sabe, en grupo', () => {
     expect(fila!.sinCostos).toBe(0);
     expect(fila!.margenReal).toBeCloseTo(100);
     expect(fila!.desvio).toBeCloseTo(0);
+  });
+});
+
+describe('cuánto tiempo se fue', () => {
+  const tiempo = (job_id: string, minutos: number, personas = 1) => ({
+    job_id,
+    minutos,
+    apuntes: 1,
+    personas,
+  });
+
+  it('las horas no tocan el dinero: solo añaden una división', () => {
+    const sin = conMargen([trabajo({})], [cifras({ costo_neto: '300.00' })]);
+    const con = conMargen(
+      [trabajo({})],
+      [cifras({ costo_neto: '300.00' })],
+      [tiempo('j-1', 600)],
+    );
+    // Mismo acordado, mismo costo, mismo margen. Lo único nuevo es por hora.
+    expect(con[0]!.costo.minor).toBe(sin[0]!.costo.minor);
+    expect(con[0]!.margenReal).toBeCloseTo(sin[0]!.margenReal!);
+    expect(sin[0]!.porHora).toBeNull();
+    // (600 − 300) entre 10 horas = 30 la hora.
+    expect(format(con[0]!.porHora!)).toBe('S/ 30.00');
+  });
+
+  it('redondea al céntimo, con aritmética entera', () => {
+    // 100 soles entre 7 horas: 14,2857… → 14,29.
+    expect(format(utilidadPorHora(fromDb('100.00', 'PEN'), 420)!)).toBe('S/ 14.29');
+    // Y una utilidad negativa redondea igual, alejándose del cero.
+    expect(format(utilidadPorHora(fromDb('-100.00', 'PEN'), 420)!)).toBe('-S/ 14.29');
+  });
+
+  it('sin horas no hay cifra por hora, y sin costo tampoco', () => {
+    expect(utilidadPorHora(fromDb('100.00', 'PEN'), 0)).toBeNull();
+    // Con costo sin anotar la utilidad está inflada: dividirla sería peor
+    // que no dar la cifra, porque sonaría concreta.
+    const [t] = conMargen([trabajo({})], [], [tiempo('j-1', 600)]);
+    expect(t!.costoSinAnotar).toBe(true);
+    expect(t!.porHora).toBeNull();
+  });
+
+  it('un trabajo sin apuntes tiene cero minutos, no nulos', () => {
+    const [t] = conMargen([trabajo({})], [cifras({ costo_neto: '300.00' })]);
+    expect(t!.minutos).toBe(0);
+    expect(t!.personas).toBe(0);
+  });
+
+  it('el servicio suma las horas de sus trabajos', () => {
+    const trabajos = conMargen(
+      [trabajo({ id: 'j-1' }), trabajo({ id: 'j-2' })],
+      [
+        cifras({ job_id: 'j-1', costo_neto: '100.00' }),
+        cifras({ job_id: 'j-2', costo_neto: '100.00' }),
+      ],
+      [tiempo('j-1', 300), tiempo('j-2', 300)],
+    );
+    const [fila] = resumenPorServicio(trabajos);
+    expect(fila!.minutos).toBe(600);
+    // (1 200 acordados − 200 de costo) entre 10 horas = 100 la hora.
+    expect(format(fila!.porHora!)).toBe('S/ 100.00');
+  });
+
+  it('el que deja menos por hora va primero, aunque su margen sea el mejor', () => {
+    const trabajos = conMargen(
+      [
+        // 80 % de margen, pero ochenta horas.
+        trabajo({ id: 'j-lento', price_net: '1000.00', expected_cost: '200.00' }),
+        // 30 % de margen, hecho en cinco horas.
+        trabajo({ id: 'j-rapido', price_net: '1000.00', expected_cost: '700.00' }),
+      ],
+      [
+        cifras({ job_id: 'j-lento', costo_neto: '200.00' }),
+        cifras({ job_id: 'j-rapido', costo_neto: '700.00' }),
+      ],
+      [tiempo('j-lento', 4800), tiempo('j-rapido', 300)],
+    );
+
+    const orden = porLoQueDejaLaHora(trabajos);
+    expect(orden.map((t) => t.id)).toEqual(['j-lento', 'j-rapido']);
+    // 800 entre 80 horas son 10; 300 entre 5 horas son 60.
+    expect(format(orden[0]!.porHora!)).toBe('S/ 10.00');
+    expect(format(orden[1]!.porHora!)).toBe('S/ 60.00');
+  });
+
+  it('los que no tienen horas quedan fuera de esa lista, no al final', () => {
+    const trabajos = conMargen(
+      [trabajo({ id: 'j-con' }), trabajo({ id: 'j-sin' })],
+      [
+        cifras({ job_id: 'j-con', costo_neto: '100.00' }),
+        cifras({ job_id: 'j-sin', costo_neto: '100.00' }),
+      ],
+      [tiempo('j-con', 120)],
+    );
+    expect(porLoQueDejaLaHora(trabajos).map((t) => t.id)).toEqual(['j-con']);
+  });
+
+  it('los minutos se leen en horas y minutos', () => {
+    expect(enHoras(390)).toBe('6 h 30 min');
+    expect(enHoras(120)).toBe('2 h');
+    expect(enHoras(45)).toBe('45 min');
+    expect(enHoras(0)).toBe('0 h');
   });
 });

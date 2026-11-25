@@ -82,6 +82,13 @@ const CON_CIFRAS: readonly string[] = [
   'extracto_repetido',
   'movimiento_ya_conciliado',
   'linea_ignorada',
+  // F6-2 y F5-5 · el cierre y las horas. Traen la fecha, el número de líneas
+  // sueltas o los minutos de más, que es lo que hay que corregir.
+  'periodo_cerrado',
+  'fecha_futura',
+  'sin_extracto',
+  'quedan_lineas',
+  'minutos_invalidos',
 ];
 
 function conCifras(bruto: string): string | null {
@@ -193,6 +200,15 @@ const FIJOS: readonly (readonly [string, string])[] = [
   [
     'etiqueta_obligatoria',
     'El gasto necesita un nombre, el que vas a reconocer en el extracto del banco.',
+  ],
+  // F5-5 · las horas
+  [
+    'quien_obligatorio',
+    'Hace falta saber de quién fue ese tiempo. Sin eso no se puede responder a «en qué se le va el mes al equipo».',
+  ],
+  [
+    'apunte_no_encontrado',
+    'Ese apunte de horas ya no existe, o no tienes permiso de finanzas en esta organización.',
   ],
   // F6-1 · la conciliación
   [

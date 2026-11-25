@@ -32,6 +32,26 @@ export function formatoTasa(tasa: number | string): string {
   return `${n} %`;
 }
 
+/**
+ * Un día sin hora —`2026-11-30`— es un día, no un instante.
+ *
+ * `new Date('2026-11-30')` da la medianoche **UTC**, y formatearla en Lima
+ * (UTC−5) la convierte en el 29. Todas las fechas de este producto que
+ * vienen de una columna `date` —el vencimiento de una factura, la fecha de
+ * un movimiento, hasta cuándo vale una cotización— se mostraban un día
+ * antes en cualquier zona detrás de UTC. Corregido el 25/11/2026.
+ *
+ * La solución es decir en qué zona se interpreta, y depende de lo que se
+ * reciba: un día se lee en UTC, porque así es como se creó; un instante
+ * —`created_at`, `issued_at`— se lee en la zona de quien mira, que es lo que
+ * se quiere de una hora.
+ */
+const SOLO_DIA = /^\d{4}-\d{2}-\d{2}$/;
+
+function zonaDe(iso: string): string | undefined {
+  return SOLO_DIA.test(iso.trim()) ? 'UTC' : undefined;
+}
+
 /** Fecha corta para listados: 2 nov 2026. */
 export function formatoFecha(iso: string): string {
   const d = new Date(iso);
@@ -40,6 +60,7 @@ export function formatoFecha(iso: string): string {
     day: 'numeric',
     month: 'short',
     year: 'numeric',
+    timeZone: zonaDe(iso),
   }).format(d);
 }
 
@@ -47,7 +68,11 @@ export function formatoFecha(iso: string): string {
 export function formatoMesAño(iso: string): string {
   const d = new Date(iso);
   if (Number.isNaN(d.getTime())) return '';
-  const texto = new Intl.DateTimeFormat(LOCALE, { month: 'long', year: 'numeric' }).format(d);
+  const texto = new Intl.DateTimeFormat(LOCALE, {
+    month: 'long',
+    year: 'numeric',
+    timeZone: zonaDe(iso),
+  }).format(d);
   return texto.replace(' de ', ' ').toLocaleUpperCase(LOCALE);
 }
 

@@ -51,6 +51,10 @@ export default function Conciliacion() {
   const [apartando, setApartando] = useState<string | null>(null);
   const [motivo, setMotivo] = useState('');
   const [aMano, setAMano] = useState<{ linea: string; movimiento: string } | null>(null);
+  const [anotando, setAnotando] = useState<string | null>(null);
+  const [concepto, setConcepto] = useState('');
+  const [categoria, setCategoria] = useState('');
+  const [cerrarHasta, setCerrarHasta] = useState('');
 
   const cuentas = useQuery({
     queryKey: ['cuentas', organizacion.id, 'para-conciliar'],
@@ -102,6 +106,22 @@ export default function Conciliacion() {
         .eq('cash_account_id', cuentaId);
       if (e3) throw e3;
 
+      const { data: cierre, error: e0 } = await cliente
+        .from('bank_reconciliations')
+        .select('hasta, closed_at')
+        .eq('organization_id', organizacion.id)
+        .eq('cash_account_id', cuentaId)
+        .maybeSingle();
+      if (e0) throw e0;
+
+      const { data: categorias, error: e6 } = await cliente
+        .from('financial_categories')
+        .select('id, name, direction')
+        .eq('organization_id', organizacion.id)
+        .eq('is_active', true)
+        .order('sort');
+      if (e6) throw e6;
+
       const { data: emparejados, error: e4 } = await cliente
         .from('bank_line_matches')
         .select('id, statement_line_id, cash_movement_id')
@@ -138,6 +158,8 @@ export default function Conciliacion() {
       }
 
       return {
+        cierre: cierre ?? null,
+        categorias: categorias ?? [],
         extractos: extractos ?? [],
         lineas: (lineas ?? []) as unknown as (LineaDelBanco & {
           statement_id: string;
@@ -202,6 +224,37 @@ export default function Conciliacion() {
     onSuccess: () => recargar(),
   });
 
+  const anotarlo = useMutation({
+    mutationFn: async (linea: string) => {
+      const { error } = await requireSupabase().rpc('crear_movimiento_desde_linea', {
+        p_line: linea,
+        ...(concepto.trim() ? { p_description: concepto.trim() } : {}),
+        ...(categoria ? { p_category: categoria } : {}),
+      });
+      if (error) throw error;
+    },
+    onSuccess: () => {
+      setAnotando(null);
+      setConcepto('');
+      setCategoria('');
+      recargar();
+    },
+  });
+
+  const cerrar = useMutation({
+    mutationFn: async (hasta: string | null) => {
+      const { error } = await requireSupabase().rpc('cerrar_conciliacion', {
+        p_account: cuentaId,
+        ...(hasta ? { p_hasta: hasta } : {}),
+      });
+      if (error) throw error;
+    },
+    onSuccess: () => {
+      setCerrarHasta('');
+      recargar();
+    },
+  });
+
   const apartar = useMutation({
     mutationFn: async ({ linea, texto: razon }: { linea: string; texto: string | null }) => {
       const { error } = await requireSupabase().rpc('ignorar_linea', {
@@ -217,6 +270,7 @@ export default function Conciliacion() {
     },
   });
 
+  const cierre = datos.data?.cierre ?? null;
   const lineas = datos.data?.lineas ?? [];
   const estados = datos.data?.estados ?? new Map();
   // Memorizadas porque de ellas cuelga la propuesta, y recalcularla en cada
@@ -235,6 +289,10 @@ export default function Conciliacion() {
     (l) => !estados.get(l.id)?.cuadra && l.ignored_reason === null,
   );
   const sueltos = movimientos.filter((m) => !yaConciliados.has(m.id));
+  // Lo anterior al cierre ya no pide atención; lo que sobra del libro sí
+  // sigue a la vista, porque sigue sin explicación (INV-8.8.8).
+  const pendientesVivas = cierre ? pendientes.filter((l) => l.value_date > cierre.hasta) : pendientes;
+  const sueltosViejos = cierre ? sueltos.filter((m) => m.value_date <= cierre.hasta) : [];
 
   const propuestas = useMemo(
     () => proponer(pendientes, movimientos, yaConciliados),
@@ -266,7 +324,7 @@ export default function Conciliacion() {
   return (
     <Seccion
       titulo="Conciliación"
-      regla="El sistema sabe lo que anotaste; el banco sabe lo que pasó. Conciliar es cruzar las dos listas y dejar por escrito qué línea es qué movimiento. No mueve dinero: desde aquí no se puede anotar, corregir ni borrar un movimiento, porque entonces el libro siempre cuadraría consigo mismo y la comprobación no comprobaría nada."
+      regla="El sistema sabe lo que anotaste; el banco sabe lo que pasó. Conciliar es cruzar las dos listas y dejar por escrito qué línea es qué movimiento. Emparejar no mueve dinero, y desde aquí no se puede corregir ni borrar un movimiento que ya existía: si se pudiera, el libro siempre cuadraría consigo mismo y la comprobación no comprobaría nada. Lo único que crea dinero es «Anotarlo», que pides tú línea por línea para el gasto que el banco te cobró y nunca apuntaste."
     >
       <FiltradoPor entidad={entidad?.legal_name ?? null} alQuitar={() => elegirEntidad(null)} />
 
@@ -307,6 +365,60 @@ export default function Conciliacion() {
       {emparejar.error && <Aviso tipo="error">{mensajeDeError(emparejar.error)}</Aviso>}
       {desemparejar.error && <Aviso tipo="error">{mensajeDeError(desemparejar.error)}</Aviso>}
       {apartar.error && <Aviso tipo="error">{mensajeDeError(apartar.error)}</Aviso>}
+      {anotarlo.error && <Aviso tipo="error">{mensajeDeError(anotarlo.error)}</Aviso>}
+      {cerrar.error && <Aviso tipo="error">{mensajeDeError(cerrar.error)}</Aviso>}
+
+      {/* ---------------------------------------------------------- el cierre */}
+      {cuentaId !== '' && lineas.length > 0 && (
+        <Tarjeta className="p-5">
+          <div className="flex flex-wrap items-baseline justify-between gap-2">
+            <h2 className="font-medium">
+              {cierre ? `Cuadrado hasta el ${formatoFecha(cierre.hasta)}` : 'Sin cerrar'}
+            </h2>
+            {cierre && <Etiqueta tono="positivo">cerrado</Etiqueta>}
+          </div>
+          <p className="mb-4 mt-2 max-w-prose text-sm text-muted">
+            {cierre
+              ? 'Lo anterior a esa fecha deja de pedir atención, y tampoco se puede tocar: emparejar, apartar o importar por debajo se rechaza. Si encuentras un error, reabre primero.'
+              : 'Cerrar es afirmar que hasta una fecha todo lo del banco está explicado. Solo entra si cada línea hasta ese día está emparejada o apartada con su motivo: un cierre que admite líneas sueltas no afirma nada, solo las esconde.'}
+          </p>
+          {cierre ? (
+            <Boton onClick={() => cerrar.mutate(null)} disabled={cerrar.isPending}>
+              Reabrir
+            </Boton>
+          ) : (
+            <form
+              className="flex flex-wrap items-end gap-3"
+              onSubmit={(e) => {
+                e.preventDefault();
+                cerrar.mutate(cerrarHasta);
+              }}
+            >
+              <div className="w-[12rem]">
+                <Campo
+                  etiqueta="Cuadrado hasta"
+                  type="date"
+                  value={cerrarHasta}
+                  onChange={(e) => setCerrarHasta(e.target.value)}
+                  required
+                />
+              </div>
+              <Boton variante="primario" type="submit" disabled={cerrar.isPending || !cerrarHasta}>
+                {cerrar.isPending ? 'Cerrando…' : 'Cerrar el periodo'}
+              </Boton>
+            </form>
+          )}
+          {sueltosViejos.length > 0 && (
+            <p className="mt-3 max-w-prose text-xs text-warning">
+              Quedan {sueltosViejos.length}{' '}
+              {sueltosViejos.length === 1 ? 'movimiento tuyo' : 'movimientos tuyos'} anteriores al
+              cierre sin línea del banco. No impiden cerrar —el extracto es la autoridad sobre lo
+              que pasó en el banco, y ese lado está explicado— pero siguen a la vista abajo,
+              porque siguen sin explicación.
+            </p>
+          )}
+        </Tarjeta>
+      )}
 
       {/* ------------------------------------------------- los tres montones */}
       {cuentaId !== '' && lineas.length > 0 && (
@@ -342,7 +454,7 @@ export default function Conciliacion() {
       )}
 
       {/* ------------------------------------------------ sobra del banco */}
-      {pendientes.length > 0 && (
+      {pendientesVivas.length > 0 && (
         <Tarjeta className="p-5">
           <h2 className="font-medium">Sobra del banco</h2>
           <p className="mb-4 mt-2 max-w-prose text-sm text-muted">
@@ -351,7 +463,7 @@ export default function Conciliacion() {
             dejas para después— se aparta con el motivo escrito y sale de aquí sin borrarse.
           </p>
           <Lista>
-            {pendientes.map((l) => {
+            {pendientesVivas.map((l) => {
               const p = propuestaDe(l.id);
               const sugerido = p ? movimientoDe(p.movimientoId) : undefined;
               return (
@@ -398,6 +510,15 @@ export default function Conciliacion() {
                       )}
                       <Boton onClick={() => setAMano({ linea: l.id, movimiento: '' })}>
                         Elegir yo
+                      </Boton>
+                      <Boton
+                        onClick={() => {
+                          setAnotando(l.id);
+                          setConcepto(l.description);
+                          setCategoria('');
+                        }}
+                      >
+                        Anotarlo
                       </Boton>
                       <Boton
                         variante="sutil"
@@ -462,6 +583,58 @@ export default function Conciliacion() {
                   </div>
                 </>
               )}
+            </Alta>
+          );
+        })()}
+
+      {anotando &&
+        (() => {
+          const linea = lineas.find((l) => l.id === anotando);
+          if (!linea) return null;
+          const suyas = (datos.data?.categorias ?? []).filter(
+            (c) => c.direction === 'both' || c.direction === linea.direction,
+          );
+          return (
+            <Alta
+              titulo={`Anotar «${linea.description}» como movimiento`}
+              onSubmit={() => anotarlo.mutate(anotando)}
+            >
+              <Aviso tipo="info">
+                Esto es lo único que crea dinero desde aquí, y lo pides tú línea por línea: el
+                gasto que el banco te cobró y nunca apuntaste. Se anota con la fecha, el importe
+                y el sentido de la línea, queda marcado como venido del extracto, y se empareja
+                en el mismo acto. No toca ningún movimiento que ya existiera.
+              </Aviso>
+              <Campo
+                etiqueta="Concepto"
+                ayuda="Por defecto, el del banco. Cámbialo por el que vas a reconocer tú."
+                value={concepto}
+                onChange={(e) => setConcepto(e.target.value)}
+                required
+              />
+              <Selector
+                etiqueta="Categoría"
+                ayuda="Opcional, pero sin ella el lente Resultado no sabrá en qué se fue."
+                value={categoria}
+                onChange={(e) => setCategoria(e.target.value)}
+              >
+                <option value="">Sin categoría</option>
+                {suyas.map((c) => (
+                  <option key={c.id} value={c.id}>
+                    {c.name}
+                  </option>
+                ))}
+              </Selector>
+              <p className="text-sm text-muted">
+                Se anotará {linea.direction === 'in' ? 'una entrada' : 'una salida'} de{' '}
+                {importe(linea.amount)} con fecha {formatoFecha(linea.value_date)}.
+              </p>
+              <div className="flex gap-2">
+                <Boton variante="primario" type="submit" disabled={anotarlo.isPending}>
+                  {anotarlo.isPending ? 'Anotando…' : 'Anotarlo y emparejar'}
+                </Boton>
+                <Boton onClick={() => setAnotando(null)}>Cancelar</Boton>
+              </div>
             </Alta>
           );
         })()}
@@ -668,9 +841,9 @@ export default function Conciliacion() {
       )}
 
       <p className="max-w-prose text-xs text-subtle">
-        Lo que todavía no hace esta pantalla: cerrar un periodo. Cuando exista, «hasta el 31 de
-        octubre está cuadrado con el banco» será una fecha guardada y no una creencia, y lo
-        anterior a esa fecha dejará de pedir atención.
+        Lo que todavía no hace esta pantalla: emparejar una línea con un movimiento de otra
+        fecha lejana sin que lo elijas tú, y recordar de un mes para otro qué columna era cuál en
+        tu banco. El mapeo se propone bien, pero se vuelve a confirmar en cada importación.
       </p>
     </Seccion>
   );

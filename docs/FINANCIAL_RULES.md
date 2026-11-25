@@ -103,7 +103,21 @@ Siete corolarios:
 
 La propuesta automática vive en el cliente (`src/pages/finanzas/extracto.ts`) y tiene su propia regla: **si hay dos candidatos igual de buenos, no se propone ninguno.** Una propuesta ambigua aceptada a ciegas tacha la línea con el movimiento equivocado, y entonces las dos listas cuadran con los pares cambiados, que es peor que no haber conciliado.
 
-Lo que **todavía no** hay: **cerrar un periodo** —«hasta el 31 de octubre está cuadrado» como fecha guardada y no como creencia— y **crear el movimiento desde la conciliación**. Lo segundo estaba en el diseño original y no viola esta regla, porque sería una acción explícita que pasa por las mismas validaciones que el alta manual y queda marcada `source='bank_import'`; se dejó fuera de la primera mitad a propósito, para que la pantalla naciera sin un solo camino de escritura hacia el libro y añadirlo después sea una decisión y no un descuido. Mientras no exista, el gasto que falta se anota en Caja.
+#### INV-8.8 — Un cierre es una afirmación con condiciones, no una fecha
+Añadida el 25/11/2026 (F6-2). Sin cierre, conciliar es una tarea que nunca termina: cada mes se vuelven a mirar las mismas líneas viejas porque nada dice que ya se miraron.
+
+1. **No se cierra lo que no está resuelto.** Cada línea del extracto hasta esa fecha tiene que estar cuadrada o apartada con su motivo (`quedan_lineas`, que dice cuántas y la más antigua). Un cierre que admite líneas sueltas no afirma nada: las esconde.
+2. **No se cierra contra nada**: hace falta un extracto importado que llegue hasta esa fecha (`sin_extracto`).
+3. **Ni hacia el futuro** (`fecha_futura`).
+4. **Lo cerrado no se toca.** Emparejar, desemparejar, apartar o anotar una línea anterior al cierre se rechaza (`periodo_cerrado`); primero se reabre.
+5. **Y no se importa por debajo.** Un extracto con líneas anteriores al cierre se rechaza entero: dejaría líneas sin resolver debajo de una fecha que afirma que todo lo anterior lo está.
+6. **Reabrir se puede, con fecha nula, y es explícito.** Encontrar un error dos meses después es normal.
+7. **El cierre vive en `bank_reconciliations`, no en una columna de `cash_accounts`**, donde `authenticated` tiene UPDATE y podría escribir la fecha sin pasar por ninguna comprobación. Allí no tiene ni un permiso de escritura.
+8. **Los movimientos sin línea del banco no bloquean el cierre, pero no se esconden.** El extracto es la autoridad sobre lo que pasó en el banco y el cierre afirma que *ese* lado está explicado; un cheque que nadie depositó sigue a la vista después de cerrar, porque sigue sin explicación.
+
+**La excepción que INV-8 siempre admitió, ya implantada:** `crear_movimiento_desde_linea` anota el gasto que el banco cobró y nadie apuntó. Se pide línea por línea, copia la fecha, el importe y el sentido de la línea, queda marcado `source = 'bank_import'` y empareja en el mismo acto. No toca ningún movimiento que ya existiera: solo añade el que faltaba, y por eso no contradice la regla.
+
+Lo que **todavía no** hay: recordar de un mes para otro qué columna era cuál en cada banco.
 
 ### INV-9 — El dinero vive en la moneda de su cuenta
 `cash_movements.currency_code` = `cash_accounts.currency_code`, validado por trigger. Una cuenta tiene una sola moneda. Si una cuenta real es multimoneda (algunos bancos lo permiten), se modela como dos cuentas con el mismo `account_ref_masked` y se concilia por separado.
@@ -170,6 +184,16 @@ Implantado el 23/11/2026 (F5). Un trabajo (`jobs`) nace al aprobar una cotizaci�
 9. **Un costo que no se anotó no es un costo de cero.** Si a un trabajo con costo estimado no se le atribuyó ni un apunte, su margen real **no se sabe**: no es el 100 %. Enseñar el 100 % sería la mentira más cómoda del producto, porque llega con un desvío magnífico a favor justo cuando falta el dato que lo hundiría. Si el costo estimado también era cero, el 100 % sí es la cifra —la cotización dijo que no costaba nada y el desvío sale cero—: lo que no se puede es confundir «no costó» con «no se anotó». Lo mismo en grupo: si a ninguno del servicio se le anotó costo, el servicio tampoco tiene margen real; si a alguno sí, la cifra se enseña diciendo en cuántos trabajos se apoya, porque esconderla haría que un servicio con nueve medidos y uno sin medir no dijera nada. Encontrado el 24/11 mirando los datos reales: una cotización aprobada antes de esta migración enseñaba «cotizaste 46 % y te está dejando 100 %».
 
 Lo que esto **todavía no** permite: repartir una factura entre dos trabajos, y saber cuántas horas se le fueron a cada uno. Un trabajo sabe cuánto dinero costó, no cuánto tiempo.
+
+### INV-16 — Las horas se cuentan aparte del dinero, y no se convierten
+Añadida el 25/11/2026 (F5-5). Es la otra mitad de «cuánto deja cada trabajo»: hoy un trabajo sabe cuánto **dinero** costó, no cuánto **tiempo**. El margen por dinero premia al trabajo que se hace con pocos proveedores aunque se lo coma el equipo entero; el margen por hora dice la verdad.
+
+1. **Una hora no es un costo.** No se multiplica por una tarifa ni se suma al costo real del trabajo: contaría dos veces el sueldo de quien ya cobra, o inventaría un gasto que nunca salió del banco. El resultado del mes no cambia ni un céntimo por anotar horas, y hay una aserción que lo comprueba.
+2. **Lo que producen es una división, no una suma.** «Deja 4 000 y se comió 80 horas» son 50 por hora, y esa es la cifra que compara dos servicios de verdad.
+3. **Se guardan en minutos enteros.** «Hora y media» es 90. Un `numeric` de horas con decimales es la misma trampa que un importe en coma flotante.
+4. **Quién es un texto, no un usuario**: el freelance que editó el vídeo no tiene cuenta y no la va a tener.
+5. **Un apunte se borra.** No es un hecho económico; el rastro lo guarda `audit_log`.
+6. **Con el costo real sin anotar no hay cifra por hora.** La utilidad estaría inflada (INV-14.9) y dividirla daría una cifra por hora inflada: la más peligrosa, porque suena concreta.
 
 ---
 

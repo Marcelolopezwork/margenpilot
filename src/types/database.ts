@@ -194,6 +194,75 @@ export type Database = {
         }
         Relationships: []
       }
+      bank_reconciliations: {
+        Row: {
+          cash_account_id: string
+          closed_at: string
+          closed_by: string
+          currency_code: string
+          hasta: string
+          legal_entity_id: string
+          organization_id: string
+        }
+        Insert: {
+          cash_account_id: string
+          closed_at?: string
+          closed_by?: string
+          currency_code: string
+          hasta: string
+          legal_entity_id: string
+          organization_id: string
+        }
+        Update: {
+          cash_account_id?: string
+          closed_at?: string
+          closed_by?: string
+          currency_code?: string
+          hasta?: string
+          legal_entity_id?: string
+          organization_id?: string
+        }
+        Relationships: []
+      }
+      job_time_entries: {
+        Row: {
+          created_at: string
+          created_by: string
+          id: string
+          job_id: string
+          legal_entity_id: string
+          minutes: number
+          note: string | null
+          organization_id: string
+          spent_on: string
+          who: string
+        }
+        Insert: {
+          created_at?: string
+          created_by?: string
+          id?: string
+          job_id: string
+          legal_entity_id: string
+          minutes: number
+          note?: string | null
+          organization_id: string
+          spent_on: string
+          who: string
+        }
+        Update: {
+          created_at?: string
+          created_by?: string
+          id?: string
+          job_id?: string
+          legal_entity_id?: string
+          minutes?: number
+          note?: string | null
+          organization_id?: string
+          spent_on?: string
+          who?: string
+        }
+        Relationships: []
+      }
       billing_documents: {
         Row: {
           amount_net: number
@@ -2467,6 +2536,18 @@ export type Database = {
       }
     }
     Views: {
+      job_time: {
+        Row: {
+          apuntes: number | null
+          desde: string | null
+          hasta: string | null
+          job_id: string | null
+          minutos: number | null
+          organization_id: string | null
+          personas: number | null
+        }
+        Relationships: []
+      }
       bank_line_status: {
         Row: {
           cash_account_id: string | null
@@ -2527,6 +2608,33 @@ export type Database = {
       }
     }
     Functions: {
+      cerrar_conciliacion: {
+        Args: { p_account: string; p_hasta?: string }
+        Returns: Database["public"]["Tables"]["bank_reconciliations"]["Row"][]
+      }
+      crear_movimiento_desde_linea: {
+        Args: {
+          p_category?: string
+          p_description?: string
+          p_kind?: Database["public"]["Enums"]["cash_kind"]
+          p_line: string
+        }
+        Returns: Database["public"]["Tables"]["cash_movements"]["Row"][]
+      }
+      anotar_horas: {
+        Args: {
+          p_job: string
+          p_minutes: number
+          p_note?: string
+          p_on?: string
+          p_who: string
+        }
+        Returns: Database["public"]["Tables"]["job_time_entries"]["Row"][]
+      }
+      quitar_horas: {
+        Args: { p_entry: string }
+        Returns: undefined
+      }
       importar_extracto: {
         Args: {
           p_account: string
