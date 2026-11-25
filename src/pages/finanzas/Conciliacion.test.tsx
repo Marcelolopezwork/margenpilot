@@ -383,6 +383,18 @@ describe('Finanzas · Conciliación', () => {
     ]);
   });
 
+  it('una tarjeta también se puede conciliar: su ciclo es donde más falta hace', async () => {
+    CUENTAS.push({
+      id: 'cta-card',
+      name: 'Mercury Credit',
+      currency_code: 'USD',
+      legal_entity_id: 'e-1',
+      bank_name: 'Mercury',
+    });
+    await montar();
+    expect(await screen.findByRole('option', { name: /Mercury Credit/ })).toBeTruthy();
+  });
+
   it('dice lo que todavía no hace: cerrar un periodo', async () => {
     await montar();
     expect(await screen.findByText(/Lo que todavía no hace esta pantalla: cerrar un periodo/)).toBeTruthy();

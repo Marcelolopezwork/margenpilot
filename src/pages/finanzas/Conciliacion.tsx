@@ -61,7 +61,10 @@ export default function Conciliacion() {
         .select('id, name, currency_code, legal_entity_id, bank_name')
         .eq('organization_id', organizacion.id)
         .eq('is_active', true)
-        .eq('kind', 'bank')
+        // Las tarjetas también traen extracto, y el ciclo de una tarjeta es
+        // justo donde más falta hace conciliar. Lo que no tiene extracto es
+        // la caja chica y el monedero, y por eso quedan fuera.
+        .in('kind', ['bank', 'card'])
         .order('sort');
       if (error) throw error;
       return data ?? [];
@@ -269,7 +272,7 @@ export default function Conciliacion() {
 
       <Selector
         etiqueta="Qué cuenta"
-        ayuda="Solo las cuentas de banco: la caja chica no tiene extracto."
+        ayuda="Las cuentas de banco y las tarjetas, que son las que traen extracto. La caja chica no."
         value={cuentaId}
         onChange={(e) => {
           setCuentaId(e.target.value);
