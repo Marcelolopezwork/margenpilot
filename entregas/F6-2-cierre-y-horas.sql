@@ -5,9 +5,9 @@
 --
 -- Hace tres cosas, en este orden y en una sola pasada:
 --
---  1. aplica la migración de «lo que el banco dice» (F6-1), que es la única
---     que falta en el proyecto, y la deja apuntada en el historial de
---     migraciones para que no se vuelva a aplicar;
+--  1. aplica las migraciones que faltan en el proyecto —el cierre de
+--     conciliación (F6-2) y las horas por trabajo (F5-5)— y las deja
+--     apuntadas en el historial para que no se vuelvan a aplicar;
 --  2. borra la organización «Margen Demo» si existe de una pasada anterior,
 --     para volver a crearla con los datos nuevos. Esto NO toca «Margen
 --     Pilot»: borra una sola fila, la de la demo, y lo demás cae por cascada;
@@ -28,288 +28,137 @@
 begin;
 
 -- ============================================================================
--- Margen Pilot · F6-1 · Lo que el banco dice
+-- Margen Pilot · F6-2 · Hasta aquí está cuadrado
 --
--- Hasta aquí el sistema sabe **lo que tú anotaste**. El banco sabe **lo que de
--- verdad pasó**. Son dos listas que deberían coincidir y nunca coinciden del
--- todo: una comisión que no anotaste, un cobro que anotaste el 3 y entró el 5,
--- un cliente que pagó 1 180 y no 1 200, un cargo que no reconoces.
+-- La otra mitad de la conciliación. Con F6-1 se puede cruzar el extracto con
+-- el libro; lo que faltaba es poder **cerrar**: decir «hasta el 31 de octubre
+-- esto está cuadrado con el banco» y que deje de pedir atención.
 --
--- Conciliar es cruzar las dos listas y dejar por escrito que cuadran, o en qué
--- no cuadran. Esta migración trae la mitad de abajo: el extracto importado,
--- sus líneas y el emparejamiento. El cierre de un periodo conciliado viene
--- después.
+-- Sin cierre, conciliar es una tarea que nunca termina: cada mes vuelves a
+-- mirar las mismas líneas viejas porque nada dice que ya se miraron.
 --
 -- ---------------------------------------------------------------------------
--- INV-8 — Conciliar no crea dinero
+-- INV-8.8 — Un cierre es una afirmación con condiciones, no una fecha
 -- ---------------------------------------------------------------------------
 --
--- Es la regla que gobierna todo lo demás y la única que no se puede relajar.
--- Marcar que una línea del extracto corresponde a un movimiento tuyo **no
--- cambia ni un céntimo del saldo**. Si conciliar pudiera crear, corregir o
--- borrar movimientos, dejaría de ser una comprobación y pasaría a ser otra
--- forma de escribir en el libro; y entonces no comprobaría nada, porque el
--- libro siempre cuadraría consigo mismo.
+-- 1. **No se puede cerrar lo que no está resuelto.** Para cerrar hasta una
+--    fecha, cada línea del extracto hasta esa fecha tiene que estar cuadrada
+--    o apartada con su motivo. Un cierre que admite líneas sueltas no afirma
+--    nada: solo las esconde.
 --
--- Aquí eso no es una promesa: ninguna de las tres tablas de abajo tiene una
--- sola escritura hacia `cash_movements`, y `authenticated` sigue sin INSERT ni
--- UPDATE sobre ella. Lo único que conciliar escribe es «esta línea del banco
--- es este movimiento mío».
+-- 2. **No se cierra contra nada.** Hace falta al menos un extracto importado
+--    que llegue hasta esa fecha. Cerrar octubre sin haber importado octubre
+--    sería decir que cuadra con un extracto que nadie miró.
 --
--- Siete reglas más:
+-- 3. **Ni hacia el futuro.** El banco todavía no ha dicho qué pasó mañana.
 --
--- 1. **El extracto se guarda como vino.** Cada línea conserva su fila original
---    en `raw`, y no se edita nunca. Si una línea está mal, está mal en el
---    banco: eso es un dato, no un error que arreglar.
+-- 4. **Lo cerrado no se toca.** Emparejar, desemparejar o apartar una línea
+--    anterior al cierre se rechaza con nombres: primero se reabre. Si lo
+--    cerrado se pudiera cambiar en silencio, el cierre sería un adorno.
 --
--- 2. **Una línea pertenece a una cuenta, y lleva su moneda.** La clave
---    compuesta `(cash_account_id, organization_id, legal_entity_id,
---    currency_code)` lo impone, igual que en los movimientos (INV-9, ADR-16).
---    No hay forma de meter el extracto del BCP en la cuenta de Mercury.
+-- 5. **Y no se importa encima.** Un extracto con líneas anteriores al cierre
+--    se rechaza entero, porque dejaría líneas nuevas sin resolver **debajo**
+--    de una fecha que afirma que todo lo de antes está resuelto. La salida es
+--    reabrir, importar y volver a cerrar.
 --
--- 3. **El importe se guarda como lo guarda el libro**: positivo, con la
---    dirección aparte. El signo del extracto decide la dirección al importar
---    y la fila original queda en `raw`. Dos representaciones del dinero en el
---    mismo producto serían dos sitios donde equivocarse.
+-- 6. **Reabrir se puede y es una acción explícita.** Con fecha nula el cierre
+--    desaparece. Encontrar un error dos meses después es normal; lo que no
+--    puede pasar es cambiarlo sin querer.
 --
--- 4. **Un emparejamiento une una línea con un movimiento de la misma cuenta y
---    en el mismo sentido.** Lo primero lo impone la clave compuesta; lo
---    segundo, el gate con nombres propios. Marcar una salida del banco contra
---    un cobro tuyo daría por cuadrado lo que no cuadra.
+-- 7. **El cierre vive en su propia tabla.** No en una columna de
+--    `cash_accounts`, donde `authenticated` tiene UPDATE y podría escribir la
+--    fecha sin pasar por ninguna de las comprobaciones de arriba. Aquí no
+--    tiene ni un permiso de escritura: la fecha solo la pone el gate.
 --
--- 5. **El mismo movimiento no se marca dos veces.** Índice único sobre
---    `cash_movement_id`: una línea puede corresponder a varios movimientos
---    —el banco junta dos depósitos del mismo día— pero un movimiento no
---    puede estar en dos líneas. Para eso existen dos movimientos.
+-- 8. **Los movimientos sin línea del banco no bloquean el cierre, pero no se
+--    esconden.** El extracto es la autoridad sobre lo que pasó en el banco, y
+--    el cierre afirma que *ese lado* está explicado. Un movimiento tuyo sin
+--    línea —un cheque que nadie depositó— sigue a la vista después de cerrar,
+--    en su propia lista, porque sigue sin explicación.
 --
--- 6. **Un movimiento anulado no concilia.** No es dinero: darlo por cuadrado
---    contra una línea del banco escondería la línea de verdad.
---
--- 7. **Lo que sobra se dice, no se borra.** Una línea que no es tuya —o que
---    decides dejar para después— se marca con un motivo escrito y sale de la
---    lista de pendientes sin desaparecer. Desemparejar también se puede: el
---    emparejamiento es una afirmación, y una afirmación se puede retirar.
+-- Y la de siempre, que no cambia: **conciliar no crea dinero** (INV-8). Este
+-- archivo trae la única excepción que esa regla siempre admitió, y es
+-- explícita: `crear_movimiento_desde_linea` anota el gasto que el banco te
+-- cobró y tú nunca apuntaste. Pasa por las mismas comprobaciones que el alta
+-- manual, queda marcado `source = 'bank_import'` y empareja en el mismo acto.
+-- No es conciliar creando dinero: es anotar lo que faltaba, diciéndolo.
 -- ============================================================================
 
--- ---------------------------------------------------------------------------
--- El extracto
--- ---------------------------------------------------------------------------
-
-create table bank_statements (
-  id              uuid primary key default gen_random_uuid(),
+create table bank_reconciliations (
+  cash_account_id uuid primary key,
   organization_id uuid not null references organizations (id) on delete cascade,
   legal_entity_id uuid not null,
-  cash_account_id uuid not null,
   currency_code   char(3) not null references currencies (code),
-  label           text not null check (btrim(label) <> ''),
-  /* El rango que cubre, deducido de las líneas. Sirve para avisar de que un
-     extracto nuevo pisa fechas que ya estaban importadas. */
-  desde           date not null,
+  /* Hasta cuándo está cuadrado. Una sola fila por cuenta: la historia de los
+     cierres la guarda audit_log, que es donde van las cosas que pasaron. */
   hasta           date not null,
-  lineas          int not null check (lineas > 0),
-  /* La huella del contenido: el mismo archivo no entra dos veces en la misma
-     cuenta. Sin esto, importar dos veces duplicaría media conciliación. */
-  source_sha256   text not null,
-  imported_by     uuid not null default auth.uid(),
-  imported_at     timestamptz not null default now(),
-
-  constraint el_rango_tiene_sentido check (hasta >= desde),
+  closed_by       uuid not null default auth.uid(),
+  closed_at       timestamptz not null default now(),
 
   foreign key (cash_account_id, organization_id, legal_entity_id, currency_code)
-    references cash_accounts (id, organization_id, legal_entity_id, currency_code),
-
-  unique (id, organization_id),
-  constraint bank_statements_id_org_cuenta_key
-    unique (id, organization_id, cash_account_id)
+    references cash_accounts (id, organization_id, legal_entity_id, currency_code)
 );
 
-create unique index extracto_sin_repetir
-  on bank_statements (cash_account_id, source_sha256);
+create index bank_reconciliations_org_idx on bank_reconciliations (organization_id);
 
-create index bank_statements_cuenta_idx
-  on bank_statements (organization_id, cash_account_id, hasta desc);
-
-create trigger bank_statements_audit
-  after insert or update or delete on bank_statements
+create trigger bank_reconciliations_audit
+  after insert or update or delete on bank_reconciliations
   for each row execute function app.audit_changes();
 
-comment on table bank_statements is
-  'Un extracto importado. No se edita: es lo que el banco dijo (INV-8).';
+comment on table bank_reconciliations is
+  'Hasta qué fecha está cuadrada cada cuenta con su banco. Sin escritura para authenticated: la fecha solo la pone cerrar_conciliacion (INV-8.8.7).';
 
--- ---------------------------------------------------------------------------
--- Las líneas
--- ---------------------------------------------------------------------------
+grant select on bank_reconciliations to authenticated;
 
-create table bank_statement_lines (
-  id              uuid primary key default gen_random_uuid(),
-  organization_id uuid not null references organizations (id) on delete cascade,
-  legal_entity_id uuid not null,
-  statement_id    uuid not null,
-  cash_account_id uuid not null,
-  currency_code   char(3) not null references currencies (code),
-  /* El orden en el archivo. Dos líneas idénticas el mismo día existen, y
-     `fila` es lo único que las distingue. */
-  fila            int not null check (fila > 0),
-  value_date      date not null,
-  direction       cash_direction not null,
-  amount          numeric(18, 2) not null check (amount > 0),
-  description     text not null,
-  external_ref    text,
-  /* La fila original, tal como venía. Nunca se lee para calcular nada: está
-     para poder mirar qué decía el banco cuando algo no cuadra. */
-  raw             jsonb not null default '{}'::jsonb,
-  /* Lo que sobra se dice, no se borra (regla 7). */
-  ignored_reason  text,
-  ignored_at      timestamptz,
-  created_at      timestamptz not null default now(),
+alter table bank_reconciliations enable row level security;
+alter table bank_reconciliations force  row level security;
 
-  constraint ignorar_exige_motivo
-    check (ignored_at is null or btrim(coalesce(ignored_reason, '')) <> ''),
-
-  foreign key (statement_id, organization_id, cash_account_id)
-    references bank_statements (id, organization_id, cash_account_id) on delete cascade,
-  foreign key (cash_account_id, organization_id, legal_entity_id, currency_code)
-    references cash_accounts (id, organization_id, legal_entity_id, currency_code),
-
-  unique (statement_id, fila),
-  constraint bank_statement_lines_id_org_cuenta_moneda_key
-    unique (id, organization_id, cash_account_id, currency_code)
-);
-
-create index bank_statement_lines_pendientes_idx
-  on bank_statement_lines (organization_id, cash_account_id, value_date)
-  where ignored_at is null;
-
-create trigger bank_statement_lines_audit
-  after insert or update or delete on bank_statement_lines
-  for each row execute function app.audit_changes();
-
-comment on table bank_statement_lines is
-  'Una línea del extracto, como vino. El importe va positivo con su dirección aparte, igual que en el libro; la fila original queda en raw (INV-8.3).';
-
--- ---------------------------------------------------------------------------
--- El emparejamiento
--- ---------------------------------------------------------------------------
---
--- La clave compuesta de `cash_movements` va **antes** de la tabla que la usa.
--- Postgres exige que la clave única exista cuando se declara la foránea que
--- la referencia, y escribirla después da «there is no unique constraint
--- matching given keys», que no dice ni cuál falta ni dónde.
-
-alter table cash_movements
-  add constraint cash_movements_id_org_cuenta_moneda_key
-  unique (id, organization_id, cash_account_id, currency_code);
-
-create table bank_line_matches (
-  id               uuid primary key default gen_random_uuid(),
-  organization_id  uuid not null references organizations (id) on delete cascade,
-  cash_account_id  uuid not null,
-  currency_code    char(3) not null references currencies (code),
-  statement_line_id uuid not null,
-  cash_movement_id uuid not null,
-  /* Quién lo afirmó y cuándo. Un emparejamiento es la afirmación de una
-     persona, no un cálculo: tiene que saberse de quién fue. */
-  matched_by       uuid not null default auth.uid(),
-  matched_at       timestamptz not null default now(),
-
-  foreign key (statement_line_id, organization_id, cash_account_id, currency_code)
-    references bank_statement_lines (id, organization_id, cash_account_id, currency_code)
-    on delete cascade,
-  /* La misma cuenta y la misma moneda a los dos lados. No hay forma de
-     tachar una línea del BCP con un movimiento de Mercury. */
-  foreign key (cash_movement_id, organization_id, cash_account_id, currency_code)
-    references cash_movements (id, organization_id, cash_account_id, currency_code)
-);
-
--- Regla 5: un movimiento no se marca dos veces.
-create unique index movimiento_conciliado_una_vez
-  on bank_line_matches (cash_movement_id);
-
-create index bank_line_matches_linea_idx on bank_line_matches (statement_line_id);
-
-create trigger bank_line_matches_audit
-  after insert or update or delete on bank_line_matches
-  for each row execute function app.audit_changes();
-
-comment on table bank_line_matches is
-  'Esta línea del banco es este movimiento mío. Es lo único que conciliar escribe (INV-8).';
-
--- ---------------------------------------------------------------------------
--- Permisos · se lee, no se escribe
--- ---------------------------------------------------------------------------
-
-grant select on bank_statements, bank_statement_lines, bank_line_matches to authenticated;
-
-alter table bank_statements      enable row level security;
-alter table bank_statements      force  row level security;
-alter table bank_statement_lines enable row level security;
-alter table bank_statement_lines force  row level security;
-alter table bank_line_matches    enable row level security;
-alter table bank_line_matches    force  row level security;
-
-create policy bank_statements_select on bank_statements for select
-  using (organization_id in (select app.current_orgs())
-         and app.can_write_money(organization_id));
-create policy bank_statement_lines_select on bank_statement_lines for select
-  using (organization_id in (select app.current_orgs())
-         and app.can_write_money(organization_id));
-create policy bank_line_matches_select on bank_line_matches for select
+create policy bank_reconciliations_select on bank_reconciliations for select
   using (organization_id in (select app.current_orgs())
          and app.can_write_money(organization_id));
 
 -- ---------------------------------------------------------------------------
--- El estado de cada línea, en un solo sitio
+-- Hasta cuándo está cerrada una cuenta
 -- ---------------------------------------------------------------------------
 --
--- «Cuadra» se define una vez: la suma de lo emparejado es el importe de la
--- línea. Escrito en dos sitios, un día dirían cosas distintas y nadie sabría
--- cuál creer.
+-- En una función y no copiado en cada gate: la pregunta se hace cuatro veces
+-- y la respuesta tiene que ser la misma las cuatro.
 
-create view bank_line_status with (security_invoker = true) as
-select l.id                as line_id,
-       l.organization_id,
-       l.cash_account_id,
-       count(m.id)::int    as emparejados,
-       coalesce(sum(v.amount), 0)::numeric(18, 2) as conciliado,
-       (coalesce(sum(v.amount), 0) = l.amount)    as cuadra
-  from bank_statement_lines l
-  left join bank_line_matches m on m.statement_line_id = l.id
-  left join cash_movements   v on v.id = m.cash_movement_id and not v.is_void
- group by l.id, l.organization_id, l.cash_account_id, l.amount;
+create or replace function app.cerrada_hasta(p_account uuid) returns date
+language sql stable security definer set search_path = public, pg_temp as $$
+  select r.hasta from bank_reconciliations r where r.cash_account_id = p_account
+$$;
 
-comment on view bank_line_status is
-  'Cuánto se le emparejó a cada línea y si cuadra. Una sola definición de «cuadra» (INV-8).';
+revoke all on function app.cerrada_hasta(uuid) from public, anon;
 
-grant select on bank_line_status to authenticated;
+/* Levanta el error si la fecha cae dentro de lo ya cerrado. */
+create or replace function app.no_toques_lo_cerrado(p_account uuid, p_fecha date)
+returns void
+language plpgsql security definer set search_path = public, pg_temp as $fn$
+declare v_hasta date := app.cerrada_hasta(p_account);
+begin
+  if v_hasta is not null and p_fecha <= v_hasta then
+    raise exception
+      'periodo_cerrado: esta cuenta está cuadrada hasta el %, y eso es del %. Si de verdad hay que cambiarlo, reabre el cierre primero: lo cerrado que se puede tocar en silencio no afirma nada',
+      to_char(v_hasta, 'DD/MM/YYYY'), to_char(p_fecha, 'DD/MM/YYYY');
+  end if;
+end $fn$;
+
+revoke all on function app.no_toques_lo_cerrado(uuid, date) from public, anon;
 
 -- ---------------------------------------------------------------------------
--- Puerta · importar un extracto
+-- Puerta · cerrar y reabrir
 -- ---------------------------------------------------------------------------
---
--- Las líneas llegan ya leídas y mapeadas por la pantalla: qué columna era la
--- fecha, cuál el importe y cuál la descripción lo decide una persona la
--- primera vez, porque cada banco trae su formato y adivinarlo mal es peor que
--- preguntarlo.
---
--- Cada elemento: {"fecha": "2026-11-03", "importe": -118.00,
---                 "descripcion": "...", "referencia": "OP-123", "raw": {...}}
--- El signo del importe decide la dirección.
 
-create or replace function importar_extracto(
-  p_account uuid,
-  p_label   text,
-  p_lines   jsonb
-) returns setof bank_statements
+create or replace function cerrar_conciliacion(p_account uuid, p_hasta date default null)
+returns setof bank_reconciliations
 language plpgsql security definer set search_path = public, pg_temp as $fn$
 declare
   v_cuenta  record;
-  v_dec     int;
-  v_sha     text;
-  v_antes   record;
-  v_desde   date;
-  v_hasta   date;
-  v_cuantas int;
-  v_id      uuid;
+  v_sueltas int;
+  v_primera date;
+  v_primero date;
+  v_ultimo  date;
 begin
   select a.* into v_cuenta from cash_accounts a where a.id = p_account;
 
@@ -317,89 +166,81 @@ begin
     raise exception 'cuenta_no_encontrada: esa cuenta no existe o no es de tu organización';
   end if;
 
-  if btrim(coalesce(p_label, '')) = '' then
-    raise exception 'etiqueta_obligatoria: el extracto necesita un nombre, el que vas a reconocer dentro de seis meses';
+  -- Reabrir. Explícito y sin condiciones: encontrar un error dos meses
+  -- después es normal.
+  if p_hasta is null then
+    delete from bank_reconciliations where cash_account_id = p_account;
+    return;
   end if;
 
-  if jsonb_typeof(p_lines) <> 'array' or jsonb_array_length(p_lines) = 0 then
-    raise exception 'extracto_vacio: no se leyó ninguna línea de ese archivo. Revisa qué columna es la fecha y cuál el importe';
-  end if;
-
-  if jsonb_array_length(p_lines) > 5000 then
-    raise exception 'extracto_enorme: cinco mil líneas son más de las que trae un extracto. Pártelo por meses';
-  end if;
-
-  -- La huella del contenido, no del archivo: dos descargas del mismo periodo
-  -- pueden diferir en una cabecera y seguir siendo el mismo extracto.
-  v_sha := encode(sha256(convert_to(p_lines::text, 'UTF8')), 'hex');
-
-  select s.label, s.imported_at into v_antes
-    from bank_statements s
-   where s.cash_account_id = p_account and s.source_sha256 = v_sha;
-
-  if v_antes.label is not null then
+  if p_hasta > current_date then
     raise exception
-      'extracto_repetido: este mismo extracto ya se importó como «%» el %. Importarlo otra vez duplicaría media conciliación',
-      v_antes.label, to_char(v_antes.imported_at, 'DD/MM/YYYY');
+      'fecha_futura: no se puede cerrar hasta el %: el banco todavía no ha dicho qué pasó ese día',
+      to_char(p_hasta, 'DD/MM/YYYY');
   end if;
 
-  select c.minor_units into v_dec from currencies c where c.code = v_cuenta.currency_code;
+  /*
+    La fecha tiene que caer **dentro** de lo importado: ni antes del primer
+    día que trajo un extracto —estarías cerrando un periodo que nadie miró—
+    ni después del último —el banco todavía no ha dicho qué pasó ahí—.
 
-  -- Se valida todo antes de escribir nada: un extracto medio importado es
-  -- peor que uno no importado.
-  select min((e.item->>'fecha')::date),
-         max((e.item->>'fecha')::date),
-         count(*)
-    into v_desde, v_hasta, v_cuantas
-    from jsonb_array_elements(p_lines) as e(item);
+    Lo que esto NO detecta es un hueco en medio: si importaste septiembre y
+    noviembre y cierras a mitad de octubre, octubre no se miró y esto deja
+    pasar. Detectarlo exigiría saber que los extractos son continuos, y un
+    extracto no trae esa promesa. Queda dicho aquí en vez de fingir que se
+    comprueba.
+  */
+  select min(s.desde), max(s.hasta) into v_primero, v_ultimo
+    from bank_statements s where s.cash_account_id = p_account;
 
-  if v_desde is null then
-    raise exception 'fecha_obligatoria: alguna línea no trae fecha. Revisa qué columna mapeaste como fecha';
+  if v_primero is null then
+    raise exception
+      'sin_extracto: esta cuenta no tiene ningún extracto importado. Cerrar sin extracto sería decir que cuadra con algo que nadie miró';
   end if;
 
-  if exists (
-    select 1 from jsonb_array_elements(p_lines) as e(item)
-     where round(coalesce((e.item->>'importe')::numeric, 0), v_dec) = 0
-  ) then
-    raise exception 'importe_invalido: alguna línea tiene importe cero. Revisa qué columna mapeaste como importe';
+  if p_hasta < v_primero or p_hasta > v_ultimo then
+    raise exception
+      'sin_extracto: los extractos de esta cuenta van del % al %, y quieres cerrar hasta el %. Fuera de ese rango no hay nada importado con lo que cuadrar',
+      to_char(v_primero, 'DD/MM/YYYY'), to_char(v_ultimo, 'DD/MM/YYYY'),
+      to_char(p_hasta, 'DD/MM/YYYY');
   end if;
 
-  insert into bank_statements (
-    organization_id, legal_entity_id, cash_account_id, currency_code,
-    label, desde, hasta, lineas, source_sha256)
+  select count(*), min(l.value_date) into v_sueltas, v_primera
+    from bank_statement_lines l
+    left join bank_line_status e on e.line_id = l.id
+   where l.cash_account_id = p_account
+     and l.value_date <= p_hasta
+     and l.ignored_at is null
+     and not coalesce(e.cuadra, false);
+
+  if v_sueltas > 0 then
+    raise exception
+      'quedan_lineas: todavía hay % % del banco sin resolver hasta el %, la más antigua del %. Empareja cada una con su movimiento o apártala con su motivo: un cierre que las admite no afirma nada, solo las esconde',
+      v_sueltas,
+      case when v_sueltas = 1 then 'línea' else 'líneas' end,
+      to_char(p_hasta, 'DD/MM/YYYY'),
+      to_char(v_primera, 'DD/MM/YYYY');
+  end if;
+
+  insert into bank_reconciliations (
+    cash_account_id, organization_id, legal_entity_id, currency_code, hasta)
   values (
-    v_cuenta.organization_id, v_cuenta.legal_entity_id, p_account, v_cuenta.currency_code,
-    btrim(p_label), v_desde, v_hasta, v_cuantas, v_sha)
-  returning id into v_id;
+    p_account, v_cuenta.organization_id, v_cuenta.legal_entity_id,
+    v_cuenta.currency_code, p_hasta)
+  on conflict (cash_account_id) do update
+    set hasta = excluded.hasta, closed_by = auth.uid(), closed_at = now();
 
-  insert into bank_statement_lines (
-    organization_id, legal_entity_id, statement_id, cash_account_id, currency_code,
-    fila, value_date, direction, amount, description, external_ref, raw)
-  select v_cuenta.organization_id,
-         v_cuenta.legal_entity_id,
-         v_id,
-         p_account,
-         v_cuenta.currency_code,
-         e.idx::int,
-         (e.item->>'fecha')::date,
-         case when (e.item->>'importe')::numeric < 0 then 'out' else 'in' end::cash_direction,
-         abs(round((e.item->>'importe')::numeric, v_dec)),
-         coalesce(nullif(btrim(e.item->>'descripcion'), ''), 'Sin concepto'),
-         nullif(btrim(coalesce(e.item->>'referencia', '')), ''),
-         coalesce(e.item->'raw', e.item)
-    from jsonb_array_elements(p_lines) with ordinality as e(item, idx);
-
-  return query select * from bank_statements where id = v_id;
+  return query select * from bank_reconciliations where cash_account_id = p_account;
 end $fn$;
 
-comment on function importar_extracto(uuid, text, jsonb) is
-  'Guarda un extracto y sus líneas tal como vinieron. No toca el libro (INV-8).';
+comment on function cerrar_conciliacion(uuid, date) is
+  'Afirma que una cuenta está cuadrada con su banco hasta una fecha, y se niega si no lo está. Con fecha nula, reabre (INV-8.8).';
 
-revoke all on function importar_extracto(uuid, text, jsonb) from public, anon;
-grant execute on function importar_extracto(uuid, text, jsonb) to authenticated;
+revoke all on function cerrar_conciliacion(uuid, date) from public, anon;
+grant execute on function cerrar_conciliacion(uuid, date) to authenticated;
 
 -- ---------------------------------------------------------------------------
--- Puerta · emparejar una línea con un movimiento
+-- Lo cerrado no se toca: los tres gates aprenden la fecha
 -- ---------------------------------------------------------------------------
 
 create or replace function emparejar_linea(p_line uuid, p_movement uuid)
@@ -416,6 +257,8 @@ begin
   if v_linea.id is null or not app.can_write_money(v_linea.organization_id) then
     raise exception 'linea_no_encontrada: esa línea del extracto no existe o no es de tu organización';
   end if;
+
+  perform app.no_toques_lo_cerrado(v_linea.cash_account_id, v_linea.value_date);
 
   select m.* into v_mov from cash_movements m where m.id = p_movement;
 
@@ -466,23 +309,11 @@ begin
   return query select * from bank_line_matches where id = v_id;
 end $fn$;
 
-comment on function emparejar_linea(uuid, uuid) is
-  'Afirma que una línea del banco es un movimiento del libro. No mueve dinero (INV-8).';
-
-revoke all on function emparejar_linea(uuid, uuid) from public, anon;
-grant execute on function emparejar_linea(uuid, uuid) to authenticated;
-
--- ---------------------------------------------------------------------------
--- Puerta · retirar un emparejamiento
--- ---------------------------------------------------------------------------
---
--- Esto sí se borra. Un emparejamiento no es un hecho económico: es la
--- afirmación de una persona, y una afirmación se puede retirar. El rastro de
--- quién la hizo y quién la quitó lo guarda `audit_log`.
-
 create or replace function desemparejar_linea(p_match uuid) returns void
 language plpgsql security definer set search_path = public, pg_temp as $fn$
-declare v_match record;
+declare
+  v_match record;
+  v_linea record;
 begin
   select m.* into v_match from bank_line_matches m where m.id = p_match;
 
@@ -490,15 +321,11 @@ begin
     raise exception 'emparejamiento_no_encontrado: eso no existe o no es de tu organización';
   end if;
 
+  select l.* into v_linea from bank_statement_lines l where l.id = v_match.statement_line_id;
+  perform app.no_toques_lo_cerrado(v_match.cash_account_id, v_linea.value_date);
+
   delete from bank_line_matches where id = p_match;
 end $fn$;
-
-revoke all on function desemparejar_linea(uuid) from public, anon;
-grant execute on function desemparejar_linea(uuid) to authenticated;
-
--- ---------------------------------------------------------------------------
--- Puerta · apartar una línea que no es tuya
--- ---------------------------------------------------------------------------
 
 create or replace function ignorar_linea(p_line uuid, p_motivo text default null)
 returns setof bank_statement_lines
@@ -513,7 +340,8 @@ begin
     raise exception 'linea_no_encontrada: esa línea del extracto no existe o no es de tu organización';
   end if;
 
-  -- Motivo nulo = devolverla a la lista de pendientes.
+  perform app.no_toques_lo_cerrado(v_linea.cash_account_id, v_linea.value_date);
+
   if v_motivo is null then
     update bank_statement_lines
        set ignored_reason = null, ignored_at = null
@@ -534,17 +362,404 @@ begin
   return query select * from bank_statement_lines where id = p_line;
 end $fn$;
 
-comment on function ignorar_linea(uuid, text) is
-  'Aparta una línea del extracto con un motivo escrito, o la devuelve a pendientes con motivo nulo. No la borra (INV-8.7).';
+-- ---------------------------------------------------------------------------
+-- Y no se importa por debajo del cierre
+-- ---------------------------------------------------------------------------
+--
+-- Se vuelve a declarar entera para meter una comprobación de cuatro líneas,
+-- que es lo que cuesta no tener dos caminos de importación.
 
-revoke all on function ignorar_linea(uuid, text) from public, anon;
-grant execute on function ignorar_linea(uuid, text) to authenticated;
+create or replace function importar_extracto(
+  p_account uuid,
+  p_label   text,
+  p_lines   jsonb
+) returns setof bank_statements
+language plpgsql security definer set search_path = public, pg_temp as $fn$
+declare
+  v_cuenta  record;
+  v_dec     int;
+  v_sha     text;
+  v_antes   record;
+  v_desde   date;
+  v_hasta   date;
+  v_cuantas int;
+  v_cerrado date;
+  v_viejas  int;
+  v_id      uuid;
+begin
+  select a.* into v_cuenta from cash_accounts a where a.id = p_account;
+
+  if v_cuenta.id is null or not app.can_write_money(v_cuenta.organization_id) then
+    raise exception 'cuenta_no_encontrada: esa cuenta no existe o no es de tu organización';
+  end if;
+
+  if btrim(coalesce(p_label, '')) = '' then
+    raise exception 'etiqueta_obligatoria: el extracto necesita un nombre, el que vas a reconocer dentro de seis meses';
+  end if;
+
+  if jsonb_typeof(p_lines) <> 'array' or jsonb_array_length(p_lines) = 0 then
+    raise exception 'extracto_vacio: no se leyó ninguna línea de ese archivo. Revisa qué columna es la fecha y cuál el importe';
+  end if;
+
+  if jsonb_array_length(p_lines) > 5000 then
+    raise exception 'extracto_enorme: cinco mil líneas son más de las que trae un extracto. Pártelo por meses';
+  end if;
+
+  v_sha := encode(sha256(convert_to(p_lines::text, 'UTF8')), 'hex');
+
+  select s.label, s.imported_at into v_antes
+    from bank_statements s
+   where s.cash_account_id = p_account and s.source_sha256 = v_sha;
+
+  if v_antes.label is not null then
+    raise exception
+      'extracto_repetido: este mismo extracto ya se importó como «%» el %. Importarlo otra vez duplicaría media conciliación',
+      v_antes.label, to_char(v_antes.imported_at, 'DD/MM/YYYY');
+  end if;
+
+  select c.minor_units into v_dec from currencies c where c.code = v_cuenta.currency_code;
+
+  select min((e.item->>'fecha')::date),
+         max((e.item->>'fecha')::date),
+         count(*)
+    into v_desde, v_hasta, v_cuantas
+    from jsonb_array_elements(p_lines) as e(item);
+
+  if v_desde is null then
+    raise exception 'fecha_obligatoria: alguna línea no trae fecha. Revisa qué columna mapeaste como fecha';
+  end if;
+
+  -- INV-8.8.5 · nada por debajo del cierre, o el cierre deja de significar
+  -- que todo lo anterior está resuelto.
+  v_cerrado := app.cerrada_hasta(p_account);
+  if v_cerrado is not null and v_desde <= v_cerrado then
+    select count(*) into v_viejas
+      from jsonb_array_elements(p_lines) as e(item)
+     where (e.item->>'fecha')::date <= v_cerrado;
+
+    raise exception
+      'periodo_cerrado: % de esas líneas son del % o antes, y esta cuenta está cuadrada hasta el %. Importarlas dejaría líneas sin resolver por debajo de una fecha que dice que todo lo anterior lo está: reabre el cierre, impórtalas y vuelve a cerrar',
+      v_viejas, to_char(v_cerrado, 'DD/MM/YYYY'), to_char(v_cerrado, 'DD/MM/YYYY');
+  end if;
+
+  if exists (
+    select 1 from jsonb_array_elements(p_lines) as e(item)
+     where round(coalesce((e.item->>'importe')::numeric, 0), v_dec) = 0
+  ) then
+    raise exception 'importe_invalido: alguna línea tiene importe cero. Revisa qué columna mapeaste como importe';
+  end if;
+
+  insert into bank_statements (
+    organization_id, legal_entity_id, cash_account_id, currency_code,
+    label, desde, hasta, lineas, source_sha256)
+  values (
+    v_cuenta.organization_id, v_cuenta.legal_entity_id, p_account, v_cuenta.currency_code,
+    btrim(p_label), v_desde, v_hasta, v_cuantas, v_sha)
+  returning id into v_id;
+
+  insert into bank_statement_lines (
+    organization_id, legal_entity_id, statement_id, cash_account_id, currency_code,
+    fila, value_date, direction, amount, description, external_ref, raw)
+  select v_cuenta.organization_id,
+         v_cuenta.legal_entity_id,
+         v_id,
+         p_account,
+         v_cuenta.currency_code,
+         e.idx::int,
+         (e.item->>'fecha')::date,
+         case when (e.item->>'importe')::numeric < 0 then 'out' else 'in' end::cash_direction,
+         abs(round((e.item->>'importe')::numeric, v_dec)),
+         coalesce(nullif(btrim(e.item->>'descripcion'), ''), 'Sin concepto'),
+         nullif(btrim(coalesce(e.item->>'referencia', '')), ''),
+         coalesce(e.item->'raw', e.item)
+    from jsonb_array_elements(p_lines) with ordinality as e(item, idx);
+
+  return query select * from bank_statements where id = v_id;
+end $fn$;
+
+-- ---------------------------------------------------------------------------
+-- Puerta · anotar el gasto que el banco te cobró y tú no apuntaste
+-- ---------------------------------------------------------------------------
+--
+-- La única excepción que INV-8 siempre admitió, y es explícita: la pides tú,
+-- línea por línea. Crea el movimiento con los datos de la línea, lo marca
+-- `source = 'bank_import'` para que se sepa de dónde salió, y empareja en el
+-- mismo acto. Lo que no hace —y por eso sigue sin violar la regla— es tocar
+-- un movimiento que ya existía: solo añade el que faltaba.
+
+create or replace function crear_movimiento_desde_linea(
+  p_line        uuid,
+  p_category    uuid default null,
+  p_description text default null,
+  p_kind        cash_kind default 'operating'
+) returns setof cash_movements
+language plpgsql security definer set search_path = public, pg_temp as $fn$
+declare
+  v_linea record;
+  v_cat   record;
+  v_mov   uuid;
+begin
+  select l.* into v_linea from bank_statement_lines l where l.id = p_line;
+
+  if v_linea.id is null or not app.can_write_money(v_linea.organization_id) then
+    raise exception 'linea_no_encontrada: esa línea del extracto no existe o no es de tu organización';
+  end if;
+
+  perform app.no_toques_lo_cerrado(v_linea.cash_account_id, v_linea.value_date);
+
+  if v_linea.ignored_at is not null then
+    raise exception
+      'linea_ignorada: esa línea está apartada con el motivo «%». Quítale el motivo antes de anotarla',
+      v_linea.ignored_reason;
+  end if;
+
+  if exists (select 1 from bank_line_matches m where m.statement_line_id = p_line) then
+    raise exception
+      'linea_emparejada: esa línea ya está marcada contra un movimiento. Si aquel no era, quita el emparejamiento primero';
+  end if;
+
+  if p_kind in ('transfer', 'opening') then
+    raise exception
+      'tipo_invalido: una pata de transferencia o una apertura no se anotan desde aquí. Una transferencia se anota entera, con sus dos lados (INV-5)';
+  end if;
+
+  if p_category is not null then
+    select fc.name, fc.direction into v_cat
+      from financial_categories fc
+     where fc.id = p_category and fc.organization_id = v_linea.organization_id;
+    if v_cat.name is null then
+      raise exception 'categoria_no_encontrada: esa categoría no existe en esta organización';
+    end if;
+    if v_cat.direction = 'in' and v_linea.direction = 'out' then
+      raise exception
+        'categoria_de_ingreso: «%» es una categoría de ingresos y en el banco eso es dinero que salió. Elige una de gastos o cámbiala a «ambas» en Configuración → Categorías',
+        v_cat.name;
+    end if;
+    if v_cat.direction = 'out' and v_linea.direction = 'in' then
+      raise exception
+        'categoria_de_gasto: «%» es una categoría de gastos y en el banco eso es dinero que entró. Elige una de ingresos o cámbiala a «ambas» en Configuración → Categorías',
+        v_cat.name;
+    end if;
+  end if;
+
+  insert into cash_movements (
+    organization_id, cash_account_id, legal_entity_id, direction, amount,
+    currency_code, value_date, kind, category_id, description, external_ref, source)
+  values (
+    v_linea.organization_id, v_linea.cash_account_id, v_linea.legal_entity_id,
+    v_linea.direction, v_linea.amount, v_linea.currency_code, v_linea.value_date,
+    p_kind, p_category,
+    coalesce(nullif(btrim(coalesce(p_description, '')), ''), v_linea.description),
+    v_linea.external_ref, 'bank_import')
+  returning id into v_mov;
+
+  insert into bank_line_matches (
+    organization_id, cash_account_id, currency_code, statement_line_id, cash_movement_id)
+  values (
+    v_linea.organization_id, v_linea.cash_account_id, v_linea.currency_code, p_line, v_mov);
+
+  return query select * from cash_movements where id = v_mov;
+end $fn$;
+
+comment on function crear_movimiento_desde_linea(uuid, uuid, text, cash_kind) is
+  'Anota el movimiento que faltaba a partir de una línea del banco y la empareja. Marcado source=bank_import (INV-8).';
+
+revoke all on function crear_movimiento_desde_linea(uuid, uuid, text, cash_kind) from public, anon;
+grant execute on function crear_movimiento_desde_linea(uuid, uuid, text, cash_kind) to authenticated;
 
 -- Queda apuntada en el historial: si no, un despliegue futuro intentaría
 -- aplicarla otra vez y fallaría a mitad.
 insert into supabase_migrations.schema_migrations (version, name)
-values ('20261124140000', 'lo_que_el_banco_dice')
+values ('20261125120000', 'hasta_aqui_esta_cuadrado')
 on conflict (version) do nothing;
+
+-- ============================================================================
+-- Margen Pilot · F5-5 · Cuánto tiempo se fue
+--
+-- La otra mitad de «cuánto deja cada trabajo». Hoy un trabajo sabe cuánto
+-- **dinero** costó; no sabe cuánto **tiempo**. Y un trabajo que dejó 40 %
+-- pero se comió tres semanas de dos personas no dejó 40 %: dejó mucho menos,
+-- solo que la parte cara no pasó por el banco.
+--
+-- Es el agujero clásico de una agencia de servicios. El margen por dinero
+-- premia al trabajo que se hace con pocos proveedores, aunque se lo coma tu
+-- equipo entero; el margen por hora dice la verdad.
+--
+-- ---------------------------------------------------------------------------
+-- INV-16 — Las horas se cuentan aparte del dinero, y no se convierten
+-- ---------------------------------------------------------------------------
+--
+-- 1. **Una hora no es un costo.** No se multiplica por una tarifa ni se suma
+--    al costo real del trabajo. Hacerlo contaría dos veces el sueldo de quien
+--    ya cobra, o inventaría un gasto que nunca salió del banco. El resultado
+--    del mes no cambia ni un céntimo por anotar horas.
+--
+-- 2. **Lo que las horas producen es una división, no una suma.** «Este
+--    trabajo deja 4 000 y se comió 80 horas» son 50 por hora. Esa cifra es la
+--    que se compara entre servicios, y es la que delata al cliente que paga
+--    bien y cuesta más.
+--
+-- 3. **Se guardan en minutos enteros.** «Hora y media» entra como 90. Un
+--    `numeric` de horas con decimales es la misma trampa que un importe en
+--    coma flotante: 0,1 + 0,2 horas no son 0,3 horas.
+--
+-- 4. **Quién hizo el trabajo es un texto, no un usuario.** El freelance que
+--    editó el video no tiene cuenta en Margen y no la va a tener. Lo que hace
+--    falta es poder decir «Eli» y que se agrupe.
+--
+-- 5. **Un apunte de horas se borra.** No es un hecho económico: no hay
+--    documento ni dinero detrás, y una tarde mal apuntada tiene que poder
+--    desaparecer. El rastro lo guarda `audit_log`, igual que el de una cuota
+--    prevista que se quita.
+--
+-- 6. **Las horas viven en el libro de su trabajo.** La clave compuesta con la
+--    entidad lo impone, igual que en las compras y los gastos (INV-11).
+-- ============================================================================
+
+create table job_time_entries (
+  id              uuid primary key default gen_random_uuid(),
+  organization_id uuid not null references organizations (id) on delete cascade,
+  legal_entity_id uuid not null,
+  job_id          uuid not null,
+  /* Quién. Texto y no usuario: el freelance no tiene cuenta (INV-16.4). */
+  who             text not null check (btrim(who) <> ''),
+  spent_on        date not null,
+  /* Minutos enteros. Ver INV-16.3. El tope de veinticuatro horas no es
+     burocracia: un dedo torpe que teclea 800 en vez de 80 mete trece horas
+     de más y nadie lo nota hasta que el margen por hora sale absurdo. */
+  minutes         int not null check (minutes > 0 and minutes <= 1440),
+  note            text,
+  created_by      uuid not null default auth.uid(),
+  created_at      timestamptz not null default now(),
+
+  foreign key (job_id, organization_id, legal_entity_id)
+    references jobs (id, organization_id, legal_entity_id) on delete cascade
+);
+
+create index job_time_entries_trabajo_idx on job_time_entries (organization_id, job_id);
+create index job_time_entries_quien_idx
+  on job_time_entries (organization_id, lower(btrim(who)));
+
+create trigger job_time_entries_audit
+  after insert or update or delete on job_time_entries
+  for each row execute function app.audit_changes();
+
+comment on table job_time_entries is
+  'El tiempo que se le fue a cada trabajo, en minutos enteros. No es un costo y no se convierte en uno (INV-16).';
+
+grant select on job_time_entries to authenticated;
+
+alter table job_time_entries enable row level security;
+alter table job_time_entries force  row level security;
+
+-- Mismo permiso que los trabajos: quien ve el costo ve el tiempo.
+create policy job_time_entries_select on job_time_entries for select
+  using (organization_id in (select app.current_orgs())
+         and app.can_see_costs(organization_id));
+
+-- ---------------------------------------------------------------------------
+-- Cuánto tiempo lleva cada trabajo
+-- ---------------------------------------------------------------------------
+
+create view job_time with (security_invoker = true) as
+select t.job_id,
+       t.organization_id,
+       sum(t.minutes)::int        as minutos,
+       count(*)::int              as apuntes,
+       count(distinct lower(btrim(t.who)))::int as personas,
+       min(t.spent_on)            as desde,
+       max(t.spent_on)            as hasta
+  from job_time_entries t
+ group by t.job_id, t.organization_id;
+
+comment on view job_time is
+  'Minutos por trabajo. En minutos y no en horas: la división la hace quien la enseña, con el redondeo a la vista (INV-16.3).';
+
+grant select on job_time to authenticated;
+
+-- ---------------------------------------------------------------------------
+-- Puerta · anotar horas
+-- ---------------------------------------------------------------------------
+
+create or replace function anotar_horas(
+  p_job     uuid,
+  p_who     text,
+  p_minutes int,
+  p_on      date default null,
+  p_note    text default null
+) returns setof job_time_entries
+language plpgsql security definer set search_path = public, pg_temp as $fn$
+declare
+  v_job  record;
+  v_quien text;
+  v_id   uuid;
+begin
+  select j.* into v_job from jobs j where j.id = p_job;
+
+  if v_job.id is null or not app.can_see_costs(v_job.organization_id) then
+    raise exception 'trabajo_no_encontrado: ese trabajo no existe o no es de tu organización';
+  end if;
+
+  v_quien := btrim(coalesce(p_who, ''));
+  if v_quien = '' then
+    raise exception 'quien_obligatorio: hace falta saber de quién fue ese tiempo. Sin eso no se puede responder a «en qué se le va el mes al equipo»';
+  end if;
+
+  if p_minutes is null or p_minutes <= 0 then
+    raise exception 'minutos_invalidos: el tiempo va en minutos y tiene que ser mayor que cero';
+  end if;
+
+  if p_minutes > 1440 then
+    raise exception
+      'minutos_invalidos: % minutos son más de veinticuatro horas en un día. Si de verdad fueron varios días, anótalos por separado: así se ve cuándo se fue el tiempo',
+      p_minutes;
+  end if;
+
+  insert into job_time_entries (
+    organization_id, legal_entity_id, job_id, who, spent_on, minutes, note)
+  values (
+    v_job.organization_id, v_job.legal_entity_id, p_job, v_quien,
+    coalesce(p_on, current_date), p_minutes,
+    nullif(btrim(coalesce(p_note, '')), ''))
+  returning id into v_id;
+
+  return query select * from job_time_entries where id = v_id;
+end $fn$;
+
+comment on function anotar_horas(uuid, text, int, date, text) is
+  'Apunta tiempo en un trabajo. No toca el costo ni el resultado: las horas no se convierten en dinero (INV-16.1).';
+
+revoke all on function anotar_horas(uuid, text, int, date, text) from public, anon;
+grant execute on function anotar_horas(uuid, text, int, date, text) to authenticated;
+
+-- ---------------------------------------------------------------------------
+-- Puerta · quitar un apunte
+-- ---------------------------------------------------------------------------
+
+create or replace function quitar_horas(p_entry uuid) returns void
+language plpgsql security definer set search_path = public, pg_temp as $fn$
+declare v_entry record;
+begin
+  select t.* into v_entry from job_time_entries t where t.id = p_entry;
+
+  if v_entry.id is null or not app.can_see_costs(v_entry.organization_id) then
+    raise exception 'apunte_no_encontrado: ese apunte no existe o no es de tu organización';
+  end if;
+
+  -- Se borra, y se puede: no es un hecho económico. `audit_log` guarda la
+  -- fila que había (INV-16.5).
+  delete from job_time_entries where id = p_entry;
+end $fn$;
+
+revoke all on function quitar_horas(uuid) from public, anon;
+grant execute on function quitar_horas(uuid) to authenticated;
+
+-- Queda apuntada en el historial: si no, un despliegue futuro intentaría
+-- aplicarla otra vez y fallaría a mitad.
+insert into supabase_migrations.schema_migrations (version, name)
+values ('20261125130000', 'cuanto_tiempo_se_fue')
+on conflict (version) do nothing;
+
 
 -- La demo de la pasada anterior, si está. Solo la demo: el slug es exacto y
 -- «margen-pilot» no se parece a «margen-demo».
@@ -926,6 +1141,16 @@ begin
   perform registrar_movimiento(v_bcp, 'out', 236, 'Pauta de prueba en redes',
     current_date - 11, 'operating', v_g_proveedores, null, null, 200, 36,
     null, v_trab_redes);
+
+  -- --------------------------------------------- el tiempo de cada trabajo
+  -- Las horas no son un costo y no se convierten en uno (INV-16.1). Lo que
+  -- producen es una división: estos dos trabajos tienen margen parecido y muy
+  -- distinto por hora, que es justo lo que el porcentaje solo no dice.
+  perform anotar_horas(v_trab_lanz, 'Chelo', 240, current_date - 18, 'Guion y dirección');
+  perform anotar_horas(v_trab_lanz, 'Eli', 480, current_date - 16, 'Edición');
+  perform anotar_horas(v_trab_lanz, 'Chelo', 120, current_date - 12);
+  perform anotar_horas(v_trab_redes, 'Chelo', 180, current_date - 10);
+  perform anotar_horas(v_trab_redes, 'Eli', 120, current_date - 8);
 
   -- ------------------------------------------------- lo que el banco dice
   -- Un extracto de tres líneas: una que cuadra con un gasto anotado, una que
