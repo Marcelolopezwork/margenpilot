@@ -2033,6 +2033,8 @@ declare
   v_ext      uuid;
   v_l1       uuid;
   v_l2       uuid;
+  v_l3       uuid;
+  v_mov_usd  uuid;
   v_m1       uuid;
   v_m2       uuid;
   v_m3       uuid;
@@ -2130,6 +2132,7 @@ begin
   -- ----------------------------------------------------------- emparejar
   select id into v_l1 from bank_statement_lines where statement_id = v_ext and fila = 1;
   select id into v_l2 from bank_statement_lines where statement_id = v_ext and fila = 2;
+  select id into v_l3 from bank_statement_lines where statement_id = v_ext and fila = 3;
 
   select id into v_m1 from registrar_movimiento(
     v_pen, 'out', 118, 'Comisión del banco', current_date - 3, 'bank_fee');
@@ -2162,14 +2165,19 @@ begin
     'direccion_no_concuerda',
     'en el banco salió dinero y el movimiento es una entrada: juntarlos daría por cuadrado lo que no cuadra');
 
+  -- La tercera línea también es una salida, así que llega a la comprobación
+  -- que se quiere ver. Con la segunda —que es una entrada— saltaría antes la
+  -- del sentido, y la prueba no probaría lo que dice.
   perform assert_raises(
-    format('select emparejar_linea(%L, %L)', v_l2, v_m1),
+    format('select emparejar_linea(%L, %L)', v_l3, v_m1),
     'movimiento_ya_conciliado',
     'un movimiento no puede ser dos apuntes del banco');
 
+  select id into v_mov_usd from registrar_movimiento(
+    v_usd, 'in', 1180, 'Un cobro en la otra cuenta', current_date - 2);
+
   perform assert_raises(
-    format('select emparejar_linea(%L, (select id from cash_movements
-              where cash_account_id = %L limit 1))', v_l2, v_usd),
+    format('select emparejar_linea(%L, %L)', v_l2, v_mov_usd),
     'cuenta_de_otro_libro',
     'una línea del BCP no se tacha con dinero de Mercury');
 
