@@ -1,10 +1,11 @@
 import { useEffect, useRef, useState } from 'react';
-import { NavLink, Outlet, useLocation } from 'react-router-dom';
+import { NavLink, Outlet, useLocation, useNavigationType } from 'react-router-dom';
 import { DESTINOS, RUTAS_MOVIL } from '../app/navegacion';
 import { useSesion } from '../app/session-context';
 import { escribir, leer } from '../lib/storage';
 import { IconoCerrar, IconoMas } from './icons';
 import OrgEntityPicker from './OrgEntityPicker';
+import Pantalla from './Pantalla';
 import ThemeToggle from './ThemeToggle';
 import { Boton } from './ui';
 
@@ -31,11 +32,30 @@ export default function AppShell() {
   const [colapsada, setColapsada] = useState(() => leer('sidebar') === 'si');
   const [hoja, setHoja] = useState(false);
   const location = useLocation();
+  const tipoDeNavegacion = useNavigationType();
   const panelHoja = useRef<HTMLDivElement>(null);
 
   // Navegar cierra la hoja: si no, queda tapando la pantalla a la que acabas
   // de llegar.
   useEffect(() => setHoja(false), [location.pathname]);
+
+  /*
+    Cambiar de pantalla te deja arriba de la nueva.
+
+    El navegador hace esto solo cuando carga una página; dentro de una
+    aplicación de una sola página no carga nada, así que la posición del
+    desplazamiento se queda donde estaba. Quien venía de la mitad de una
+    pantalla larga aterrizaba en la mitad de la siguiente —a veces en una zona
+    sin nada, que parece una pantalla en blanco colgada— y la única salida era
+    volver atrás o recargar.
+
+    Volver atrás se respeta: ahí la posición anterior es lo que se espera, y el
+    navegador la restaura él.
+  */
+  useEffect(() => {
+    if (tipoDeNavegacion === 'POP') return;
+    window.scrollTo(0, 0);
+  }, [location.pathname, location.search, tipoDeNavegacion]);
 
   useEffect(() => {
     if (!hoja) return;
@@ -55,8 +75,13 @@ export default function AppShell() {
 
   return (
     <div className="min-h-screen lg:flex">
+      {/*
+        Pegada arriba y de la altura de la ventana: en una pantalla larga el
+        menú tiene que seguir estando donde estaba, no desplazarse fuera de la
+        vista y obligar a subir hasta arriba para cambiar de sección.
+      */}
       <aside
-        className={`hidden shrink-0 border-r border-border bg-surface lg:flex lg:flex-col ${
+        className={`hidden shrink-0 border-r border-border bg-surface lg:sticky lg:top-0 lg:flex lg:h-screen lg:flex-col ${
           colapsada ? 'lg:w-16' : 'lg:w-60'
         }`}
       >
@@ -70,7 +95,7 @@ export default function AppShell() {
           )}
         </div>
 
-        <nav aria-label="Secciones" className="flex flex-1 flex-col gap-1 p-2">
+        <nav aria-label="Secciones" className="flex flex-1 flex-col gap-1 overflow-y-auto p-2">
           {DESTINOS.map(({ ruta, nombre, icono: Icono }) => (
             <NavLink
               key={ruta}
@@ -112,7 +137,13 @@ export default function AppShell() {
         </header>
 
         <main className="mx-auto w-full max-w-5xl flex-1 px-4 pb-24 pt-6 lg:pb-10">
-          <Outlet />
+          {/*
+            La red por pantalla, y rearmada al navegar: un fallo al dibujar una
+            sección no puede dejar la aplicación entera en blanco.
+          */}
+          <Pantalla key={location.pathname} donde={location.pathname}>
+            <Outlet />
+          </Pantalla>
         </main>
       </div>
 

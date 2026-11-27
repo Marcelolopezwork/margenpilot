@@ -91,6 +91,11 @@ Inicio · Comercial · Catálogos · Finanzas · Bancos · Análisis · Configur
 
 **Móvil:** barra inferior de 5 destinos — **Inicio · Finanzas · + · Comercial · Más**. El `+` central abre la hoja de acciones rápidas: nuevo movimiento, nueva cotización, nueva transferencia. Son las tres cosas que se hacen de pie.
 
+**Dos reglas que no se ven hasta que faltan** (escritas el 26/11/2026, después de que las dos se notaran como «se queda pegado en una pantalla en blanco»):
+
+- **Cambiar de pantalla te deja arriba de la nueva.** El navegador lo hace solo al cargar una página; dentro de una aplicación de una sola página no carga nada y la posición se queda donde estaba, así que quien venía de la mitad de una pantalla larga aterriza en la mitad de la siguiente, a veces en una zona sin nada. Volver atrás es la excepción: ahí la posición anterior es lo que se espera, y la restaura el navegador.
+- **La barra lateral está pegada arriba**, de la altura de la ventana. Si se desplaza con el contenido, en una pantalla larga hay que subir hasta arriba para poder cambiar de sección.
+
 ---
 
 ## 4. Las cinco pantallas prioritarias (F0-5)
@@ -226,6 +231,10 @@ En v1 es cuadre manual; en F4 la misma pantalla gana una pestaña de importació
 
 En F4 se añaden: pestaña "Importar", y la bandeja con los seis estados, cada sugerencia mostrando **sus razones** ("monto exacto · fecha +1 día · referencia coincide · 0.93") y nunca preconfirmada.
 
+**Cómo quedó, y por qué cambió** (26/11/2026). La pantalla construida no es una bandeja de líneas con casillas: es **una tarjeta que dice qué falta y lo resuelve en dos botones**. La primera versión sí era la bandeja, y el primer extracto real la tumbó: veinticinco líneas de Mercury, veintitrés sin anotar, una decisión por línea. Nadie revisa veintitrés veces lo mismo; se abandona. El orden de lectura de ahora es: qué cuenta → **qué falta y qué hacer** (confirmar lo que ya tenías, traer lo que no, y el aviso de los traspasos entre cuentas propias) → el detalle línea por línea, cerrado → cerrar el periodo → importar. Las sugerencias siguen mostrando sus razones y ninguna se preconfirma: lo que se agrupa es la petición, no la comprobación (INV-8.9).
+
+Y la mitad de las preguntas del importador desaparecieron: el nombre del extracto se deduce del propio archivo —fechas de las líneas y nombre de la cuenta— y los seis desplegables de columnas viven dentro de un `<details>` que solo se abre si no se leyó ninguna línea. Antes eran cinco preguntas antes de la única que importa, que es si las líneas de ejemplo son las del extracto de verdad.
+
 ---
 
 ## 5. Estados: un vocabulario único
@@ -247,6 +256,8 @@ En F4 se añaden: pestaña "Importar", y la bandeja con los seis estados, cada s
 | Proyección | Previsto | ◌ | info, con borde discontinuo |
 
 "Previsto" con borde discontinuo es la convención que separa visualmente proyección de hecho, en todas las pantallas.
+
+**Y un estado más, el que no se diseña y hace falta igual: la pantalla rota.** Un fallo al dibujar una sección no puede dejar la aplicación en blanco —React desmonta el árbol entero si nadie recoge el error—, porque una página blanca no se puede ni leer ni contar. `src/components/Pantalla.tsx` la convierte en una tarjeta que dice que el fallo es del programa y no de los datos, deja el menú en pie, ofrece reintentar y recargar, y enseña el texto técnico dentro de un `<details>`: un fallo que el usuario puede copiar y mandar se arregla; uno que solo él vio, se adivina. Hay dos redes, una por pantalla —rearmada al navegar, con `key={pathname}`— y otra por encima del armazón, para el fallo que ocurre donde ya no hay menú al que volver.
 
 ---
 

@@ -2,7 +2,8 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { cleanup, render, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { MemoryRouter, Route, Routes } from 'react-router-dom';
+import type { ReactNode } from 'react';
+import { MemoryRouter, Route, Routes, useNavigate } from 'react-router-dom';
 import type { User } from '@supabase/supabase-js';
 import { SesionContext } from '../app/session-context';
 import { OrgContext } from '../app/org-context';
@@ -36,7 +37,7 @@ const entidad = (id: string, legal_name: string): Entidad => ({
   updated_at: '2026-01-01T00:00:00Z',
 });
 
-function montar(sobre: Partial<ContextoOrg> = {}) {
+function montar(sobre: Partial<ContextoOrg> = {}, rutas?: ReactNode) {
   const org: ContextoOrg = {
     cargando: false,
     error: null,
@@ -75,7 +76,7 @@ function montar(sobre: Partial<ContextoOrg> = {}) {
         <OrgContext.Provider value={org}>
           <Routes>
             <Route element={<AppShell />}>
-              <Route index element={<p>contenido</p>} />
+              {rutas ?? <Route index element={<p>contenido</p>} />}
             </Route>
           </Routes>
         </OrgContext.Provider>
@@ -183,5 +184,97 @@ describe('armazón de la app', () => {
     expect(document.documentElement.getAttribute('data-theme')).toBe('dark');
     await usuario.click(screen.getByRole('radio', { name: 'Sistema' }));
     expect(document.documentElement.hasAttribute('data-theme')).toBe(false);
+  });
+});
+
+/**
+ * Lo que esta tanda vigila es lo que se veía como «se queda pegado en una
+ * pantalla en blanco y hay que recargar». Son dos cosas distintas con el mismo
+ * síntoma, y las dos tienen que estar cerradas:
+ *
+ *  · un fallo al dibujar una pantalla desmontaba el árbol entero, menú
+ *    incluido, y dejaba la página en blanco sin un mensaje que nadie pudiera
+ *    leer ni contar;
+ *  · y cambiar de pantalla conservaba la posición del desplazamiento, así que
+ *    quien venía de la mitad de una pantalla larga aterrizaba en una zona sin
+ *    nada de la siguiente.
+ */
+
+function Rompe(): never {
+  throw new Error('una fila que no me esperaba');
+}
+
+function Atras() {
+  const navegar = useNavigate();
+  return (
+    <button type="button" onClick={() => navegar(-1)}>
+      atrás
+    </button>
+  );
+}
+
+describe('cuando una pantalla se rompe', () => {
+  it('enseña el fallo y deja el menú en pie, en vez de una página en blanco', () => {
+    const consola = vi.spyOn(console, 'error').mockImplementation(() => {});
+    montar({}, <Route index element={<Rompe />} />);
+
+    expect(screen.getByText('Esta pantalla se rompió')).toBeDefined();
+    // El menú sigue ahí: el fallo es de una sección, no de la aplicación.
+    expect(screen.getByRole('navigation', { name: 'Secciones' })).toBeDefined();
+    consola.mockRestore();
+  });
+
+  it('deja el texto técnico a la vista para poder mandarlo', async () => {
+    const consola = vi.spyOn(console, 'error').mockImplementation(() => {});
+    const usuario = userEvent.setup();
+    montar({}, <Route index element={<Rompe />} />);
+
+    await usuario.click(screen.getByText('Qué dice el fallo'));
+    expect(screen.getByText(/una fila que no me esperaba/)).toBeDefined();
+    consola.mockRestore();
+  });
+});
+
+/* Dos pantallas de verdad: el desplazamiento solo se mide navegando. */
+const DOS_PANTALLAS = (
+  <>
+    <Route index element={<p>inicio</p>} />
+    <Route path="finanzas" element={<Atras />} />
+  </>
+);
+
+describe('al cambiar de pantalla', () => {
+  it('te deja arriba de la nueva', async () => {
+    const mover = vi.spyOn(window, 'scrollTo').mockImplementation(() => {});
+    const usuario = userEvent.setup();
+    montar({}, DOS_PANTALLAS);
+    mover.mockClear();
+
+    await usuario.click(
+      within(screen.getByRole('navigation', { name: 'Secciones' })).getByRole('link', {
+        name: 'Finanzas',
+      }),
+    );
+
+    expect(mover).toHaveBeenCalledWith(0, 0);
+    mover.mockRestore();
+  });
+
+  it('no te mueve cuando vuelves atrás, porque ahí la posición es la que esperas', async () => {
+    const mover = vi.spyOn(window, 'scrollTo').mockImplementation(() => {});
+    const usuario = userEvent.setup();
+    montar({}, DOS_PANTALLAS);
+
+    await usuario.click(
+      within(screen.getByRole('navigation', { name: 'Secciones' })).getByRole('link', {
+        name: 'Finanzas',
+      }),
+    );
+    mover.mockClear();
+
+    // El botón está en Finanzas, que es donde acabamos de llegar.
+    await usuario.click(screen.getByRole('button', { name: 'atrás' }));
+    expect(mover).not.toHaveBeenCalled();
+    mover.mockRestore();
   });
 });

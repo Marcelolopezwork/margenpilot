@@ -11,11 +11,17 @@ import type { Enums } from '../../types/database';
 /**
  * Lo que esta pantalla tiene que cumplir:
  *
- *  · los tres montones se ven de un vistazo, y el que sobra del libro
- *    también, que es el que nadie mira;
- *  · la propuesta se propone y la confirma una persona;
- *  · no hay forma de anotar un movimiento desde aquí (INV-8);
- *  · y apartar una línea exige un motivo escrito.
+ *  · dice de un vistazo qué falta en cada lista, y cuántas son;
+ *  · resuelve el caso normal en dos botones —confirmar lo que ya tenías,
+ *    anotar lo que no— y no en una decisión por línea;
+ *  · la frontera entre esos dos botones es lo delicado: lo que ya tenías
+ *    apuntado se empareja, nunca se anota, porque anotarlo lo duplicaría;
+ *  · lo parecido pero de otra fecha no entra en ninguna tanda: eso se mira
+ *    una por una, y la lista detallada sigue estando para eso;
+ *  · desde aquí no se corrige ni se borra un movimiento (INV-8);
+ *  · apartar una línea exige un motivo escrito;
+ *  · y el importador pregunta lo menos posible: el nombre del extracto se
+ *    deduce del archivo y las columnas solo se tocan si algo no cuadró.
  */
 
 const CUENTAS: Record<string, unknown>[] = [];
@@ -27,6 +33,8 @@ const MOVIMIENTOS: Record<string, unknown>[] = [];
 const CIERRES: Record<string, unknown>[] = [];
 const CATEGORIAS: Record<string, unknown>[] = [];
 const llamadas: { nombre: string; args: Record<string, unknown> }[] = [];
+/** Mensaje de error con el que falla la enésima llamada, contando desde 0. */
+const FALLOS: string[] = [];
 
 vi.mock('../../lib/supabase', () => {
   const datosDe = (nombre: string): Record<string, unknown>[] => {
@@ -59,7 +67,10 @@ vi.mock('../../lib/supabase', () => {
       from: (nombre: string) => tabla(nombre),
       rpc: (nombre: string, args: Record<string, unknown>) => {
         llamadas.push({ nombre, args });
-        return Promise.resolve({ data: null, error: null });
+        const falla = FALLOS[llamadas.length - 1];
+        return Promise.resolve(
+          falla ? { data: null, error: { message: falla } } : { data: null, error: null },
+        );
       },
     }),
   };
@@ -184,9 +195,21 @@ function conDatos() {
   });
 }
 
+/**
+ * El detalle línea por línea está cerrado de entrada. Abrirlo es lo que hace
+ * alguien que quiere revisar una, y es el punto de partida de las pruebas que
+ * comprueban las acciones de una sola línea.
+ */
+async function abrirDetalle(usuario: ReturnType<typeof userEvent.setup>) {
+  await usuario.click(
+    await screen.findByRole('button', { name: 'Ver el detalle, línea por línea' }),
+  );
+}
+
 beforeEach(() => {
   for (const a of [
     CUENTAS, EXTRACTOS, LINEAS, ESTADOS, MATCHES, MOVIMIENTOS, CIERRES, CATEGORIAS, llamadas,
+    FALLOS,
   ])
     a.length = 0;
 });
@@ -205,7 +228,7 @@ describe('Finanzas · Conciliación', () => {
     expect(screen.getByText(/no significaría nada, y la base lo impide/)).toBeTruthy();
   });
 
-  it('enseña los tres montones, y el del libro también', async () => {
+  it('dice cuántas faltan antes de enseñar una sola línea', async () => {
     conDatos();
     const usuario = userEvent.setup();
     await montar();
@@ -214,11 +237,30 @@ describe('Finanzas · Conciliación', () => {
     await screen.findByRole('option', { name: /BCP soles/ });
     await usuario.selectOptions(screen.getByLabelText('Qué cuenta'), 'cta-1');
 
-    // Dos veces cada una: la cifra de arriba y el título de su lista.
-    expect(await screen.findAllByText('Sobra del banco')).toHaveLength(2);
-    expect(screen.getAllByText('Sobra del libro')).toHaveLength(2);
+    expect(await screen.findByText('Faltan 2 líneas por explicar')).toBeTruthy();
+    // Y las separa por lo que hay que hacer con cada una, no por montones.
+    expect(screen.getByText('1 línea es un movimiento que ya tenías')).toBeTruthy();
+    expect(screen.getByText('1 línea no es ningún movimiento tuyo')).toBeTruthy();
+    expect(screen.getByText('2 movimientos tuyos no están en el extracto')).toBeTruthy();
+    // El detalle no está puesto: treinta filas pidiendo una decisión cada una
+    // es lo que hacía que esta pantalla no se usara.
+    expect(screen.queryByText('COMISION MANTENIMIENTO')).toBeNull();
+  });
+
+  it('el montón que nadie mira —lo que falta en el banco— también se enseña', async () => {
+    conDatos();
+    const usuario = userEvent.setup();
+    await montar();
+    await screen.findByRole('option', { name: /BCP soles/ });
+    await usuario.selectOptions(screen.getByLabelText('Qué cuenta'), 'cta-1');
+    // Se nombra en el resumen, sin abrir nada: es el que más dice.
+    expect(await screen.findByText('2 movimientos tuyos no están en el extracto')).toBeTruthy();
+
+    await abrirDetalle(usuario);
     expect(screen.getByText('Cheque que nadie depositó')).toBeTruthy();
-    expect(screen.getByText(/un cobro que diste por hecho y no llegó/)).toBeTruthy();
+    expect(screen.getAllByText(/un cobro que diste por hecho y no llegó/).length).toBeGreaterThan(
+      0,
+    );
   });
 
   it('propone el movimiento que cuadra y lo confirma una persona', async () => {
@@ -230,6 +272,7 @@ describe('Finanzas · Conciliación', () => {
     await screen.findByRole('option', { name: /BCP soles/ });
     await usuario.selectOptions(screen.getByLabelText('Qué cuenta'), 'cta-1');
 
+    await abrirDetalle(usuario);
     expect(await screen.findByText(/Parece «Cobro de EJ Deportes»/)).toBeTruthy();
     expect(screen.getByText(/mismo importe y mismo día/)).toBeTruthy();
 
@@ -248,6 +291,7 @@ describe('Finanzas · Conciliación', () => {
     await screen.findByRole('option', { name: /BCP soles/ });
     await usuario.selectOptions(screen.getByLabelText('Qué cuenta'), 'cta-1');
 
+    await abrirDetalle(usuario);
     await screen.findByText('COMISION MANTENIMIENTO');
     // La comisión no tiene movimiento, así que no hay botón «Es ese» para ella.
     expect(screen.getAllByRole('button', { name: 'Es ese' })).toHaveLength(1);
@@ -262,6 +306,7 @@ describe('Finanzas · Conciliación', () => {
     await screen.findByRole('option', { name: /BCP soles/ });
     await usuario.selectOptions(screen.getByLabelText('Qué cuenta'), 'cta-1');
 
+    await abrirDetalle(usuario);
     await usuario.click((await screen.findAllByRole('button', { name: 'Apartar' }))[0]!);
     expect(screen.getByText(/No se borra: se queda con el motivo escrito/)).toBeTruthy();
 
@@ -284,8 +329,9 @@ describe('Finanzas · Conciliación', () => {
     await montar();
     await screen.findByRole('option', { name: /BCP soles/ });
     await usuario.selectOptions(screen.getByLabelText('Qué cuenta'), 'cta-1');
+    await abrirDetalle(usuario);
 
-    await screen.findAllByText('Sobra del banco');
+    await screen.findByText('Las que faltan en tu libro');
     // No hay un botón genérico de alta: se anota una línea concreta.
     expect(screen.queryByRole('button', { name: /Anotar movimiento/ })).toBeNull();
     expect(
@@ -300,6 +346,104 @@ describe('Finanzas · Conciliación', () => {
     await waitFor(() => expect(llamadas).toHaveLength(1));
     expect(llamadas[0]?.nombre).toBe('crear_movimiento_desde_linea');
     expect(llamadas[0]?.args).toMatchObject({ p_line: 'l-1', p_category: 'cat-1' });
+  });
+
+  it('confirma en tanda lo que ya tenías apuntado, y no lo anota', async () => {
+    conDatos();
+    const usuario = userEvent.setup();
+    await montar();
+    await screen.findByRole('option', { name: /BCP soles/ });
+    await usuario.selectOptions(screen.getByLabelText('Qué cuenta'), 'cta-1');
+
+    expect(await screen.findByText('1 línea es un movimiento que ya tenías')).toBeTruthy();
+    await usuario.click(screen.getByRole('button', { name: 'Confirmar la línea' }));
+
+    await waitFor(() => expect(llamadas).toHaveLength(1));
+    // Emparejar, nunca anotar: el movimiento ya existe y anotarlo lo duplicaría.
+    expect(llamadas[0]?.nombre).toBe('emparejar_linea');
+    expect(llamadas[0]?.args).toMatchObject({ p_line: 'l-2', p_movement: 'm-1' });
+    expect(llamadas.some((l) => l.nombre === 'crear_movimiento_desde_linea')).toBe(false);
+    expect(await screen.findByText(/No se movió ni un céntimo/)).toBeTruthy();
+  });
+
+  it('trae en tanda lo que no tenías, con la categoría elegida una sola vez', async () => {
+    conDatos();
+    CATEGORIAS.push({ id: 'cat-1', name: 'Comisiones bancarias', direction: 'out' });
+    const usuario = userEvent.setup();
+    await montar();
+    await screen.findByRole('option', { name: /BCP soles/ });
+    await usuario.selectOptions(screen.getByLabelText('Qué cuenta'), 'cta-1');
+
+    expect(await screen.findByText('1 línea no es ningún movimiento tuyo')).toBeTruthy();
+    // Y lo dice: esto es lo único de la pantalla que cambia el saldo.
+    expect(screen.getByText(/Esto sí cambia tu saldo/)).toBeTruthy();
+    // Y avisa del traspaso entre cuentas propias, que traído así sería un
+    // gasto de la empresa que nunca ocurrió.
+    expect(screen.getByText(/traspasos entre tus propias cuentas/)).toBeTruthy();
+
+    await usuario.selectOptions(screen.getByLabelText('Categoría para los gastos'), 'cat-1');
+    await usuario.click(screen.getByRole('button', { name: 'Traer la línea al libro' }));
+
+    await waitFor(() => expect(llamadas).toHaveLength(1));
+    expect(llamadas[0]?.nombre).toBe('crear_movimiento_desde_linea');
+    expect(llamadas[0]?.args).toMatchObject({ p_line: 'l-1', p_category: 'cat-1' });
+  });
+
+  it('lo que se parece pero es de otra fecha no entra en ninguna tanda', async () => {
+    conDatos();
+    // Mismo importe que el cheque de m-2, tres días antes. Puede ser el mismo
+    // pago o dos cosas distintas que valen lo mismo, y eso no lo decide esto.
+    LINEAS.push({
+      id: 'l-3',
+      statement_id: 'ext-1',
+      fila: 3,
+      value_date: '2026-11-17',
+      direction: 'out',
+      amount: '450.00',
+      description: 'CARGO SIN DETALLE',
+      external_ref: null,
+      currency_code: 'PEN',
+      ignored_reason: null,
+    });
+    const usuario = userEvent.setup();
+    await montar();
+    await screen.findByRole('option', { name: /BCP soles/ });
+    await usuario.selectOptions(screen.getByLabelText('Qué cuenta'), 'cta-1');
+
+    expect(
+      await screen.findByText('1 línea se parece a un movimiento tuyo, pero no es seguro'),
+    ).toBeTruthy();
+    // La tanda de traer sigue siendo solo la comisión: la dudosa queda fuera.
+    expect(screen.getByRole('button', { name: 'Traer la línea al libro' })).toBeTruthy();
+  });
+
+  it('si una falla a la mitad de la tanda, dice cuántas quedaron hechas', async () => {
+    conDatos();
+    // Dos líneas que no son ningún movimiento: la segunda falla.
+    LINEAS.push({
+      id: 'l-4',
+      statement_id: 'ext-1',
+      fila: 4,
+      value_date: '2026-11-18',
+      direction: 'out',
+      amount: '35.00',
+      description: 'PORTES',
+      external_ref: null,
+      currency_code: 'PEN',
+      ignored_reason: null,
+    });
+    FALLOS[1] = 'periodo_cerrado: esta cuenta está cuadrada hasta el 30/11/2026';
+    const usuario = userEvent.setup();
+    await montar();
+    await screen.findByRole('option', { name: /BCP soles/ });
+    await usuario.selectOptions(screen.getByLabelText('Qué cuenta'), 'cta-1');
+
+    await usuario.click(
+      await screen.findByRole('button', { name: 'Traer las 2 al libro' }),
+    );
+
+    expect(await screen.findByText(/Se hicieron 1 de 2 y la siguiente falló/)).toBeTruthy();
+    expect(screen.getByText(/quedaron guardadas/)).toBeTruthy();
   });
 
   it('cerrar el periodo afirma una fecha, y reabrir la quita', async () => {
@@ -330,6 +474,7 @@ describe('Finanzas · Conciliación', () => {
 
     expect(await screen.findByText('Cuadrado hasta el 30 nov. 2026')).toBeTruthy();
     // Las dos líneas son de noviembre: ninguna sigue pidiendo atención.
+    await abrirDetalle(usuario);
     expect(screen.queryByText('COMISION MANTENIMIENTO')).toBeNull();
     expect(screen.getByRole('button', { name: 'Reabrir' })).toBeTruthy();
   });
@@ -349,7 +494,7 @@ describe('Finanzas · Conciliación', () => {
     await screen.findByRole('option', { name: /BCP soles/ });
     await usuario.selectOptions(screen.getByLabelText('Qué cuenta'), 'cta-1');
 
-    await usuario.click(await screen.findByLabelText('O pégalo aquí'));
+    await usuario.click(await screen.findByLabelText('El contenido del archivo'));
     await usuario.paste(
       'Fecha;Descripción;Cargo;Abono\n03/11/2026;COMISION;118,00;\n10/11/2026;ABONO EJ;;1.180,00',
     );
@@ -358,7 +503,7 @@ describe('Finanzas · Conciliación', () => {
     // Nada se ha guardado todavía: primero se confirma lo que se entendió.
     expect(llamadas).toHaveLength(0);
     expect(await screen.findByLabelText('La fecha')).toBeTruthy();
-    expect(screen.getByText(/adivinar se propone, nunca se aplica solo/)).toBeTruthy();
+    expect(screen.getByText(/si la fecha y el importe son los que ves en tu banco/)).toBeTruthy();
     expect(screen.getByText('COMISION')).toBeTruthy();
     expect(screen.getByRole('button', { name: 'Importar 2 líneas' })).toBeTruthy();
   });
@@ -378,7 +523,7 @@ describe('Finanzas · Conciliación', () => {
     await screen.findByRole('option', { name: /BCP soles/ });
     await usuario.selectOptions(screen.getByLabelText('Qué cuenta'), 'cta-1');
 
-    await usuario.click(await screen.findByLabelText('O pégalo aquí'));
+    await usuario.click(await screen.findByLabelText('El contenido del archivo'));
     await usuario.paste('Fecha;Descripción;Cargo;Abono\n03/11/2026;COMISION;118,00;');
     await usuario.click(screen.getByRole('button', { name: 'Leer el archivo' }));
 
@@ -408,7 +553,7 @@ describe('Finanzas · Conciliación', () => {
     await usuario.selectOptions(screen.getByLabelText('Qué cuenta'), 'cta-1');
 
     // La forma real del export de Mercury: todas las cuentas en un CSV.
-    await usuario.click(await screen.findByLabelText('O pégalo aquí'));
+    await usuario.click(await screen.findByLabelText('El contenido del archivo'));
     await usuario.paste(
       'Date (UTC),Description,Amount,Status,Source Account\n' +
         '11-25-2026,Explee,-5.00,Sent,Mercury Credit\n' +

@@ -4,7 +4,7 @@
 Dice qué es el proyecto, qué funciona ya y qué falta, para no rehacer lo hecho.
 Se actualiza al final de cada sesión que cambie algo.
 
-Última actualización: **4 de noviembre de 2026**.
+Última actualización: **26 de noviembre de 2026**.
 
 ---
 
@@ -369,9 +369,10 @@ Lo que falta, por orden:
    trabajo o a ninguno. Si una imprenta factura dos campañas juntas, hay que
    pedir dos facturas o anotarla en la que pese más. Hace falta una tabla de
    reparto con su propio tope, como `payment_allocations`.
-2. **Recordar el mapeo de columnas de cada banco.** Hoy se propone bien y se
-   confirma en cada importación. Guardar el mapeo por cuenta ahorraría el
-   paso entero a partir del segundo mes.
+2. **Recordar el mapeo de columnas de cada banco.** Hoy lo adivina igual de
+   bien cada vez, pero no lo guarda. Desde el 26/11 ya no se confirma —vive
+   dentro de un `<details>` que solo se abre si no se leyó ninguna línea—, así
+   que lo que queda por ahorrar es menos de lo que era.
 3. **El `+` de acciones rápidas en móvil**, que el plan de interfaz describe y
    nunca se hizo. Hay tres cosas que se hacen de pie —anotar un movimiento,
    emitir el documento de una cuota, registrar un cobro— y falta la hoja que
@@ -643,6 +644,70 @@ Los trabajos sin horas quedan **fuera** de esa lista, no al final: no es que
 dejen poco por hora, es que no se sabe. Y con el costo real sin anotar
 tampoco hay cifra por hora, por lo mismo que no hay margen real (INV-14.9).
 
+### F6-3 · Que no haya que teclear veintitrés veces
+
+Hecho el 26/11, y lo pidió el primer uso real: Marcelo importó su extracto de
+Mercury —veinticinco líneas, veintitrés sin anotar— y la pantalla le pidió
+una decisión por línea. Sus palabras: «me puso un montón de datos que tenía
+que anotar yo. No entendí esa parte, sinceramente».
+
+La pantalla ya no es una bandeja de líneas: es **una tarjeta que dice qué
+falta y lo resuelve en dos botones**, y la frontera entre esos dos botones es
+lo único delicado (INV-8.9).
+
+- **Confirmar** las líneas que ya son un movimiento tuyo: mismo importe y el
+  mismo día, o la misma referencia. Eso se empareja, nunca se anota. Anotarlo
+  duplicaría el gasto, y un duplicado es peor que una línea sin explicar,
+  porque la línea se ve y el duplicado no.
+- **Traer al libro** las que no son ningún movimiento tuyo: comisiones,
+  cargos, un cobro que entró sin apuntarse. Eso sí cambia el saldo, y es lo
+  único de la pantalla que lo cambia.
+- **Lo parecido pero de otra fecha no entra en ninguna tanda**: se mira una
+  por una, y para eso sigue estando la lista detallada, ahora cerrada.
+- Y un aviso antes del botón que su caso necesita: **un traspaso entre dos
+  cuentas suyas no se trae desde aquí.** En el extracto es un gasto; traído
+  así sería un gasto de la empresa que nunca ocurrió.
+
+Las tandas van en bucle desde el cliente y no en una función nueva de la base,
+así que **esta entrega no trae SQL**: cada línea pasa por el mismo gate, en su
+propia transacción, y si una falla a la mitad el mensaje dice cuántas
+quedaron hechas. Lo que se agrupa es la petición, no la comprobación.
+
+Del importador desapareció la mitad de las preguntas: el nombre del extracto
+se deduce del archivo —las fechas de sus líneas y el nombre de la cuenta— y
+los seis desplegables de columnas viven dentro de un `<details>` que solo se
+abre si no se leyó ninguna línea. Lo que sí se sigue enseñando son las
+tres primeras líneas tal como quedaron: es la única pregunta que importa.
+
+### La pantalla en blanco
+
+Encontrado el 26/11, y era dos cosas con el mismo síntoma. Marcelo: «cuando
+quiero darle a compras y tal, se queda como pegado en la pantalla en blanco.
+Tengo que ir atrás o refrescar».
+
+1. **No había ninguna red de error.** React desmonta el árbol entero cuando un
+   fallo al dibujar sube sin que nadie lo recoja: la aplicación completa
+   desaparece, sin mensaje, y solo se sale recargando. Ahora hay dos
+   `Pantalla.tsx`: una dentro del armazón, rearmada al navegar con
+   `key={pathname}`, que deja el menú en pie; y otra por encima, para el fallo
+   que ocurre donde ya no hay menú. Enseña el texto técnico en un `<details>`
+   para poder copiarlo: **un fallo que se puede mandar se arregla; uno que
+   solo vio el usuario, se adivina.**
+2. **Cambiar de pantalla conservaba la posición del desplazamiento.** Eso lo
+   hace el navegador solo al cargar una página, y aquí no carga ninguna: quien
+   venía de la mitad de una pantalla larga aterrizaba en la mitad de la
+   siguiente, a veces en una zona sin nada. Arreglado, con `POP` exceptuado
+   —volver atrás conserva su sitio a propósito— y con la barra lateral pegada
+   arriba, que antes se desplazaba fuera de la vista y obligaba a subir hasta
+   arriba para cambiar de sección.
+
+No se pudo reproducir el caso exacto de Compras con sus datos: la base no
+tiene ninguna fila con la forma que rompería esas pantallas —se comprobaron
+las monedas desconocidas, los importes nulos y los cruces de moneda entre
+movimiento y cuenta, y no hay ninguno—. Lo que hay ahora es la red que lo
+convierte en un mensaje con nombre en vez de una página blanca. Si vuelve a
+pasar, el texto del `<details>` dice dónde.
+
 ### Un día no es un instante
 
 Encontrado el 25/11 escribiendo una prueba, y llevaba desde el principio:
@@ -911,6 +976,20 @@ Cada una costó tiempo. Están aquí para no repetirlas.
     plural y mayúscula —`Compras.tsx`—, su lógica en singular y minúscula
     —`compra.ts`—. En CI, sobre Linux, el choque no aparece: compila y luego
     falla en el Mac de quien lo abra.
+20. **Sin red de error, un fallo al dibujar no deja un fallo: deja una página
+    blanca.** React desmonta el árbol entero cuando el error sube sin que nadie
+    lo recoja, y entonces no hay mensaje, ni consola que nadie va a abrir, ni
+    forma de contar qué pasó: solo «se queda pegado en blanco y hay que
+    recargar», que es como llegó. Un producto que se usa sin la consola abierta
+    necesita que el fallo sea visible y **copiable**. La red no arregla el
+    fallo; sin ella no se puede ni diagnosticar.
+21. **En una aplicación de una sola página, cambiar de pantalla no te lleva
+    arriba.** Eso lo hace el navegador al cargar una página, y aquí no carga
+    ninguna: se aterriza en la mitad de la pantalla siguiente, a veces en una
+    zona vacía. El síntoma que describe quien lo sufre es idéntico al de la
+    trampa anterior y la causa no tiene nada que ver, así que ante un «se queda
+    en blanco» hay que mirar las dos. `POP` se exceptúa: volver atrás conserva
+    su sitio a propósito.
 
 ### Dos pantallas no comparten clave de caché si no traen las mismas columnas
 

@@ -115,7 +115,16 @@ Añadida el 25/11/2026 (F6-2). Sin cierre, conciliar es una tarea que nunca term
 7. **El cierre vive en `bank_reconciliations`, no en una columna de `cash_accounts`**, donde `authenticated` tiene UPDATE y podría escribir la fecha sin pasar por ninguna comprobación. Allí no tiene ni un permiso de escritura.
 8. **Los movimientos sin línea del banco no bloquean el cierre, pero no se esconden.** El extracto es la autoridad sobre lo que pasó en el banco y el cierre afirma que *ese* lado está explicado; un cheque que nadie depositó sigue a la vista después de cerrar, porque sigue sin explicación.
 
-**La excepción que INV-8 siempre admitió, ya implantada:** `crear_movimiento_desde_linea` anota el gasto que el banco cobró y nadie apuntó. Se pide línea por línea, copia la fecha, el importe y el sentido de la línea, queda marcado `source = 'bank_import'` y empareja en el mismo acto. No toca ningún movimiento que ya existiera: solo añade el que faltaba, y por eso no contradice la regla.
+**La excepción que INV-8 siempre admitió, ya implantada:** `crear_movimiento_desde_linea` anota el gasto que el banco cobró y nadie apuntó. Copia la fecha, el importe y el sentido de la línea, queda marcado `source = 'bank_import'` y empareja en el mismo acto. No toca ningún movimiento que ya existiera: solo añade el que faltaba, y por eso no contradice la regla.
+
+#### INV-8.9 — Pedirlo para muchas no es pedirlo menos
+Añadida el 26/11/2026. La excepción se pide una vez para todas las líneas que la necesitan, y no una por una. El motivo es que una pantalla que exige la misma decisión veinticinco veces no se usa: el extracto real de un mes de Mercury trae veinticinco líneas, veintitrés de ellas sin anotar, y revisarlas de una en una no es revisar, es teclear. Lo que **no** cambia con la tanda es ninguna comprobación: cada línea pasa por el mismo gate, en su propia transacción, y un fallo a la mitad deja hechas las anteriores y dice cuántas iban.
+
+Lo que sí hace falta escribir, porque es la frontera que la tanda podría borrar:
+
+1. **Una línea que ya es un movimiento tuyo no se anota: se empareja.** La pantalla separa las dos tandas por eso. La que se anota es la que no tiene ningún candidato; la que tiene uno exacto —mismo importe y el mismo día, o la misma referencia— se confirma. Anotar lo que ya estaba apuntado duplicaría el gasto, y un duplicado en el libro es peor que una línea sin explicar: la línea se ve, el duplicado no.
+2. **Lo parecido no entra en ninguna tanda.** Mismo importe y otra fecha puede ser el mismo pago contado con tres días de diferencia, o dos cosas distintas que valen lo mismo. Eso se mira una por una, y por eso la lista detallada sigue existiendo.
+3. **Un traspaso entre cuentas propias no se trae desde aquí.** En el extracto es un gasto, y traído así sería un gasto de la empresa que nunca ocurrió: el resultado del mes saldría peor y el dinero seguiría estando. Un traspaso se anota entero, con sus dos lados (INV-5). La pantalla lo advierte antes del botón, porque es el caso de quien reparte su dinero en varias cuentas del mismo banco.
 
 Lo que **todavía no** hay: recordar de un mes para otro qué columna era cuál en cada banco.
 

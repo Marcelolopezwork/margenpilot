@@ -55,6 +55,15 @@ export default function Conciliacion() {
   const [concepto, setConcepto] = useState('');
   const [categoria, setCategoria] = useState('');
   const [cerrarHasta, setCerrarHasta] = useState('');
+  // Las dos categorías con las que entran las líneas que se traen en tanda.
+  // Son opcionales: una categoría que se elige a desgana es peor que ninguna,
+  // y sin ella el movimiento existe igual y se puede categorizar en Caja.
+  const [categoriaGasto, setCategoriaGasto] = useState('');
+  const [categoriaIngreso, setCategoriaIngreso] = useState('');
+  const [verUnaPorUna, setVerUnaPorUna] = useState(false);
+  // Aparte del de importar: cada mensaje se queda donde está el botón que
+  // lo provocó, y los dos botones están en sitios distintos de la pantalla.
+  const [exitoTanda, setExitoTanda] = useState<string | null>(null);
 
   const cuentas = useQuery({
     queryKey: ['cuentas', organizacion.id, 'para-conciliar'],
@@ -182,7 +191,11 @@ export default function Conciliacion() {
       const { lineas } = aLineas(separarCsv(texto), mapeo);
       const { error } = await requireSupabase().rpc('importar_extracto', {
         p_account: cuentaId,
-        p_label: etiqueta.trim(),
+        // Escribirlo es opcional; que exista, no. La base lo exige y tiene
+        // razón —un extracto sin nombre no se reconoce dentro de seis meses—
+        // pero el nombre se puede deducir del propio archivo, y una pregunta
+        // que el programa sabe contestar no se le hace a nadie.
+        p_label: etiqueta.trim() || nombreDelExtracto(lineas, cuenta?.name),
         // `LineaImportable` es JSON por construcción —texto, texto y un
         // objeto de textos— pero TypeScript no lo sabe sin una firma de
         // índice, y añadírsela haría que cualquier campo colara.
@@ -237,6 +250,76 @@ export default function Conciliacion() {
       setAnotando(null);
       setConcepto('');
       setCategoria('');
+      recargar();
+    },
+  });
+
+  /*
+    Las dos acciones en tanda.
+
+    El extracto de un mes trae decenas de líneas, y la primera versión de esta
+    pantalla pedía una decisión por cada una: la misma decisión, repetida
+    veinticinco veces. Eso no es revisar, es teclear. Aquí se piden las dos
+    preguntas que de verdad hay —«¿son los mismos?» y «¿los anoto?»— una sola
+    vez para todas, y se deja la revisión de una en una para las dudosas, que
+    son las únicas que la merecen.
+
+    Van en bucle y no en una función de la base a propósito: cada línea se
+    anota o se empareja en su propia transacción, así que un fallo a la mitad
+    deja hechas las de antes y ninguna a medias. Lo que no puede pasar es que
+    el fallo se calle, y por eso el mensaje dice cuántas iban.
+  */
+  const [progreso, setProgreso] = useState<{ hechas: number; total: number } | null>(null);
+
+  const confirmarTodas = useMutation({
+    onMutate: () => setExitoTanda(null),
+    mutationFn: async (pares: readonly { linea: string; movimiento: string }[]) => {
+      const cliente = requireSupabase();
+      let hechas = 0;
+      setProgreso({ hechas, total: pares.length });
+      for (const par of pares) {
+        const { error } = await cliente.rpc('emparejar_linea', {
+          p_line: par.linea,
+          p_movement: par.movimiento,
+        });
+        if (error) throw new Error(cuantasIban(hechas, pares.length, mensajeDeError(error)));
+        hechas += 1;
+        setProgreso({ hechas, total: pares.length });
+      }
+      return hechas;
+    },
+    onSettled: () => setProgreso(null),
+    onSuccess: (hechas) => {
+      setExitoTanda(
+        `${hechas === 1 ? 'Queda confirmada 1 línea' : `Quedan confirmadas ${hechas} líneas`}. No se movió ni un céntimo: emparejar solo deja escrito que esa línea del banco es ese movimiento tuyo.`,
+      );
+      recargar();
+    },
+  });
+
+  const traerTodas = useMutation({
+    onMutate: () => setExitoTanda(null),
+    mutationFn: async (lineas: readonly { id: string; direction: string }[]) => {
+      const cliente = requireSupabase();
+      let hechas = 0;
+      setProgreso({ hechas, total: lineas.length });
+      for (const linea of lineas) {
+        const cat = linea.direction === 'out' ? categoriaGasto : categoriaIngreso;
+        const { error } = await cliente.rpc('crear_movimiento_desde_linea', {
+          p_line: linea.id,
+          ...(cat ? { p_category: cat } : {}),
+        });
+        if (error) throw new Error(cuantasIban(hechas, lineas.length, mensajeDeError(error)));
+        hechas += 1;
+        setProgreso({ hechas, total: lineas.length });
+      }
+      return hechas;
+    },
+    onSettled: () => setProgreso(null),
+    onSuccess: (hechas) => {
+      setExitoTanda(
+        `${hechas === 1 ? 'Queda anotado 1 movimiento' : `Quedan anotados ${hechas} movimientos`}, con la fecha, el importe y el concepto que trae el banco. Eso sí cambia tu saldo: era dinero que se movió de verdad y no estaba apuntado. Revisa las categorías en Caja cuando puedas.`,
+      );
       recargar();
     },
   });
@@ -301,6 +384,27 @@ export default function Conciliacion() {
   const propuestaDe = (linea: string) => propuestas.find((p) => p.lineaId === linea);
   const movimientoDe = (id: string) => movimientos.find((m) => m.id === id);
 
+  /*
+    Los tres grupos de las que faltan, y la frontera entre ellos es lo único
+    delicado de esta pantalla.
+
+    · `aConfirmar`: el banco dice lo mismo que tú ya tenías apuntado —mismo
+      importe, mismo día o la misma referencia—. Eso no se anota: se empareja,
+      porque el movimiento ya existe. Anotarlo lo duplicaría, y un duplicado
+      en el libro de caja es peor que una línea sin explicar.
+    · `aTraer`: el banco lo tiene y tú no tienes nada que se le parezca. Son
+      las que se anotan, y son las que de verdad faltaban.
+    · `dudosas`: se parecen a un movimiento tuyo, pero con otra fecha. Esas no
+      entran en ninguna tanda. Son las que hay que mirar una por una, y por eso
+      la lista de abajo sigue existiendo.
+  */
+  const aConfirmar = pendientesVivas.flatMap((l) => {
+    const p = propuestaDe(l.id);
+    return p && p.confianza === 'exacta' ? [{ linea: l.id, movimiento: p.movimientoId }] : [];
+  });
+  const dudosas = pendientesVivas.filter((l) => propuestaDe(l.id)?.confianza === 'probable');
+  const aTraer = pendientesVivas.filter((l) => !propuestaDe(l.id));
+
   if (!conDinero) {
     return (
       <Seccion
@@ -324,7 +428,7 @@ export default function Conciliacion() {
   return (
     <Seccion
       titulo="Conciliación"
-      regla="El sistema sabe lo que anotaste; el banco sabe lo que pasó. Conciliar es cruzar las dos listas y dejar por escrito qué línea es qué movimiento. Emparejar no mueve dinero, y desde aquí no se puede corregir ni borrar un movimiento que ya existía: si se pudiera, el libro siempre cuadraría consigo mismo y la comprobación no comprobaría nada. Lo único que crea dinero es «Anotarlo», que pides tú línea por línea para el gasto que el banco te cobró y nunca apuntaste."
+      regla="El banco sabe lo que pasó; tú sabes lo que anotaste. Esto cruza las dos listas y te dice qué falta en cada una."
     >
       <FiltradoPor entidad={entidad?.legal_name ?? null} alQuitar={() => elegirEntidad(null)} />
 
@@ -367,96 +471,221 @@ export default function Conciliacion() {
       {apartar.error && <Aviso tipo="error">{mensajeDeError(apartar.error)}</Aviso>}
       {anotarlo.error && <Aviso tipo="error">{mensajeDeError(anotarlo.error)}</Aviso>}
       {cerrar.error && <Aviso tipo="error">{mensajeDeError(cerrar.error)}</Aviso>}
+      {confirmarTodas.error && <Aviso tipo="error">{mensajeDeError(confirmarTodas.error)}</Aviso>}
+      {traerTodas.error && <Aviso tipo="error">{mensajeDeError(traerTodas.error)}</Aviso>}
 
-      {/* ---------------------------------------------------------- el cierre */}
+      {/* --------------------------------------------------- qué falta hacer */}
       {cuentaId !== '' && lineas.length > 0 && (
         <Tarjeta className="p-5">
-          <div className="flex flex-wrap items-baseline justify-between gap-2">
-            <h2 className="font-medium">
-              {cierre ? `Cuadrado hasta el ${formatoFecha(cierre.hasta)}` : 'Sin cerrar'}
-            </h2>
-            {cierre && <Etiqueta tono="positivo">cerrado</Etiqueta>}
-          </div>
-          <p className="mb-4 mt-2 max-w-prose text-sm text-muted">
-            {cierre
-              ? 'Lo anterior a esa fecha deja de pedir atención, y tampoco se puede tocar: emparejar, apartar o importar por debajo se rechaza. Si encuentras un error, reabre primero.'
-              : 'Cerrar es afirmar que hasta una fecha todo lo del banco está explicado. Solo entra si cada línea hasta ese día está emparejada o apartada con su motivo: un cierre que admite líneas sueltas no afirma nada, solo las esconde.'}
-          </p>
-          {cierre ? (
-            <Boton onClick={() => cerrar.mutate(null)} disabled={cerrar.isPending}>
-              Reabrir
-            </Boton>
+          <h2 className="font-medium">
+            {pendientesVivas.length === 0
+              ? 'El banco y tu libro dicen lo mismo'
+              : `Faltan ${pendientesVivas.length} ${pendientesVivas.length === 1 ? 'línea' : 'líneas'} por explicar`}
+          </h2>
+
+          {pendientesVivas.length === 0 ? (
+            <p className="mt-2 max-w-prose text-sm text-muted">
+              Cada línea del extracto tiene su movimiento, o está apartada con su motivo. Eso es
+              estar cuadrado: ya se puede cerrar hasta la fecha del extracto.
+            </p>
           ) : (
-            <form
-              className="flex flex-wrap items-end gap-3"
-              onSubmit={(e) => {
-                e.preventDefault();
-                cerrar.mutate(cerrarHasta);
-              }}
-            >
-              <div className="w-[12rem]">
-                <Campo
-                  etiqueta="Cuadrado hasta"
-                  type="date"
-                  value={cerrarHasta}
-                  onChange={(e) => setCerrarHasta(e.target.value)}
-                  required
-                />
-              </div>
-              <Boton variante="primario" type="submit" disabled={cerrar.isPending || !cerrarHasta}>
-                {cerrar.isPending ? 'Cerrando…' : 'Cerrar el periodo'}
-              </Boton>
-            </form>
-          )}
-          {sueltosViejos.length > 0 && (
-            <p className="mt-3 max-w-prose text-xs text-warning">
-              Quedan {sueltosViejos.length}{' '}
-              {sueltosViejos.length === 1 ? 'movimiento tuyo' : 'movimientos tuyos'} anteriores al
-              cierre sin línea del banco. No impiden cerrar —el extracto es la autoridad sobre lo
-              que pasó en el banco, y ese lado está explicado— pero siguen a la vista abajo,
-              porque siguen sin explicación.
+            <p className="mt-2 max-w-prose text-sm text-muted">
+              De las {lineas.length} del extracto, {cuadradas.length}{' '}
+              {cuadradas.length === 1 ? 'ya cuadra' : 'ya cuadran'}. Lo que queda se resuelve de
+              dos formas, y la diferencia importa: lo que ya tenías apuntado se confirma, y lo que
+              no tenías se anota.
             </p>
           )}
+
+          {exitoTanda && (
+            <div className="mt-4">
+              <Aviso tipo="exito">{exitoTanda}</Aviso>
+            </div>
+          )}
+
+          {progreso && (
+            <p role="status" className="mt-4 text-sm text-muted">
+              Van {progreso.hechas} de {progreso.total}…
+            </p>
+          )}
+
+          {aConfirmar.length > 0 && (
+            <div className="mt-5 border-t border-border pt-4">
+              <h3 className="text-sm font-medium">
+                {aConfirmar.length === 1
+                  ? '1 línea es un movimiento que ya tenías'
+                  : `${aConfirmar.length} líneas son movimientos que ya tenías`}
+              </h3>
+              <p className="mt-1 max-w-prose text-sm text-muted">
+                Mismo importe y el mismo día, o la misma referencia del banco. Confirmarlas no
+                mueve dinero ni crea nada: deja escrito que esa línea es ese movimiento. Anotarlas
+                en vez de confirmarlas sería duplicar tu propio gasto.
+              </p>
+              <Boton
+                variante="primario"
+                className="mt-3"
+                disabled={confirmarTodas.isPending || traerTodas.isPending}
+                onClick={() => confirmarTodas.mutate(aConfirmar)}
+              >
+                {confirmarTodas.isPending
+                  ? 'Confirmando…'
+                  : `Confirmar ${aConfirmar.length === 1 ? 'la línea' : `las ${aConfirmar.length}`}`}
+              </Boton>
+            </div>
+          )}
+
+          {aTraer.length > 0 && (
+            <div className="mt-5 border-t border-border pt-4">
+              <h3 className="text-sm font-medium">
+                {aTraer.length === 1
+                  ? '1 línea no es ningún movimiento tuyo'
+                  : `${aTraer.length} líneas no son ningún movimiento tuyo`}
+              </h3>
+              <p className="mt-1 max-w-prose text-sm text-muted">
+                El dinero se movió de verdad y no está en tu libro: comisiones, cargos de la
+                tarjeta, un cobro que entró sin que lo apuntaras. Traerlas las anota con la fecha,
+                el importe y el concepto del banco. <strong>Esto sí cambia tu saldo</strong>, y es
+                la única cosa de esta pantalla que lo cambia.
+              </p>
+              {/*
+                El aviso que hace falta en Mercury y en cualquier banco con
+                varias cuentas propias. Un traspaso entre dos cuentas tuyas
+                aparece en el extracto como un gasto, y traído así sería un
+                gasto de la empresa: el resultado del mes saldría peor de lo
+                que fue y el dinero seguiría estando. Un traspaso se anota
+                entero, con sus dos lados, y eso se hace en Caja (INV-5).
+              */}
+              <p className="mt-2 max-w-prose text-sm text-warning">
+                Antes de darle: si entre esas líneas hay traspasos entre tus propias cuentas,
+                apártalas primero en el detalle. Traídas desde aquí entrarían como gasto o
+                ingreso de la empresa, y un traspaso no es ni una cosa ni la otra. Esos se anotan
+                enteros, con sus dos lados, en Caja → Transferencia.
+              </p>
+
+              <div className="mt-3 grid gap-3 sm:grid-cols-2">
+                {aTraer.some((l) => l.direction === 'out') && (
+                  <Selector
+                    etiqueta="Categoría para los gastos"
+                    ayuda="Opcional. Si la dejas vacía entran sin categoría y la pones luego en Caja."
+                    value={categoriaGasto}
+                    onChange={(e) => setCategoriaGasto(e.target.value)}
+                  >
+                    <option value="">Sin categoría</option>
+                    {(datos.data?.categorias ?? [])
+                      .filter((c) => c.direction === 'out' || c.direction === 'both')
+                      .map((c) => (
+                        <option key={c.id} value={c.id}>
+                          {c.name}
+                        </option>
+                      ))}
+                  </Selector>
+                )}
+                {aTraer.some((l) => l.direction === 'in') && (
+                  <Selector
+                    etiqueta="Categoría para los ingresos"
+                    ayuda="Opcional, igual que la de gastos."
+                    value={categoriaIngreso}
+                    onChange={(e) => setCategoriaIngreso(e.target.value)}
+                  >
+                    <option value="">Sin categoría</option>
+                    {(datos.data?.categorias ?? [])
+                      .filter((c) => c.direction === 'in' || c.direction === 'both')
+                      .map((c) => (
+                        <option key={c.id} value={c.id}>
+                          {c.name}
+                        </option>
+                      ))}
+                  </Selector>
+                )}
+              </div>
+
+              <Boton
+                variante="primario"
+                className="mt-3"
+                disabled={confirmarTodas.isPending || traerTodas.isPending}
+                onClick={() => traerTodas.mutate(aTraer)}
+              >
+                {traerTodas.isPending
+                  ? 'Anotando…'
+                  : `Traer ${aTraer.length === 1 ? 'la línea' : `las ${aTraer.length}`} al libro`}
+              </Boton>
+            </div>
+          )}
+
+          {dudosas.length > 0 && (
+            <div className="mt-5 border-t border-border pt-4">
+              <h3 className="text-sm font-medium">
+                {dudosas.length === 1
+                  ? '1 línea se parece a un movimiento tuyo, pero no es seguro'
+                  : `${dudosas.length} líneas se parecen a movimientos tuyos, pero no es seguro`}
+              </h3>
+              <p className="mt-1 max-w-prose text-sm text-muted">
+                Mismo importe, otra fecha. Puede ser el mismo pago contado con unos días de
+                diferencia, o pueden ser dos cosas distintas que valen lo mismo. Eso no lo decide
+                un programa: míralas una por una.
+              </p>
+              <Boton className="mt-3" onClick={() => setVerUnaPorUna(true)}>
+                Verlas una por una
+              </Boton>
+            </div>
+          )}
+
+          {/*
+            El tercer montón, el del otro lado. Antes era una cifra en una
+            tarjeta aparte que no decía qué hacer con ella; está aquí porque
+            es el que más dice y el que nadie mira.
+          */}
+          {sueltos.length > 0 && (
+            <div className="mt-5 border-t border-border pt-4">
+              <h3 className="text-sm font-medium">
+                {sueltos.length === 1
+                  ? '1 movimiento tuyo no está en el extracto'
+                  : `${sueltos.length} movimientos tuyos no están en el extracto`}
+              </h3>
+              <p className="mt-1 max-w-prose text-sm text-muted">
+                Los anotaste y el banco no los tiene. Es el montón que nadie mira y el que más
+                dice: un cobro que diste por hecho y no llegó, un cheque que no se depositó, algo
+                anotado dos veces. Esto no se arregla desde aquí —el libro se corrige en Caja—
+                pero sabes dónde mirar.
+              </p>
+            </div>
+          )}
+
+          <details className="mt-5 border-t border-border pt-4">
+            <summary className="cursor-pointer text-sm text-muted">
+              Por qué esta pantalla no arregla el libro
+            </summary>
+            <p className="mt-2 max-w-prose text-sm text-muted">
+              Desde aquí no se puede corregir ni borrar un movimiento que ya existía. Si se
+              pudiera, el libro siempre cuadraría con el banco y la comprobación no comprobaría
+              nada: lo que descuadra es precisamente lo que hay que ir a mirar. Lo único que crea
+              un movimiento es traer una línea al libro, y lo pides tú.
+            </p>
+          </details>
         </Tarjeta>
       )}
 
-      {/* ------------------------------------------------- los tres montones */}
-      {cuentaId !== '' && lineas.length > 0 && (
-        <div className="grid gap-3 sm:grid-cols-3">
-          <Tarjeta className="p-4">
-            <p className="text-sm text-muted">Cuadra</p>
-            <p className="mt-1 text-2xl font-semibold tabular-nums">{cuadradas.length}</p>
-            <p className="mt-1 text-xs text-subtle">líneas con su movimiento</p>
-          </Tarjeta>
-          <Tarjeta className="p-4">
-            <p className="text-sm text-muted">Sobra del banco</p>
-            <p
-              className={`mt-1 text-2xl font-semibold tabular-nums ${
-                pendientes.length > 0 ? 'text-warning' : ''
-              }`}
-            >
-              {pendientes.length}
-            </p>
-            <p className="mt-1 text-xs text-subtle">líneas sin movimiento tuyo</p>
-          </Tarjeta>
-          <Tarjeta className="p-4">
-            <p className="text-sm text-muted">Sobra del libro</p>
-            <p
-              className={`mt-1 text-2xl font-semibold tabular-nums ${
-                sueltos.length > 0 ? 'text-warning' : ''
-              }`}
-            >
-              {sueltos.length}
-            </p>
-            <p className="mt-1 text-xs text-subtle">movimientos sin línea del banco</p>
-          </Tarjeta>
+      {/* ------------------------------------------------------- el detalle */}
+      {/*
+        La lista entera, línea por línea, con todo lo que se puede hacer con
+        una: emparejarla con otro movimiento, apartarla con su motivo,
+        anotarla sola. Está cerrada por defecto desde que las dos tandas de
+        arriba resuelven el caso normal: abierta de entrada, lo primero que se
+        veía al importar un mes eran treinta filas pidiendo una decisión cada
+        una, y eso no se lee, se abandona.
+      */}
+      {cuentaId !== '' && lineas.length > 0 && !verUnaPorUna && (
+        <div>
+          <Boton onClick={() => setVerUnaPorUna(true)}>Ver el detalle, línea por línea</Boton>
         </div>
       )}
 
+      {verUnaPorUna && (
+        <>
       {/* ------------------------------------------------ sobra del banco */}
       {pendientesVivas.length > 0 && (
         <Tarjeta className="p-5">
-          <h2 className="font-medium">Sobra del banco</h2>
+          <h2 className="font-medium">Las que faltan en tu libro</h2>
           <p className="mb-4 mt-2 max-w-prose text-sm text-muted">
             Líneas del extracto que todavía no son ningún movimiento tuyo. Casi siempre son gastos
             que no anotaste: comisiones, cargos, una domiciliación. Cuando una no es tuya —o la
@@ -667,7 +896,7 @@ export default function Conciliacion() {
       {/* ------------------------------------------------- sobra del libro */}
       {sueltos.length > 0 && (
         <Tarjeta className="p-5">
-          <h2 className="font-medium">Sobra del libro</h2>
+          <h2 className="font-medium">Los que faltan en el banco</h2>
           <p className="mb-4 mt-2 max-w-prose text-sm text-muted">
             Movimientos tuyos que el banco no tiene en el periodo del extracto. Este es el montón
             que casi nadie mira y el que más dice: un cobro que diste por hecho y no llegó, un
@@ -771,6 +1000,63 @@ export default function Conciliacion() {
           </Lista>
         </details>
       )}
+          <div>
+            <Boton onClick={() => setVerUnaPorUna(false)}>Ocultar el detalle</Boton>
+          </div>
+        </>
+      )}
+
+      {/* ---------------------------------------------------------- el cierre */}
+      {cuentaId !== '' && lineas.length > 0 && (
+        <Tarjeta className="p-5">
+          <div className="flex flex-wrap items-baseline justify-between gap-2">
+            <h2 className="font-medium">
+              {cierre ? `Cuadrado hasta el ${formatoFecha(cierre.hasta)}` : 'Sin cerrar'}
+            </h2>
+            {cierre && <Etiqueta tono="positivo">cerrado</Etiqueta>}
+          </div>
+          <p className="mb-4 mt-2 max-w-prose text-sm text-muted">
+            {cierre
+              ? 'Lo anterior a esa fecha deja de pedir atención, y tampoco se puede tocar: emparejar, apartar o importar por debajo se rechaza. Si encuentras un error, reabre primero.'
+              : 'Cerrar es afirmar que hasta una fecha todo lo del banco está explicado. Solo entra si cada línea hasta ese día está emparejada o apartada con su motivo: un cierre que admite líneas sueltas no afirma nada, solo las esconde.'}
+          </p>
+          {cierre ? (
+            <Boton onClick={() => cerrar.mutate(null)} disabled={cerrar.isPending}>
+              Reabrir
+            </Boton>
+          ) : (
+            <form
+              className="flex flex-wrap items-end gap-3"
+              onSubmit={(e) => {
+                e.preventDefault();
+                cerrar.mutate(cerrarHasta);
+              }}
+            >
+              <div className="w-[12rem]">
+                <Campo
+                  etiqueta="Cuadrado hasta"
+                  type="date"
+                  value={cerrarHasta}
+                  onChange={(e) => setCerrarHasta(e.target.value)}
+                  required
+                />
+              </div>
+              <Boton variante="primario" type="submit" disabled={cerrar.isPending || !cerrarHasta}>
+                {cerrar.isPending ? 'Cerrando…' : 'Cerrar el periodo'}
+              </Boton>
+            </form>
+          )}
+          {sueltosViejos.length > 0 && (
+            <p className="mt-3 max-w-prose text-xs text-warning">
+              Quedan {sueltosViejos.length}{' '}
+              {sueltosViejos.length === 1 ? 'movimiento tuyo' : 'movimientos tuyos'} anteriores al
+              cierre sin línea del banco. No impiden cerrar —el extracto es la autoridad sobre lo
+              que pasó en el banco, y ese lado está explicado— pero siguen a la vista abajo,
+              porque siguen sin explicación.
+            </p>
+          )}
+        </Tarjeta>
+      )}
 
       {/* ------------------------------------------------------- importar */}
       {cuentaId !== '' && (
@@ -782,9 +1068,9 @@ export default function Conciliacion() {
           {paso === 'elegir' ? (
             <>
               <p className="max-w-prose text-sm text-muted">
-                Descarga el extracto de tu banco en CSV o Excel y pega aquí su contenido, o elige
-                el archivo. No hace falta que lo limpies: la pantalla propone qué columna es cuál
-                y tú lo confirmas antes de guardar nada.
+                Descarga el movimiento de tu banco en CSV y elígelo aquí. No hace falta que lo
+                limpies ni que le quites columnas: esto lo lee y te enseña lo que entendió antes
+                de guardar nada.
               </p>
               <div>
                 <label
@@ -801,14 +1087,16 @@ export default function Conciliacion() {
                   onChange={(e) => {
                     const archivo = e.target.files?.[0];
                     if (!archivo) return;
-                    if (!etiqueta.trim()) setEtiqueta(archivo.name.replace(/\.[^.]+$/, ''));
                     void archivo.text().then(setTexto);
                   }}
                 />
               </div>
-              <div>
-                <label htmlFor="pegado" className="mb-1 block text-xs text-subtle">
-                  O pégalo aquí
+              <details>
+                <summary className="cursor-pointer text-sm text-muted">
+                  O pegarlo a mano
+                </summary>
+                <label htmlFor="pegado" className="mb-1 mt-3 block text-xs text-subtle">
+                  El contenido del archivo
                 </label>
                 <textarea
                   id="pegado"
@@ -818,7 +1106,7 @@ export default function Conciliacion() {
                   className="w-full rounded-control border border-border bg-surface p-3 font-mono text-xs text-text"
                   placeholder={'Fecha;Descripción;Cargo;Abono\n03/11/2026;COMISION;118,00;'}
                 />
-              </div>
+              </details>
               <div>
                 <Boton variante="primario" type="submit" disabled={texto.trim() === ''}>
                   Leer el archivo
@@ -841,9 +1129,9 @@ export default function Conciliacion() {
       )}
 
       <p className="max-w-prose text-xs text-subtle">
-        Lo que todavía no hace esta pantalla: emparejar una línea con un movimiento de otra
-        fecha lejana sin que lo elijas tú, y recordar de un mes para otro qué columna era cuál en
-        tu banco. El mapeo se propone bien, pero se vuelve a confirmar en cada importación.
+        Lo que todavía no hace esta pantalla: emparejar una línea con un movimiento de otra fecha
+        lejana sin que lo elijas tú, y recordar de un mes para otro qué columna era cuál en tu
+        banco. Lo adivina igual de bien cada vez, pero no lo guarda.
       </p>
     </Seccion>
   );
@@ -867,11 +1155,96 @@ export default function Conciliacion() {
     return (
       <>
         <p className="max-w-prose text-sm text-muted">
-          Esto es lo que entendí. Si algo no encaja, cámbialo: adivinar se propone, nunca se
-          aplica solo. Un importador que se equivoca en silencio no da un error, da una
-          contabilidad que cuadra con un extracto que no es el tuyo.
+          Esto es lo que entendí del archivo. Mira las líneas de ejemplo: si la fecha y el importe
+          son los que ves en tu banco, impórtalo. Un importador que se equivoca en silencio no da
+          un error, da una contabilidad que cuadra con un extracto que no es el tuyo.
         </p>
 
+        {mapeo.cuenta !== null && (() => {
+          const suyas = valoresDe(filas, mapeo.cuenta, mapeo.conCabecera);
+          if (suyas.length < 2) return null;
+          return (
+            <>
+              <Aviso tipo="atencion">
+                Este archivo trae {suyas.length} cuentas distintas en la columna «
+                {nombre(mapeo.cuenta)}». Mercury exporta así: todas tus cuentas en el mismo CSV.
+                Importarlo entero en una sola cuenta no daría un extracto, daría nueve mezclados,
+                y además cada traspaso entre tus cuentas aparece dos veces, una por cada lado.
+                Elige de cuál son las líneas que vas a importar y repite el archivo para cada una.
+              </Aviso>
+              <Selector
+                etiqueta="De qué cuenta son estas líneas"
+                value={mapeo.cuentaValor ?? ''}
+                onChange={(e) => setMapeo({ ...mapeo, cuentaValor: e.target.value || null })}
+                required
+              >
+                <option value="">Elige una</option>
+                {suyas.map((v) => (
+                  <option key={v.valor} value={v.valor}>
+                    {v.valor || '(en blanco)'} · {v.cuantas}{' '}
+                    {v.cuantas === 1 ? 'línea' : 'líneas'}
+                  </option>
+                ))}
+              </Selector>
+            </>
+          );
+        })()}
+
+        {fuera.length > 0 && (
+          <Aviso tipo="info">
+            De las {filas.length - (mapeo.conCabecera ? 1 : 0)} filas del archivo,{' '}
+            {fuera.map((f) => `${f.cuantas} ${f.por}`).join(', ')}. Las rechazadas no se importan
+            porque nunca ocurrieron: meterlas sería inventar un movimiento que el banco no hizo.
+          </Aviso>
+        )}
+
+        <div>
+          <p className="mb-2 text-xs text-subtle">
+            Así quedan las {leidas.length === 1 ? 'línea' : `${leidas.length} líneas`}
+            {leidas.length > 3 ? ' (las tres primeras)' : ''}:
+          </p>
+          <Lista>
+            {leidas.slice(0, 3).map((l, i) => (
+              <Fila
+                key={`${l.fecha}-${i}`}
+                principal={<span className="font-medium">{l.descripcion}</span>}
+                secundario={
+                  <>
+                    {formatoFecha(l.fecha)} ·{' '}
+                    {Number(l.importe) < 0 ? 'sale ' : 'entra '}
+                    {l.importe.replace('-', '')}
+                    {l.referencia ? ` · ${l.referencia}` : ''}
+                  </>
+                }
+              />
+            ))}
+          </Lista>
+        </div>
+
+        {descartadas.length > 0 && (
+          <Aviso tipo="atencion">
+            {descartadas.length === 1
+              ? `La fila ${descartadas[0]?.fila} no se va a importar: ${descartadas[0]?.por}.`
+              : `${descartadas.length} filas no se van a importar. La primera es la ${descartadas[0]?.fila}: ${descartadas[0]?.por}.`}{' '}
+            Si son las de los totales del pie, está bien. Si no, revisa qué columna mapeaste como
+            fecha y cuál como importe.
+          </Aviso>
+        )}
+
+        {/*
+          La maquinaria, cerrada cuando la adivinanza funcionó.
+
+          Abierta de entrada —que es como estaba— lo primero que veía alguien
+          con su archivo del banco eran seis desplegables de columnas y un
+          nombre obligatorio: cinco preguntas antes de la única que importa,
+          que es si las líneas de arriba son las de su extracto. Si no se leyó
+          ninguna línea se abre sola, porque entonces sí hay algo que decidir.
+        */}
+        <details className="rounded-card border border-border p-4" open={leidas.length === 0}>
+          <summary className="cursor-pointer text-sm text-muted">
+            Si algo no cuadra: cambiar las columnas o el nombre
+          </summary>
+          <div className="mt-4 flex flex-col gap-4">
         <Campo
           etiqueta="Cómo se llama este extracto"
           ayuda="Lo que vas a reconocer dentro de seis meses. Por ejemplo: «BCP soles · noviembre»."
@@ -965,77 +1338,8 @@ export default function Conciliacion() {
             </>
           )}
         </div>
-
-        {mapeo.cuenta !== null && (() => {
-          const suyas = valoresDe(filas, mapeo.cuenta, mapeo.conCabecera);
-          if (suyas.length < 2) return null;
-          return (
-            <>
-              <Aviso tipo="atencion">
-                Este archivo trae {suyas.length} cuentas distintas en la columna «
-                {nombre(mapeo.cuenta)}». Mercury exporta así: todas tus cuentas en el mismo CSV.
-                Importarlo entero en una sola cuenta no daría un extracto, daría nueve mezclados,
-                y además cada traspaso entre tus cuentas aparece dos veces, una por cada lado.
-                Elige de cuál son las líneas que vas a importar y repite el archivo para cada una.
-              </Aviso>
-              <Selector
-                etiqueta="De qué cuenta son estas líneas"
-                value={mapeo.cuentaValor ?? ''}
-                onChange={(e) => setMapeo({ ...mapeo, cuentaValor: e.target.value || null })}
-                required
-              >
-                <option value="">Elige una</option>
-                {suyas.map((v) => (
-                  <option key={v.valor} value={v.valor}>
-                    {v.valor || '(en blanco)'} · {v.cuantas}{' '}
-                    {v.cuantas === 1 ? 'línea' : 'líneas'}
-                  </option>
-                ))}
-              </Selector>
-            </>
-          );
-        })()}
-
-        {fuera.length > 0 && (
-          <Aviso tipo="info">
-            De las {filas.length - (mapeo.conCabecera ? 1 : 0)} filas del archivo,{' '}
-            {fuera.map((f) => `${f.cuantas} ${f.por}`).join(', ')}. Las rechazadas no se importan
-            porque nunca ocurrieron: meterlas sería inventar un movimiento que el banco no hizo.
-          </Aviso>
-        )}
-
-        <div>
-          <p className="mb-2 text-xs text-subtle">
-            Así quedan las {leidas.length === 1 ? 'línea' : `${leidas.length} líneas`}
-            {leidas.length > 3 ? ' (las tres primeras)' : ''}:
-          </p>
-          <Lista>
-            {leidas.slice(0, 3).map((l, i) => (
-              <Fila
-                key={`${l.fecha}-${i}`}
-                principal={<span className="font-medium">{l.descripcion}</span>}
-                secundario={
-                  <>
-                    {formatoFecha(l.fecha)} ·{' '}
-                    {Number(l.importe) < 0 ? 'sale ' : 'entra '}
-                    {l.importe.replace('-', '')}
-                    {l.referencia ? ` · ${l.referencia}` : ''}
-                  </>
-                }
-              />
-            ))}
-          </Lista>
-        </div>
-
-        {descartadas.length > 0 && (
-          <Aviso tipo="atencion">
-            {descartadas.length === 1
-              ? `La fila ${descartadas[0]?.fila} no se va a importar: ${descartadas[0]?.por}.`
-              : `${descartadas.length} filas no se van a importar. La primera es la ${descartadas[0]?.fila}: ${descartadas[0]?.por}.`}{' '}
-            Si son las de los totales del pie, está bien. Si no, revisa qué columna mapeaste como
-            fecha y cuál como importe.
-          </Aviso>
-        )}
+          </div>
+        </details>
 
         <div className="flex gap-2">
           <Boton
@@ -1044,7 +1348,6 @@ export default function Conciliacion() {
             disabled={
               importar.isPending ||
               leidas.length === 0 ||
-              etiqueta.trim() === '' ||
               (mapeo.cuenta !== null &&
                 mapeo.cuentaValor === null &&
                 valoresDe(filas, mapeo.cuenta, mapeo.conCabecera).length > 1)
@@ -1057,6 +1360,33 @@ export default function Conciliacion() {
       </>
     );
   }
+}
+
+/**
+ * Cómo se llama un extracto al que nadie le puso nombre: la cuenta y el tramo
+ * de fechas que de verdad trae el archivo. No las que pidas: las que tiene.
+ */
+function nombreDelExtracto(
+  lineas: readonly { fecha: string }[],
+  cuenta: string | undefined,
+): string {
+  const fechas = [...lineas.map((l) => l.fecha)].sort();
+  const desde = fechas[0];
+  const hasta = fechas[fechas.length - 1];
+  const quien = cuenta ? `${cuenta} · ` : '';
+  if (!desde || !hasta) return `${quien}extracto`;
+  if (desde === hasta) return `${quien}${formatoFecha(desde)}`;
+  return `${quien}del ${formatoFecha(desde)} al ${formatoFecha(hasta)}`;
+}
+
+/**
+ * El mensaje de un fallo a la mitad de una tanda. Lo que importa no es solo
+ * qué falló: es cuántas quedaron hechas, porque de eso depende si hay que
+ * volver a intentarlo todo o solo lo que falta.
+ */
+function cuantasIban(hechas: number, total: number, porque: string): string {
+  if (hechas === 0) return `No se pudo con la primera de las ${total}: ${porque}`;
+  return `Se hicieron ${hechas} de ${total} y la siguiente falló: ${porque} Las ${hechas} primeras quedaron guardadas; vuelve a darle y seguirá por donde iba.`;
 }
 
 /** Suma días a una fecha ISO sin pasar por la zona horaria local. */
