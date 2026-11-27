@@ -1,6 +1,7 @@
 // @vitest-environment jsdom
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { cleanup, render, screen } from '@testing-library/react';
+import { cleanup, render, screen, within } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { MemoryRouter } from 'react-router-dom';
 import { OrgContext } from '../app/org-context';
@@ -24,6 +25,8 @@ const GASTOS: Record<string, unknown>[] = [];
 const ENTIDADES: Record<string, unknown>[] = [{ id: 'e-1' }];
 const MONEDAS: Record<string, unknown>[] = [{ currency_code: 'PEN' }];
 const MARCAS: Record<string, unknown>[] = [{ id: 'm-1' }];
+const HECHOS: Record<string, unknown>[] = [];
+const CLIENTES: Record<string, unknown>[] = [];
 
 vi.mock('../lib/supabase', () => {
   const datosDe = (nombre: string): Record<string, unknown>[] => {
@@ -38,6 +41,10 @@ vi.mock('../lib/supabase', () => {
     if (nombre === 'legal_entities') return ENTIDADES;
     if (nombre === 'organization_currencies') return MONEDAS;
     if (nombre === 'brands') return MARCAS;
+    if (nombre === 'economic_facts') return HECHOS;
+    if (nombre === 'clients') return CLIENTES;
+    if (nombre === 'financial_categories') return [];
+    if (nombre === 'suppliers') return [];
     return [];
   };
   const tabla = (nombre: string) => {
@@ -54,7 +61,7 @@ vi.mock('../lib/supabase', () => {
         return Promise.resolve({ data: datos, error: null, count: datos.length }).then(r);
       },
     };
-    for (const m of ['select', 'eq', 'in', 'order', 'limit', 'not']) {
+    for (const m of ['select', 'eq', 'in', 'order', 'limit', 'not', 'gte', 'lte']) {
       api[m] = (campo: string, valor: unknown) => {
         if (m === 'eq' && campo === 'direction') direccion = valor;
         return api;
@@ -108,7 +115,10 @@ const cuenta = (id: string, name: string, moneda: string) => ({
 
 beforeEach(() => {
   vi.setSystemTime(new Date('2026-11-06T12:00:00Z'));
-  for (const a of [CUENTAS, SALDOS, DOCUMENTOS, ASIGNACIONES, MOVIMIENTOS, CUOTAS, TASAS, GASTOS]) {
+  for (const a of [
+    CUENTAS, SALDOS, DOCUMENTOS, ASIGNACIONES, MOVIMIENTOS, CUOTAS, TASAS, GASTOS, HECHOS,
+    CLIENTES,
+  ]) {
     a.length = 0;
   }
 });
@@ -255,6 +265,30 @@ describe('Inicio', () => {
     expect(screen.getByText(/Incluye 1 gasto fijo/)).toBeTruthy();
   });
 
+  /**
+   * La proyección era optimista por construcción: sabía que debías 1 180 el
+   * día 30 y la curva no se enteraba. Esto es lo que lo vigila.
+   */
+  it('una factura de proveedor sin pagar resta de la proyección', async () => {
+    CUENTAS.push(cuenta('cta-1', 'BCP soles', 'PEN'));
+    SALDOS.push({ cash_account_id: 'cta-1', balance: '2000.00' });
+    DOCUMENTOS.push({
+      id: 'd-c1', direction: 'purchase', description: 'Impresión del lanzamiento',
+      series_number: 'F002-450', issue_date: '2026-11-02', due_date: '2026-11-20',
+      currency_code: 'PEN', amount_total: '1180.00', amount_tax: '180.00',
+      status: 'open', legal_entity_id: 'e-1',
+    });
+    await montar();
+    await screen.findByText(/Flujo de caja/);
+
+    // Sale el total, con el IGV dentro: del banco salen 1 180, no 1 000.
+    expect(screen.getAllByText('-S/ 1,180.00').length).toBeGreaterThan(0);
+    expect(screen.getAllByText(/pagas Impresión del lanzamiento/).length).toBeGreaterThan(0);
+    expect(screen.getByText(/Incluye 1 factura de proveedor sin pagar/)).toBeTruthy();
+    // Y en trece semanas cierra con 820, no con los 2 000 de hoy.
+    expect(screen.getAllByText('S/ 820.00').length).toBeGreaterThan(0);
+  });
+
   it('avisa de la semana en que el saldo proyectado cruza el cero', async () => {
     CUENTAS.push(cuenta('cta-1', 'BCP soles', 'PEN'));
     SALDOS.push({ cash_account_id: 'cta-1', balance: '300.00' });
@@ -315,5 +349,80 @@ describe('Inicio', () => {
     // Y lo que ya está configurado no aparece.
     expect(screen.queryByText('Entidades legales')).toBeNull();
     MARCAS.push({ id: 'm-1' });
+  });
+});
+
+/**
+ * El centro de mando. Lo pidió con estas palabras: «me gustaría que en el
+ * inicio haya una gráfica, que sea como el centro de comando, que pueda
+ * elegir gráficas». Lo que se comprueba es que las tres estén, que se cambie
+ * entre ellas y que ninguna dependa del color para decir lo que dice.
+ */
+describe('Inicio · cómo va el negocio', () => {
+  function unIngreso(mes: string, neto: string, cliente: string) {
+    return {
+      origen: 'documento',
+      fecha: `2026-${mes}-10`,
+      direction: 'in',
+      flow_class: 'operating',
+      kind: null,
+      currency_code: 'PEN',
+      amount_total: neto,
+      amount_net: neto,
+      amount_tax: '0.00',
+      category_id: null,
+      client_id: cliente,
+      supplier_id: null,
+      concepto: 'Una venta',
+    };
+  }
+
+  it('ofrece las tres vistas y empieza por el mes a mes', async () => {
+    CLIENTES.push({ id: 'cli-1', name: 'EJ Deportes' });
+    HECHOS.push(unIngreso('09', '4000.00', 'cli-1'), unIngreso('10', '9000.00', 'cli-1'));
+    await montar();
+
+    expect(await screen.findByText('Cómo va el negocio')).toBeTruthy();
+    const grupo = within(screen.getByRole('group', { name: 'Qué gráfica mirar' }));
+    expect(grupo.getAllByRole('radio').map((r) => (r as HTMLInputElement).value)).toEqual([
+      'mes',
+      'semanas',
+      'cliente',
+    ]);
+    expect((grupo.getByRole('radio', { name: 'Mes a mes' }) as HTMLInputElement).checked).toBe(
+      true,
+    );
+    // La leyenda del gráfico de meses, que es el que se enseña primero. Sale
+    // dos veces: en la leyenda y en la cabecera de su tabla.
+    expect((await screen.findAllByText('Entró')).length).toBeGreaterThan(0);
+  });
+
+  it('cambia a la vista por cliente y avisa de la concentración', async () => {
+    const usuario = userEvent.setup();
+    CLIENTES.push({ id: 'cli-1', name: 'EJ Deportes' }, { id: 'cli-2', name: 'Otro' });
+    HECHOS.push(
+      unIngreso('09', '9000.00', 'cli-1'),
+      unIngreso('10', '1000.00', 'cli-2'),
+    );
+    await montar();
+    await screen.findByText('Cómo va el negocio');
+
+    await usuario.click(screen.getByRole('radio', { name: 'Por cliente' }));
+
+    // El 90 % en un solo cliente se dice con palabras, no con una barra larga.
+    expect(await screen.findByText(/es el 90 % de este total/)).toBeTruthy();
+    expect(screen.getByText(/un mes sin él sea un mes sin nada/)).toBeTruthy();
+  });
+
+  it('cada barra dice todo lo suyo sin depender del color', async () => {
+    CLIENTES.push({ id: 'cli-1', name: 'EJ Deportes' });
+    HECHOS.push(unIngreso('09', '4000.00', 'cli-1'), unIngreso('10', '9000.00', 'cli-1'));
+    await montar();
+    await screen.findByText('Cómo va el negocio');
+
+    // La columna de un mes es un botón con su mes, lo que entró y lo que salió.
+    expect(
+      await screen.findByRole('button', { name: /oct 2026: entró S\/ 9,000.00/ }),
+    ).toBeTruthy();
   });
 });

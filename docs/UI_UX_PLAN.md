@@ -42,7 +42,22 @@ Semánticos (los cinco tienen variante -bg para fondos suaves):
 --warning       vence pronto, revisar
 --info          proyección, referencial
 --neutral       borrador, anulado, ignorado
+
+Series de gráfico (añadidas el 24/11/2026, F5-4):
+--serie-entra   lo que entró, en las barras
+--serie-sale    lo que salió, en las barras
 ```
+
+**Las series del gráfico no son `--positive` y `--negative`, y la razón es
+medible.** Ese par da ΔE 5,2 en deuteranopia: dos barras pegadas del mismo
+color para ocho de cada cien hombres. El azul y el ocre de las series dan
+22,6, y pasan además la banda de luminosidad (0,43–0,77 en claro, 0,48–0,67
+en oscuro), el suelo de croma y el contraste contra la superficie, validados
+en cada tema por separado y no invirtiendo el otro. Para un número suelto el
+verde sigue valiendo, porque viene con su signo y su texto; dos barras una al
+lado de otra no tienen signo. Regla general: **un color que distingue dos
+cosas a la vez se valida contra daltonismo antes de usarse; uno que adorna
+una cifra que ya se lee, no.**
 
 Cada token se redefine en `@media (prefers-color-scheme: dark)` y bajo `[data-theme="dark"]`. **Todo par texto/fondo se verifica AA (4.5:1) en ambos modos antes de darse por bueno**; los colores semánticos sobre fondo suave suelen fallar en oscuro y hay que corregirlos ahí, no esperar que funcionen.
 
@@ -75,6 +90,11 @@ Inicio · Comercial · Catálogos · Finanzas · Bancos · Análisis · Configur
 ```
 
 **Móvil:** barra inferior de 5 destinos — **Inicio · Finanzas · + · Comercial · Más**. El `+` central abre la hoja de acciones rápidas: nuevo movimiento, nueva cotización, nueva transferencia. Son las tres cosas que se hacen de pie.
+
+**Dos reglas que no se ven hasta que faltan** (escritas el 26/11/2026, después de que las dos se notaran como «se queda pegado en una pantalla en blanco»):
+
+- **Cambiar de pantalla te deja arriba de la nueva.** El navegador lo hace solo al cargar una página; dentro de una aplicación de una sola página no carga nada y la posición se queda donde estaba, así que quien venía de la mitad de una pantalla larga aterriza en la mitad de la siguiente, a veces en una zona sin nada. Volver atrás es la excepción: ahí la posición anterior es lo que se espera, y la restaura el navegador.
+- **La barra lateral está pegada arriba**, de la altura de la ventana. Si se desplaza con el contenido, en una pantalla larga hay que subir hasta arriba para poder cambiar de sección.
 
 ---
 
@@ -211,6 +231,22 @@ En v1 es cuadre manual; en F4 la misma pantalla gana una pestaña de importació
 
 En F4 se añaden: pestaña "Importar", y la bandeja con los seis estados, cada sugerencia mostrando **sus razones** ("monto exacto · fecha +1 día · referencia coincide · 0.93") y nunca preconfirmada.
 
+**Cómo quedó, y por qué cambió** (26/11/2026). La pantalla construida no es una bandeja de líneas con casillas: es **una tarjeta que dice qué falta y lo resuelve en dos botones**. La primera versión sí era la bandeja, y el primer extracto real la tumbó: veinticinco líneas de Mercury, veintitrés sin anotar, una decisión por línea. Nadie revisa veintitrés veces lo mismo; se abandona. El orden de lectura de ahora es: qué cuenta → **qué falta y qué hacer** (confirmar lo que ya tenías, traer lo que no, y el aviso de los traspasos entre cuentas propias) → el detalle línea por línea, cerrado → cerrar el periodo → importar. Las sugerencias siguen mostrando sus razones y ninguna se preconfirma: lo que se agrupa es la petición, no la comprobación (INV-8.9).
+
+Y la mitad de las preguntas del importador desaparecieron: el nombre del extracto se deduce del propio archivo —fechas de las líneas y nombre de la cuenta— y los seis desplegables de columnas viven dentro de un `<details>` que solo se abre si no se leyó ninguna línea. Antes eran cinco preguntas antes de la única que importa, que es si las líneas de ejemplo son las del extracto de verdad.
+
+---
+
+### 4.6 Dos cosas que faltaban en todas las pantallas
+
+Escritas el 26/11/2026, las dos después de que Marcelo las pidiera con sus palabras.
+
+**El botón de alta, arriba.** «Para agregar compra no es nada intuitivo. Debería haber un botón de más.» El formulario de alta vive al final de la página, debajo de la lista, y nada arriba decía que existiera: si no bajas, no lo encuentras. `Seccion` acepta ahora un atajo —`alta={{ texto, id }}`— que dibuja un `+ Anotar una compra` en la cabecera, desplaza hasta el formulario y **deja el cursor dentro del primer campo**. Dieciséis pantallas lo llevan. No abre un diálogo a propósito: estos formularios enseñan cosas mientras los rellenas —el desglose del IGV, el saldo de la cuenta, lo que queda por asignar— y un diálogo que tapa la pantalla se lleva por delante justo eso.
+
+**El centro de mando, en Inicio.** «Me gustaría que en el inicio haya una gráfica, que sea como el centro de comando, que pueda elegir gráficas… visualmente no acompaña, me pierdo con la información.» Debajo de la caja de hoy hay una tarjeta con tres vistas, en un grupo de radio de verdad —flechas del teclado, «uno de tres» para un lector de pantalla—: **mes a mes** (en qué mes vendiste más), **trece semanas** (con qué saldo cierras cada una, con su línea de cero y el rojo al otro lado) y **por cliente** (de quién viene el ingreso, con el aviso de concentración si uno pesa más de la mitad). Los datos salen de la misma consulta que Análisis, con la misma clave de caché: las dos pantallas no pueden discrepar porque leen lo mismo.
+
+En Análisis → Resultado las tres listas de números —de dónde vino, en qué se fue, a quién se le pagó— son ahora barras horizontales, una serie por moneda y nunca dos monedas en la misma escala. Un solo color por gráfico: la identidad la lleva el nombre escrito al lado, no el tono, porque un color por cliente obliga a inventar un tono con cada cliente nuevo y a partir del quinto nadie distingue cuál es cuál.
+
 ---
 
 ## 5. Estados: un vocabulario único
@@ -232,6 +268,8 @@ En F4 se añaden: pestaña "Importar", y la bandeja con los seis estados, cada s
 | Proyección | Previsto | ◌ | info, con borde discontinuo |
 
 "Previsto" con borde discontinuo es la convención que separa visualmente proyección de hecho, en todas las pantallas.
+
+**Y un estado más, el que no se diseña y hace falta igual: la pantalla rota.** Un fallo al dibujar una sección no puede dejar la aplicación en blanco —React desmonta el árbol entero si nadie recoge el error—, porque una página blanca no se puede ni leer ni contar. `src/components/Pantalla.tsx` la convierte en una tarjeta que dice que el fallo es del programa y no de los datos, deja el menú en pie, ofrece reintentar y recargar, y enseña el texto técnico dentro de un `<details>`: un fallo que el usuario puede copiar y mandar se arregla; uno que solo él vio, se adivina. Hay dos redes, una por pantalla —rearmada al navegar, con `key={pathname}`— y otra por encima del armazón, para el fallo que ocurre donde ya no hay menú al que volver.
 
 ---
 

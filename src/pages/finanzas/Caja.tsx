@@ -108,6 +108,7 @@ export default function Caja() {
   const [tipo, setTipo] = useState<Enums<'cash_kind'>>('operating');
   const [referencia, setReferencia] = useState('');
   const [gastoFijo, setGastoFijo] = useState('');
+  const [trabajoId, setTrabajoId] = useState('');
 
   const [exitoMover, setExitoMover] = useState<string | null>(null);
   const [origenId, setOrigenId] = useState('');
@@ -121,7 +122,7 @@ export default function Caja() {
   const [refMov, setRefMov] = useState('');
 
   const cuentas = useQuery({
-    queryKey: ['saldos', organizacion.id, entidad?.id ?? null],
+    queryKey: ['saldos', 'caja', organizacion.id, entidad?.id ?? null],
     enabled: conDinero,
     queryFn: async () => {
       const cliente = requireSupabase();
@@ -155,7 +156,7 @@ export default function Caja() {
   });
 
   const cartera = useQuery({
-    queryKey: ['cartera', organizacion.id, entidad?.id ?? null],
+    queryKey: ['cartera', 'caja', organizacion.id, entidad?.id ?? null],
     enabled: conDinero,
     queryFn: async () => {
       const cliente = requireSupabase();
@@ -225,7 +226,7 @@ export default function Caja() {
   // Para poder decir «esto pagó el hosting de noviembre». Sin esto, la
   // proyección seguiría esperando un pago que ya hiciste.
   const gastosFijos = useQuery({
-    queryKey: ['gastos-fijos', organizacion.id, entidad?.id ?? null],
+    queryKey: ['gastos-fijos', 'caja', organizacion.id, entidad?.id ?? null],
     enabled: conDinero,
     queryFn: async () => {
       let q = requireSupabase()
@@ -236,6 +237,23 @@ export default function Caja() {
         .order('label');
       if (entidad) q = q.eq('legal_entity_id', entidad.id);
       const { data, error } = await q;
+      if (error) throw error;
+      return data ?? [];
+    },
+  });
+
+  // Los trabajos a los que se le puede colgar un gasto suelto. Terminados
+  // incluidos: un costo que aparece tarde sigue siendo de su trabajo.
+  const trabajos = useQuery({
+    queryKey: ['trabajos', 'para-caja', organizacion.id],
+    enabled: conDinero,
+    queryFn: async () => {
+      const { data, error } = await requireSupabase()
+        .from('jobs')
+        .select('id, name, status, legal_entity_id, currency_code')
+        .eq('organization_id', organizacion.id)
+        .in('status', ['open', 'done'])
+        .order('created_at', { ascending: false });
       if (error) throw error;
       return data ?? [];
     },
@@ -253,6 +271,7 @@ export default function Caja() {
         p_kind: tipo,
         ...(referencia.trim() ? { p_external_ref: referencia.trim() } : {}),
         ...(gastoFijo && direccion === 'out' ? { p_recurring: gastoFijo } : {}),
+        ...(trabajoId && direccion === 'out' ? { p_job: trabajoId } : {}),
       });
       if (error) throw error;
     },
@@ -264,6 +283,7 @@ export default function Caja() {
       setConcepto('');
       setReferencia('');
       setGastoFijo('');
+      setTrabajoId('');
       recargar();
     },
   });
@@ -356,6 +376,13 @@ export default function Caja() {
   );
   const gastosFuera = (gastosFijos.data ?? []).length - gastosDeLaCuenta.length;
 
+  // Un trabajo vive en un libro, así que solo se ofrecen los de la empresa de
+  // la cuenta elegida. La clave compuesta impide lo demás, pero un desplegable
+  // con trabajos imposibles es una invitación al error.
+  const trabajosDeLaCuenta = (trabajos.data ?? []).filter(
+    (t) => cuentaElegida !== undefined && t.legal_entity_id === cuentaElegida.legal_entity_id,
+  );
+
   // Mover dinero entre cuentas. El destino no se ofrece entero: una
   // transferencia va entre dos cuentas de la misma empresa, porque entre dos
   // empresas el dinero cambia de libro y eso es otro hecho (INV-5).
@@ -373,6 +400,7 @@ export default function Caja() {
 
   return (
     <Seccion
+      alta={{ texto: 'Anotar un movimiento', id: 'alta-movimiento' }}
       titulo="Finanzas"
       regla="El saldo de una cuenta sale solo del libro de caja: cada entrada y cada salida, una por una. Lo que está por cobrar son documentos emitidos, no cuotas pactadas: una cuota prevista entra en la proyección y no en la cartera."
     >
@@ -489,7 +517,7 @@ export default function Caja() {
       </section>
 
       {/* ---------------------------------------------------------------- */}
-      <Alta titulo="Anotar un movimiento" exito={exito} onSubmit={() => crear.mutate()}>
+      <Alta id="alta-movimiento" titulo="Anotar un movimiento" exito={exito} onSubmit={() => crear.mutate()}>
         <p className="max-w-prose text-sm text-muted">
           Para lo que no viene de una cotización: el hosting, una comisión del banco, el saldo con
           el que arrancas, un aporte o un retiro. Los cobros de clientes no se anotan aquí: se
@@ -604,6 +632,29 @@ export default function Caja() {
               ? `${gastosFuera === 1 ? 'Hay 1 gasto fijo que no sale' : `Hay ${gastosFuera} gastos fijos que no salen`} de esta cuenta: son de otra empresa del grupo o están en otra moneda. De una cuenta sale el dinero de su empresa y en su moneda, así que para pagarlos hace falta una cuenta de la empresa que los paga.`
               : 'Elige primero la cuenta y, si lo que sale paga un gasto fijo, podrás decir cuál: solo se ofrecen los que esa cuenta puede pagar.'}
           </p>
+        )}
+
+        {/*
+          También solo para salidas, y por una razón de fondo: el ingreso de un
+          trabajo no se atribuye, se deriva de la línea que se aprobó. Una
+          entrada atribuida lo contaría dos veces, y la base la rechaza
+          (`no_es_un_gasto`).
+        */}
+        {direccion === 'out' && trabajosDeLaCuenta.length > 0 && (
+          <Selector
+            etiqueta="¿Es costo de algún trabajo?"
+            ayuda="Opcional. Decirlo es lo que hace que aparezca en el margen de esa pieza, en Análisis → Trabajos. Si la compra tiene factura de proveedor, anótala en Compras: la factura es el hecho, el pago no."
+            value={trabajoId}
+            onChange={(e) => setTrabajoId(e.target.value)}
+          >
+            <option value="">No, es un gasto general</option>
+            {trabajosDeLaCuenta.map((t) => (
+              <option key={t.id} value={t.id}>
+                {t.name}
+                {t.status === 'done' ? ' · terminado' : ''}
+              </option>
+            ))}
+          </Selector>
         )}
 
         <Campo

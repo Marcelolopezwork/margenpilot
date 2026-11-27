@@ -1,5 +1,6 @@
 import { useState } from 'react';
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { useMutation, useQueryClient } from '@tanstack/react-query';
+import { useMonedasCatalogo } from '../app/consultas';
 import { useSesion } from '../app/session-context';
 import { mensajeDeError } from '../lib/errors';
 import { requireSupabase } from '../lib/supabase';
@@ -19,17 +20,7 @@ export default function Onboarding() {
   const [nombre, setNombre] = useState('');
   const [moneda, setMoneda] = useState('PEN');
 
-  const monedas = useQuery({
-    queryKey: ['monedas'],
-    queryFn: async () => {
-      const { data, error } = await requireSupabase()
-        .from('currencies')
-        .select('code, name, symbol')
-        .order('code');
-      if (error) throw error;
-      return data ?? [];
-    },
-  });
+  const monedas = useMonedasCatalogo();
 
   const crear = useMutation({
     mutationFn: async () => {

@@ -59,6 +59,7 @@ export default function Entidades() {
 
   return (
     <Seccion
+      alta={{ texto: 'Nueva entidad', id: 'alta-entidad' }}
       titulo="Entidades legales"
       regla="Cada entidad es un libro contable aparte: su moneda, sus impuestos, sus cuentas y su rentabilidad. Ninguna cifra mezcla dos entidades, y eso no es una preferencia de informe sino una regla que la base de datos hace cumplir. La razón social es el nombre que se imprime en las cotizaciones."
     >
@@ -115,7 +116,7 @@ export default function Entidades() {
 
       {alternar.error && <Aviso tipo="error">{mensajeDeError(alternar.error)}</Aviso>}
 
-      <Alta titulo="Nueva entidad legal" exito={exito} onSubmit={() => crear.mutate()}>
+      <Alta id="alta-entidad" titulo="Nueva entidad legal" exito={exito} onSubmit={() => crear.mutate()}>
         <Campo
           etiqueta="Razón social"
           value={nombre}

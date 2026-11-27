@@ -1499,6 +1499,1068 @@ begin
     'anulado su documento, la cuota vuelve a estar prevista y se puede volver a emitir');
 end $$;
 
+-- ---------------------------------------------------------------------------
+-- F5 · Cuánto deja cada trabajo (INV-14)
+-- ---------------------------------------------------------------------------
+--
+-- Lo que se vigila aquí es el reparto. Una cotización de dos líneas se
+-- factura con un documento que no es de ninguna de las dos, y la parte de
+-- cada trabajo sale de la línea que se aprobó: si ese reparto se puede tocar
+-- a mano, el margen por trabajo es una opinión. Por eso `job_id` existe en lo
+-- que costó y no en lo que se vendió, y por eso el precio acordado y el costo
+-- estimado no se editan nunca.
+
+do $$
+declare
+  v_org     uuid;
+  v_uno     uuid;
+  v_dos     uuid;
+  v_usuario uuid := '11111111-1111-1111-1111-111111111111';
+  v_cli     uuid;
+  v_pen     uuid;
+  v_cat_out uuid;
+  v_cat_in  uuid;
+  v_quote   uuid;
+  v_lA      uuid;
+  v_lB      uuid;
+  v_vid     uuid;
+  v_cuota   uuid;
+  v_venta   uuid;
+  v_jobA    uuid;
+  v_jobB    uuid;
+  v_otro    uuid;
+  v_compra  uuid;
+  v_reimpresion uuid;
+  v_mov     uuid;
+  v_ap      uuid;
+begin
+  select id into v_org from organizations where slug = 'org-a';
+  select id into v_uno from legal_entities
+   where organization_id = v_org and legal_name = 'Entidad Uno';
+  select id into v_dos from legal_entities
+   where organization_id = v_org and legal_name = 'Entidad Dos';
+  select id into v_cli from clients
+   where organization_id = v_org and name = 'Cliente de las pruebas';
+  select id into v_pen from cash_accounts
+   where organization_id = v_org and name = 'BCP Soles';
+  select id into v_cat_out from financial_categories
+   where organization_id = v_org and name = 'Herramientas y licencias';
+  select id into v_cat_in from financial_categories
+   where organization_id = v_org and direction = 'in' limit 1;
+
+  -- -------------------------------------------------------------- la forma
+  perform assert_true(
+    (select relrowsecurity and relforcerowsecurity
+       from pg_class where oid = 'jobs'::regclass),
+    'jobs tiene RLS, y forzada también para el dueño');
+
+  perform assert_true(
+    has_table_privilege('authenticated', 'jobs', 'select')
+    and not has_table_privilege('authenticated', 'jobs', 'insert')
+    and not has_table_privilege('authenticated', 'jobs', 'update')
+    and not has_table_privilege('authenticated', 'jobs', 'delete'),
+    'un trabajo se lee, pero lo crea la aprobación y lo cambia su función: el precio acordado no se edita');
+
+  perform assert_true(
+    (select count(*) from information_schema.columns
+      where table_name = 'economic_facts' and column_name = 'job_id') = 1,
+    'el hecho económico dice para qué trabajo fue');
+
+  perform assert_true(
+    exists (select 1 from pg_constraint
+             where conrelid = 'billing_documents'::regclass
+               and conname = 'el_trabajo_solo_en_las_compras'),
+    'una venta no se atribuye a mano: su parte ya sale de la línea aprobada');
+
+  perform assert_true(
+    exists (select 1 from pg_constraint
+             where conrelid = 'cash_movements'::regclass
+               and conname = 'el_trabajo_solo_en_los_gastos'),
+    'y una entrada de dinero tampoco, que sería contar el ingreso dos veces');
+
+  perform assert_true(
+    exists (select 1 from pg_indexes
+             where tablename = 'jobs' and indexname = 'trabajo_por_linea'),
+    'una línea aprobada es un trabajo, no dos');
+
+  -- Una sola firma de cada puerta. Añadir un parámetro con valor por defecto
+  -- deja viva la función anterior si no se tira, y entonces hay una puerta
+  -- que no sabe de trabajos.
+  perform assert_true(
+    (select count(*) from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+      where n.nspname = 'public' and p.proname = 'registrar_compra') = 1,
+    'registrar_compra tiene una sola firma, la que admite trabajo');
+  perform assert_true(
+    (select count(*) from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+      where n.nspname = 'public' and p.proname = 'registrar_movimiento') = 1,
+    'y registrar_movimiento también');
+
+  -- ------------------------------------------------- una cotización de dos
+  insert into quotes (organization_id, legal_entity_id, client_id, number,
+                      currency_code, tax_rate_pct)
+  values (v_org, v_uno, v_cli, next_quote_number(v_uno), 'PEN', 18)
+  returning id into v_quote;
+
+  insert into quote_lines (organization_id, quote_id, description, quantity, unit_price, sort)
+  values (v_org, v_quote, 'Campaña de lanzamiento', 1, 600, 1)
+  returning id into v_lA;
+
+  insert into quote_lines (organization_id, quote_id, description, quantity, unit_price, sort)
+  values (v_org, v_quote, 'Gestión de redes', 1, 400, 2)
+  returning id into v_lB;
+
+  insert into quote_line_costs (organization_id, quote_line_id, label, quantity, unit_cost)
+  values (v_org, v_lA, 'Diseñador', 1, 300);
+  insert into quote_line_costs (organization_id, quote_line_id, label, quantity, unit_cost)
+  values (v_org, v_lB, 'Community manager', 1, 100);
+
+  perform emitir_cotizacion(v_quote, 'Para las pruebas de F5');
+  select id into v_vid from quote_versions where quote_id = v_quote order by version_no desc limit 1;
+
+  perform assert_true(
+    (select count(*) from jobs where quote_id = v_quote) = 0,
+    'una cotización enviada todavía no es trabajo: nadie la ha aceptado');
+
+  perform cambiar_estado_cotizacion(v_quote, 'approved', 'Firmada en las pruebas');
+
+  perform assert_true(
+    (select count(*) from jobs where quote_id = v_quote) = 2,
+    'al aprobar, cada línea de la versión se vuelve un trabajo');
+
+  select id into v_jobA from jobs where quote_id = v_quote and name = 'Campaña de lanzamiento';
+  select id into v_jobB from jobs where quote_id = v_quote and name = 'Gestión de redes';
+
+  perform assert_true(
+    (select sum(price_net) from jobs where quote_id = v_quote) = 1000,
+    'los precios de los trabajos suman el neto de la versión, sin sobrar ni faltar un céntimo');
+
+  perform assert_true(
+    (select count(distinct quote_net) = 1 and max(quote_net) = 1000
+       from jobs where quote_id = v_quote),
+    'y todos guardan el mismo denominador: el neto de la versión entera');
+
+  perform assert_true(
+    (select sum(j.expected_cost) from jobs j where j.quote_id = v_quote)
+      = (select c.cost from quote_version_costs c where c.quote_version_id = v_vid),
+    'el costo estimado de los trabajos suma el de la versión: la misma aritmética, no otra parecida');
+
+  perform assert_true(
+    (select price_net = 600 and expected_cost = 300 and quote_version_id = v_vid
+       and client_id = v_cli and legal_entity_id = v_uno and status = 'open'
+       from jobs where id = v_jobA),
+    'y cada trabajo guarda la foto de su línea el día que se aprobó');
+
+  perform app.crear_trabajos(v_quote);
+  perform assert_true(
+    (select count(*) from jobs where quote_id = v_quote) = 2,
+    'crear los trabajos dos veces no los duplica: ya pueden tener costos colgando');
+
+  perform assert_true(
+    (select count(*) from job_margins where job_id = v_jobA) = 0,
+    'un trabajo recién aprobado no tiene margen: no se ha facturado ni gastado nada');
+
+  -- --------------------------------------------------------- lo facturado
+  select id into v_cuota from payment_schedule_items
+   where quote_id = v_quote and status = 'planned';
+  select id into v_venta from emitir_documento(v_cuota, p_series => 'F005-1');
+
+  perform assert_true(
+    (select amount_net = 1000 and amount_total = 1180 from billing_documents where id = v_venta),
+    'la factura de la cuota única lleva el IGV dentro: 1000 de neto y 1180 de total');
+
+  perform assert_true(
+    (select ingreso_neto = 600 and costo_neto = 0 and documentos = 1
+       from job_margins where job_id = v_jobA and currency_code = 'PEN'),
+    'y el trabajo se lleva su parte del neto —600 de 1000—, no del total: el IGV no es ingreso');
+
+  perform assert_true(
+    (select sum(ingreso_neto) from job_margins where job_id in (v_jobA, v_jobB)) = 1000,
+    'las dos partes suman el neto de la factura');
+
+  perform assert_raises(
+    format('select atribuir_compra(%L, %L)', v_venta, v_jobA),
+    'no_es_una_compra',
+    'una venta no se atribuye a mano: ya tiene su parte calculada');
+
+  -- ------------------------------------------------------------ lo que costó
+  select id into v_compra from registrar_compra(
+    v_uno, 'Imprenta Lima', 236, 'PEN',
+    p_series => 'F900-1',
+    p_description => 'Folletos del lanzamiento',
+    p_category => v_cat_out,
+    p_job => v_jobA);
+
+  perform assert_true(
+    (select job_id = v_jobA from billing_documents where id = v_compra),
+    'la compra se anota y se atribuye en el mismo acto, o en ninguno');
+
+  perform assert_true(
+    (select costo_neto = 200 and costos = 1
+       from job_margins where job_id = v_jobA and currency_code = 'PEN'),
+    'y cuenta 200, no 236: el IGV de una compra es crédito fiscal, no costo del trabajo (INV-12.2)');
+
+  perform assert_true(
+    (select ingreso_neto - costo_neto = 400
+       from job_margins where job_id = v_jobA and currency_code = 'PEN'),
+    'así que el trabajo deja 400 de los 600, contra los 300 de costo que se estimaron');
+
+  -- Un gasto sin factura detrás también es costo del trabajo.
+  select id into v_mov from registrar_movimiento(
+    v_pen, 'out', 118, 'Fotos de stock para las redes',
+    p_category => v_cat_out, p_amount_net => 100, p_amount_tax => 18,
+    p_job => v_jobB);
+
+  perform assert_true(
+    (select costo_neto = 100 and costos = 1
+       from job_margins where job_id = v_jobB and currency_code = 'PEN'),
+    'un gasto suelto atribuido cuenta por su neto declarado');
+
+  perform assert_true(
+    (select count(*) from job_margins
+      where job_id = v_jobB and currency_code = 'PEN' and ingreso_neto = 400) = 1,
+    'y el trabajo que no tenía costo sigue con su parte del ingreso intacta');
+
+  -- ------------------------------------------------------------- las puertas
+  perform assert_raises(
+    format('select registrar_movimiento(%L, ''in'', 50, ''Un ingreso'', p_job => %L)', v_pen, v_jobA),
+    'no_es_un_gasto',
+    'una entrada no se atribuye: el ingreso del trabajo sale de la línea aprobada');
+
+  perform assert_raises(
+    format('select registrar_movimiento(%L, ''out'', 50, ''Saldo inicial'', p_kind => ''opening'', p_job => %L)',
+           v_pen, v_jobA),
+    'no_es_un_gasto',
+    'y anotar un saldo inicial no es un costo de ningún trabajo');
+
+  -- Cobrar no mueve el margen del trabajo: el hecho es el documento, no el
+  -- dinero (INV-14.6). Un trabajo puede tener 66 % de margen y cero en el
+  -- banco, y las dos cosas son verdad al mismo tiempo.
+  perform registrar_cobro(v_venta, v_pen, 1180, current_date);
+  perform assert_true(
+    (select ingreso_neto = 600 from job_margins
+      where job_id = v_jobA and currency_code = 'PEN'),
+    'cobrar la factura no cambia el margen del trabajo: el hecho es el documento');
+
+  -- Y el pago de una compra tampoco se atribuye, porque la factura ya está
+  -- contada y el pago no es un hecho aparte. Va sobre otra compra para no
+  -- dejar dinero vivo colgando de la que se anula más abajo.
+  select id into v_reimpresion from registrar_compra(
+    v_uno, 'Imprenta Lima', 118, 'PEN',
+    p_series => 'F900-2',
+    p_description => 'Reimpresión',
+    p_category => v_cat_out);
+  select id into v_ap from registrar_pago_de_compra(v_reimpresion, v_pen, 118, current_date);
+
+  perform assert_true(
+    (select direction = 'out' from cash_movements where id = v_ap),
+    'pagar una compra saca dinero, que es la dirección que un trabajo admite');
+
+  perform assert_raises(
+    format('select atribuir_gasto(%L, %L)', v_ap, v_jobA),
+    'el_pago_no_se_atribuye',
+    'pero un pago que salda una factura no se atribuye: lo que cuenta es la factura');
+
+  -- Un trabajo de otra empresa no admite el costo de esta.
+  insert into quotes (organization_id, legal_entity_id, client_id, number,
+                      currency_code, tax_rate_pct)
+  values (v_org, v_dos, v_cli, next_quote_number(v_dos), 'PEN', 0)
+  returning id into v_otro;
+  insert into quote_lines (organization_id, quote_id, description, quantity, unit_price)
+  values (v_org, v_otro, 'Trabajo de la otra empresa', 1, 500);
+  perform emitir_cotizacion(v_otro);
+  perform cambiar_estado_cotizacion(v_otro, 'approved', 'Firmada');
+
+  perform assert_raises(
+    format('select atribuir_compra(%L, %L)',
+           v_compra, (select id from jobs where quote_id = v_otro limit 1)),
+    'trabajo_de_otra_empresa',
+    'el costo de una empresa no se le cuelga a un trabajo de la otra (INV-11)');
+
+  perform assert_raises(
+    format('select atribuir_compra(%L, ''99999999-9999-9999-9999-999999999999'')', v_compra),
+    'trabajo_no_encontrado',
+    'ni a un trabajo que no existe');
+
+  -- ------------------------------------------------- lo que sí se puede cambiar
+  perform actualizar_trabajo(v_jobB, p_name => 'Gestión de redes · trimestre 1', p_status => 'done');
+
+  perform assert_true(
+    (select name = 'Gestión de redes · trimestre 1' and status = 'done'
+       and price_net = 400 and expected_cost = 100
+       from jobs where id = v_jobB),
+    'el nombre y el estado se cambian; el precio acordado y el costo estimado no (INV-14.2)');
+
+  perform assert_raises(
+    format('select actualizar_trabajo(%L, p_status => ''terminado'')', v_jobB),
+    'estado_invalido',
+    'un trabajo está en curso, terminado o cancelado, y no hay un cuarto estado');
+
+  perform assert_raises(
+    format('select actualizar_trabajo(%L, p_name => ''   '')', v_jobB),
+    'nombre_obligatorio',
+    'y no se queda sin nombre');
+
+  -- -------------------------------------------------------------- anular
+  perform anular_documento(v_compra, 'Se anotó dos veces');
+
+  perform assert_true(
+    (select coalesce((select costo_neto from job_margins
+                       where job_id = v_jobA and currency_code = 'PEN'), 0)) = 0,
+    'anulada la compra, deja de contar en el trabajo sin que nadie la desatribuya');
+
+  -- Y desatribuir es decir trabajo nulo, no borrar nada.
+  perform atribuir_gasto(v_mov, null);
+  perform assert_true(
+    (select job_id is null from cash_movements where id = v_mov)
+    and (select count(*) from job_margins
+          where job_id = v_jobB and currency_code = 'PEN' and costo_neto = 0) = 1,
+    'desatribuir un gasto lo saca del trabajo y no borra el gasto');
+end $$;
+
+-- ---------------------------------------------------------------------------
+-- F5-3 · Lo puntual también es caja (INV-15.4)
+-- ---------------------------------------------------------------------------
+--
+-- Un previsto es un plan sin cotización ni factura detrás. Lo que se vigila
+-- aquí es que su estado salga del dinero y no de un botón, que lo saldado a
+-- medias siga proyectando lo que falta, y que una cuota de cotización no
+-- pueda entrar por estas puertas: habría dos caminos para cobrar una venta y
+-- uno de los dos no dejaría documento.
+
+do $$
+declare
+  v_org     uuid;
+  v_uno     uuid;
+  v_dos     uuid;
+  v_usuario uuid := '11111111-1111-1111-1111-111111111111';
+  v_pen     uuid;
+  v_usd     uuid;
+  v_prev    uuid;
+  v_cobro   uuid;
+  v_mov     uuid;
+  v_cuota   uuid;
+  v_antes   int;
+begin
+  select id into v_org from organizations where slug = 'org-a';
+  select id into v_uno from legal_entities
+   where organization_id = v_org and legal_name = 'Entidad Uno';
+  select id into v_dos from legal_entities
+   where organization_id = v_org and legal_name = 'Entidad Dos';
+  select id into v_pen from cash_accounts
+   where organization_id = v_org and name = 'BCP Soles';
+  select id into v_usd from cash_accounts
+   where organization_id = v_org and name = 'Mercury USD';
+
+  -- -------------------------------------------------------------- la forma
+  perform assert_true(
+    not has_table_privilege('authenticated', 'payment_schedule_items', 'insert')
+    and not has_table_privilege('authenticated', 'payment_schedule_items', 'update'),
+    'un previsto se crea por su puerta: la tabla no acepta escritura suelta');
+
+  -- --------------------------------------------------------- la puerta dice no
+  perform assert_raises(
+    format('select guardar_previsto(%L, ''ambas'', ''Cámara'', 3000, ''PEN'', current_date)', v_uno),
+    'direccion_invalida',
+    'un previsto es dinero que entra o dinero que sale, no las dos cosas');
+
+  perform assert_raises(
+    format('select guardar_previsto(%L, ''out'', ''   '', 3000, ''PEN'', current_date)', v_uno),
+    'etiqueta_obligatoria',
+    'y necesita un nombre que se reconozca en la proyección dentro de dos meses');
+
+  perform assert_raises(
+    format('select guardar_previsto(%L, ''out'', ''Cámara'', 3000, ''PEN'', null)', v_uno),
+    'fecha_obligatoria',
+    'sin fecha no cae en ninguna semana, así que no proyectaría nada');
+
+  perform assert_raises(
+    format('select guardar_previsto(%L, ''out'', ''Cámara'', 0, ''PEN'', current_date)', v_uno),
+    'importe_invalido',
+    'ni con importe cero');
+
+  perform assert_raises(
+    format('select guardar_previsto(%L, ''out'', ''Cámara'', 3000, ''PEN'', current_date, %L)',
+           v_uno, v_usd),
+    'cuenta_de_otro_libro',
+    'la cuenta esperada es del mismo libro y la misma moneda, y lo dice con nombres');
+
+  -- ------------------------------------------------------------ un previsto
+  select id into v_prev from guardar_previsto(
+    v_uno, 'out', 'Cámara pactada', 3000, 'PEN', current_date + 20, v_pen);
+
+  perform assert_true(
+    (select quote_id is null and quote_version_id is null and status = 'planned'
+       and direction = 'out' and amount = 3000
+       from payment_schedule_items where id = v_prev),
+    'un previsto es una fila sin cotización detrás, y nace como plan');
+
+  -- ------------------------------------------------- se salda con dinero
+  perform assert_raises(
+    format('select saldar_previsto(%L, %L, 1000)', v_prev, v_usd),
+    'cuenta_de_otro_libro',
+    'y se salda desde una cuenta de su empresa y su moneda');
+
+  select id into v_mov from saldar_previsto(v_prev, v_pen, 1000, current_date);
+
+  perform assert_true(
+    (select direction = 'out' and amount = 1000 and kind = 'operating'
+       from cash_movements where id = v_mov),
+    'saldarlo crea el movimiento en el sentido del previsto');
+
+  perform assert_true(
+    (select status = 'planned' from payment_schedule_items where id = v_prev),
+    'saldado a medias sigue siendo un plan: faltan 2000 que la proyección tiene que seguir viendo');
+
+  -- El movimiento de un previsto es su propio hecho económico: la asignación
+  -- señala a una cuota, no a un documento, así que INV-6 no lo excluye.
+  perform assert_true(
+    exists (select 1 from economic_facts f where f.source_id = v_mov),
+    'el movimiento de un previsto cuenta en el resultado: no hay documento que lo cuente por él');
+
+  perform saldar_previsto(v_prev, v_pen, 2000, current_date);
+
+  perform assert_true(
+    (select status = 'settled' from payment_schedule_items where id = v_prev),
+    'cubierto del todo, el estado lo pone el dinero y no un botón');
+
+  perform assert_raises(
+    format('select saldar_previsto(%L, %L, 100)', v_prev, v_pen),
+    'previsto_ya_saldado',
+    'y saldado del todo no admite más');
+
+  -- ----------------------------------------------- el tope no se vigila
+  -- Un previsto es una estimación: si la cámara costó 3200 en vez de 3000,
+  -- negarse a registrar el pago sería obligar a editar el plan para poder
+  -- anotar la realidad (INV-15.4.5).
+  select id into v_cobro from guardar_previsto(
+    v_uno, 'out', 'Equipo que se encareció', 3000, 'PEN', current_date + 30);
+  perform assert_true(
+    (select count(*) from saldar_previsto(v_cobro, v_pen, 3200, current_date)) = 1,
+    'pagar más de lo previsto se puede: el plan era una estimación, el movimiento es el dinero');
+  perform assert_true(
+    (select status = 'settled' from payment_schedule_items where id = v_cobro),
+    'y queda saldado');
+
+  -- --------------------------------------------- el sentido sí se vigila
+  select id into v_cobro from guardar_previsto(
+    v_uno, 'in', 'Adelanto que nos van a pasar', 500, 'PEN', current_date + 10);
+
+  select id into v_mov from registrar_movimiento(v_pen, 'out', 500, 'Una salida cualquiera');
+  perform assert_raises(
+    format('insert into payment_allocations (organization_id, legal_entity_id, currency_code,
+              cash_movement_id, payment_schedule_item_id, amount)
+            values (%L, %L, ''PEN'', %L, %L, 500);
+            set constraints all immediate', v_org, v_uno, v_mov, v_cobro),
+    'direccion_no_concuerda',
+    'un pago no salda un cobro previsto');
+
+  -- ------------------------------------------------------------- quitarlo
+  select id into v_cobro from guardar_previsto(
+    v_uno, 'out', 'Previsto que se cae', 400, 'PEN', current_date + 15);
+  perform quitar_previsto(v_cobro);
+  perform assert_true(
+    (select count(*) from payment_schedule_items where id = v_cobro) = 0,
+    'un previsto sin dinero se borra: una proyección no es un hecho económico');
+
+  perform assert_raises(
+    format('select quitar_previsto(%L)', v_prev),
+    'previsto_con_dinero',
+    'pero con dinero asignado no, porque dejaría ese movimiento señalando a algo que no existe');
+
+  perform assert_raises(
+    format('select guardar_previsto(%L, ''out'', ''Otro nombre'', 9000, ''PEN'', current_date, null, %L)',
+           v_uno, v_prev),
+    'previsto_con_dinero',
+    'ni se le cambia el importe: habría que decidir qué pasa con lo ya asignado');
+
+  -- ------------------------------------- una cuota de cotización no entra
+  select id into v_cuota from payment_schedule_items
+   where organization_id = v_org and quote_id is not null limit 1;
+
+  if v_cuota is not null then
+    perform assert_raises(
+      format('select saldar_previsto(%L, %L, 10)', v_cuota, v_pen),
+      'cuota_de_cotizacion',
+      'una cuota de cotización se cobra emitiendo su documento, no por esta puerta');
+
+    perform assert_raises(
+      format('select quitar_previsto(%L)', v_cuota),
+      'cuota_de_cotizacion',
+      'y se quita desde su cronograma, que comprueba que las demás sumen el total');
+  end if;
+
+  -- --------------------------------------------- anular devuelve el plan
+  select id into v_cobro from guardar_previsto(
+    v_uno, 'out', 'Adelanto al freelance', 800, 'PEN', current_date + 5);
+  select id into v_mov from saldar_previsto(v_cobro, v_pen, 800, current_date);
+  perform assert_true(
+    (select status = 'settled' from payment_schedule_items where id = v_cobro),
+    'saldado');
+
+  perform anular_movimiento(v_mov, 'El pago no salió');
+  perform assert_true(
+    (select status = 'planned' from payment_schedule_items where id = v_cobro),
+    'anulado el movimiento, el previsto vuelve a ser un plan y reaparece en la proyección');
+
+  -- Y un previsto de otra empresa no se salda con una cuenta de esta: lo
+  -- impide la misma comprobación de libro.
+  select id into v_cobro from guardar_previsto(
+    v_dos, 'out', 'Algo de la otra empresa', 100, 'PEN', current_date + 3);
+  perform assert_raises(
+    format('select saldar_previsto(%L, %L, 100)', v_cobro, v_pen),
+    'cuenta_de_otro_libro',
+    'el dinero no cruza de una empresa a otra (INV-11)');
+end $$;
+
+-- ---------------------------------------------------------------------------
+-- F6-1 · Lo que el banco dice (INV-8)
+-- ---------------------------------------------------------------------------
+--
+-- La aserción que manda sobre todas es la primera: importar un extracto y
+-- emparejarlo entero no mueve el saldo ni un céntimo. Si eso falla, conciliar
+-- habría dejado de ser una comprobación para pasar a ser otra forma de
+-- escribir en el libro.
+
+do $$
+declare
+  v_org      uuid;
+  v_uno      uuid;
+  v_usuario  uuid := '11111111-1111-1111-1111-111111111111';
+  v_pen      uuid;
+  v_usd      uuid;
+  v_saldo0   numeric;
+  v_saldo1   numeric;
+  v_ext      uuid;
+  v_l1       uuid;
+  v_l2       uuid;
+  v_l3       uuid;
+  v_mov_usd  uuid;
+  v_m1       uuid;
+  v_m2       uuid;
+  v_m3       uuid;
+  v_match    uuid;
+  v_lineas   jsonb;
+begin
+  select id into v_org from organizations where slug = 'org-a';
+  select id into v_uno from legal_entities
+   where organization_id = v_org and legal_name = 'Entidad Uno';
+  select id into v_pen from cash_accounts
+   where organization_id = v_org and name = 'BCP Soles';
+  select id into v_usd from cash_accounts
+   where organization_id = v_org and name = 'Mercury USD';
+
+  -- -------------------------------------------------------------- la forma
+  perform assert_true(
+    has_table_privilege('authenticated', 'bank_statements', 'select')
+    and not has_table_privilege('authenticated', 'bank_statements', 'insert')
+    and not has_table_privilege('authenticated', 'bank_statement_lines', 'insert')
+    and not has_table_privilege('authenticated', 'bank_line_matches', 'insert'),
+    'el extracto se lee: lo escriben las puertas, no la pantalla');
+
+  perform assert_true(
+    (select bool_and(relrowsecurity and relforcerowsecurity) from pg_class
+      where oid in ('bank_statements'::regclass, 'bank_statement_lines'::regclass,
+                    'bank_line_matches'::regclass)),
+    'las tres tablas tienen RLS, y forzada también para el dueño');
+
+  perform assert_true(
+    exists (select 1 from pg_indexes
+             where tablename = 'bank_line_matches'
+               and indexname = 'movimiento_conciliado_una_vez'),
+    'un movimiento no se marca dos veces, y lo impone un índice');
+
+  -- --------------------------------------------- la puerta dice que no
+  perform assert_raises(
+    format('select importar_extracto(%L, ''Noviembre'', ''[]''::jsonb)', v_pen),
+    'extracto_vacio',
+    'un archivo del que no se leyó ninguna línea no se importa en silencio');
+
+  perform assert_raises(
+    format('select importar_extracto(%L, ''  '', ''[{"fecha":"2026-11-03","importe":-118}]''::jsonb)', v_pen),
+    'etiqueta_obligatoria',
+    'y necesita un nombre que se reconozca dentro de seis meses');
+
+  perform assert_raises(
+    format('select importar_extracto(%L, ''Noviembre'',
+             ''[{"fecha":"2026-11-03","importe":0,"descripcion":"Nada"}]''::jsonb)', v_pen),
+    'importe_invalido',
+    'una línea de importe cero delata que la columna mapeada no era la del importe');
+
+  -- ------------------------------------------------------ importar
+  select balance into v_saldo0 from account_balances where cash_account_id = v_pen;
+
+  v_lineas := jsonb_build_array(
+    jsonb_build_object('fecha', (current_date - 3)::text, 'importe', -118.00,
+                       'descripcion', 'COMISION MANTENIMIENTO', 'referencia', 'OP-5001'),
+    jsonb_build_object('fecha', (current_date - 2)::text, 'importe', 1180.00,
+                       'descripcion', 'ABONO CLIENTE EJ', 'referencia', 'OP-5002'),
+    jsonb_build_object('fecha', (current_date - 1)::text, 'importe', -250.00,
+                       'descripcion', 'CARGO QUE NO RECONOZCO'));
+
+  select id into v_ext from importar_extracto(v_pen, 'BCP · noviembre', v_lineas);
+
+  perform assert_true(
+    (select lineas = 3 and desde = current_date - 3 and hasta = current_date - 1
+       from bank_statements where id = v_ext),
+    'el extracto guarda cuántas líneas trae y qué fechas cubre');
+
+  perform assert_true(
+    (select count(*) = 3 from bank_statement_lines where statement_id = v_ext),
+    'y sus tres líneas');
+
+  perform assert_true(
+    (select direction = 'out' and amount = 118.00
+       from bank_statement_lines where statement_id = v_ext and fila = 1),
+    'el signo del extracto decide la dirección, y el importe se guarda en positivo como en el libro');
+
+  perform assert_true(
+    (select raw->>'referencia' = 'OP-5001'
+       from bank_statement_lines where statement_id = v_ext and fila = 1),
+    'y la fila original se queda entera, por si hay que mirar qué decía el banco');
+
+  -- INV-8, la aserción que manda: importar no movió el saldo.
+  select balance into v_saldo1 from account_balances where cash_account_id = v_pen;
+  perform assert_true(
+    v_saldo1 = v_saldo0,
+    'importar un extracto no mueve el saldo ni un céntimo (INV-8)');
+
+  perform assert_raises(
+    format('select importar_extracto(%L, ''Otra vez'', %L::jsonb)', v_pen, v_lineas::text),
+    'extracto_repetido',
+    'el mismo extracto no entra dos veces: duplicaría media conciliación');
+
+  -- ----------------------------------------------------------- emparejar
+  select id into v_l1 from bank_statement_lines where statement_id = v_ext and fila = 1;
+  select id into v_l2 from bank_statement_lines where statement_id = v_ext and fila = 2;
+  select id into v_l3 from bank_statement_lines where statement_id = v_ext and fila = 3;
+
+  select id into v_m1 from registrar_movimiento(
+    v_pen, 'out', 118, 'Comisión del banco', current_date - 3, 'bank_fee');
+
+  perform assert_true(
+    (select not cuadra and emparejados = 0 from bank_line_status where line_id = v_l1),
+    'una línea sin emparejar no cuadra, y lo dice');
+
+  perform emparejar_linea(v_l1, v_m1);
+
+  perform assert_true(
+    (select cuadra and emparejados = 1 and conciliado = 118.00
+       from bank_line_status where line_id = v_l1),
+    'emparejada con un movimiento del mismo importe, cuadra');
+
+  -- Y emparejar tampoco movió el saldo: lo que lo movió fue el movimiento.
+  select balance into v_saldo1 from account_balances where cash_account_id = v_pen;
+  perform assert_true(
+    v_saldo1 = v_saldo0 - 118,
+    'el saldo cambió por el movimiento, no por el emparejamiento (INV-8)');
+
+  -- ----------------------------------------------- lo que no se puede
+  select id into v_m2 from registrar_movimiento(
+    v_pen, 'in', 600, 'Cobro suelto', current_date - 2);
+  select id into v_m3 from registrar_movimiento(
+    v_pen, 'in', 580, 'Otro cobro del mismo día', current_date - 2);
+
+  perform assert_raises(
+    format('select emparejar_linea(%L, %L)', v_l1, v_m2),
+    'direccion_no_concuerda',
+    'en el banco salió dinero y el movimiento es una entrada: juntarlos daría por cuadrado lo que no cuadra');
+
+  -- La tercera línea también es una salida, así que llega a la comprobación
+  -- que se quiere ver. Con la segunda —que es una entrada— saltaría antes la
+  -- del sentido, y la prueba no probaría lo que dice.
+  perform assert_raises(
+    format('select emparejar_linea(%L, %L)', v_l3, v_m1),
+    'movimiento_ya_conciliado',
+    'un movimiento no puede ser dos apuntes del banco');
+
+  select id into v_mov_usd from registrar_movimiento(
+    v_usd, 'in', 1180, 'Un cobro en la otra cuenta', current_date - 2);
+
+  perform assert_raises(
+    format('select emparejar_linea(%L, %L)', v_l2, v_mov_usd),
+    'cuenta_de_otro_libro',
+    'una línea del BCP no se tacha con dinero de Mercury');
+
+  -- ------------------------------- el banco junta dos depósitos del día
+  perform emparejar_linea(v_l2, v_m2);
+  perform assert_true(
+    (select not cuadra and conciliado = 600.00 from bank_line_status where line_id = v_l2),
+    'con la mitad emparejada, la línea todavía no cuadra');
+
+  perform emparejar_linea(v_l2, v_m3);
+  perform assert_true(
+    (select cuadra and emparejados = 2 and conciliado = 1180.00
+       from bank_line_status where line_id = v_l2),
+    'una línea puede ser varios movimientos: el banco junta dos depósitos del mismo día');
+
+  -- ------------------------------------------- anular deshace el cuadre
+  perform anular_movimiento(v_m3, 'No era de este cliente');
+  perform assert_true(
+    (select not cuadra and conciliado = 600.00 from bank_line_status where line_id = v_l2),
+    'anulado uno de los movimientos, la línea deja de cuadrar sola: el dinero anulado no es dinero');
+
+  perform assert_raises(
+    format('select emparejar_linea(%L, %L)', v_l2, v_m3),
+    'movimiento_anulado',
+    'y un movimiento anulado no se puede emparejar');
+
+  -- ------------------------------------------------------- desemparejar
+  select id into v_match from bank_line_matches where statement_line_id = v_l1;
+  perform desemparejar_linea(v_match);
+  perform assert_true(
+    (select not cuadra and emparejados = 0 from bank_line_status where line_id = v_l1),
+    'un emparejamiento es una afirmación, y una afirmación se puede retirar');
+
+  -- -------------------------------------------------------------- apartar
+  perform assert_raises(
+    format('select ignorar_linea(%L, ''No es mía'')', v_l2),
+    'linea_emparejada',
+    'una línea ya marcada contra un movimiento no se aparta sin quitar antes el emparejamiento');
+
+  perform ignorar_linea(v_l1, 'Es la comisión del banco, la anoto en diciembre');
+  perform assert_true(
+    (select ignored_at is not null and ignored_reason like 'Es la comisión%'
+       from bank_statement_lines where id = v_l1),
+    'apartar una línea deja el motivo escrito y no la borra');
+
+  perform assert_raises(
+    format('select emparejar_linea(%L, %L)', v_l1, v_m1),
+    'linea_ignorada',
+    'y mientras está apartada no se empareja, para que no esté en dos sitios a la vez');
+
+  perform ignorar_linea(v_l1, null);
+  perform assert_true(
+    (select ignored_at is null from bank_statement_lines where id = v_l1),
+    'con motivo nulo vuelve a la lista de pendientes');
+
+  -- ----------------------------------- y nada de esto tocó el libro
+  perform assert_true(
+    (select count(*) from cash_movements
+      where cash_account_id = v_pen and description = 'COMISION MANTENIMIENTO') = 0,
+    'conciliar no creó ningún movimiento a partir del extracto (INV-8)');
+end $$;
+
+-- ---------------------------------------------------------------------------
+-- F6-2 · Hasta aquí está cuadrado (INV-8.8)
+-- ---------------------------------------------------------------------------
+--
+-- Un cierre es una afirmación con condiciones. Lo que se vigila aquí es que
+-- las condiciones no se puedan saltar: cerrar con líneas sueltas, cerrar sin
+-- extracto, cerrar hacia el futuro, o tocar lo cerrado sin reabrir.
+
+do $$
+declare
+  v_org     uuid;
+  v_uno     uuid;
+  v_pen     uuid;
+  v_ext     uuid;
+  v_l1      uuid;
+  v_l2      uuid;
+  v_m1      uuid;
+  v_mov     uuid;
+  v_match   uuid;
+  v_lineas  jsonb;
+  v_saldo0  numeric;
+begin
+  select id into v_org from organizations where slug = 'org-a';
+  select id into v_uno from legal_entities
+   where organization_id = v_org and legal_name = 'Entidad Uno';
+  select id into v_pen from cash_accounts
+   where organization_id = v_org and name = 'BCP Soles';
+
+  perform assert_true(
+    has_table_privilege('authenticated', 'bank_reconciliations', 'select')
+    and not has_table_privilege('authenticated', 'bank_reconciliations', 'insert')
+    and not has_table_privilege('authenticated', 'bank_reconciliations', 'update'),
+    'la fecha del cierre solo la pone el gate: la tabla no acepta escritura suelta');
+
+  -- Un extracto nuevo, de un mes anterior al de F6-1 para no pisarlo.
+  v_lineas := jsonb_build_array(
+    jsonb_build_object('fecha', (current_date - 60)::text, 'importe', -40.00,
+                       'descripcion', 'PORTES Y COMISIONES'),
+    jsonb_build_object('fecha', (current_date - 59)::text, 'importe', -75.00,
+                       'descripcion', 'CARGO DESCONOCIDO'));
+  select id into v_ext from importar_extracto(v_pen, 'BCP · dos meses atrás', v_lineas);
+  select id into v_l1 from bank_statement_lines where statement_id = v_ext and fila = 1;
+  select id into v_l2 from bank_statement_lines where statement_id = v_ext and fila = 2;
+
+  -- ------------------------------------------------- no se cierra en falso
+  perform assert_raises(
+    format('select cerrar_conciliacion(%L, %L)', v_pen, current_date + 5),
+    'fecha_futura',
+    'no se cierra hacia el futuro: el banco no ha dicho qué pasa mañana');
+
+  perform assert_raises(
+    format('select cerrar_conciliacion(%L, %L)', v_pen, current_date - 400),
+    'sin_extracto',
+    'ni contra un periodo del que no hay extracto importado');
+
+  perform assert_raises(
+    format('select cerrar_conciliacion(%L, %L)', v_pen, current_date - 58),
+    'quedan_lineas',
+    'ni con líneas del banco sin resolver: un cierre que las admite solo las esconde');
+
+  -- ----------------------------------- se resuelven las dos y ahora sí
+  -- La primera se anota desde la propia línea: es el gasto que el banco te
+  -- cobró y nunca apuntaste.
+  select coalesce(max(balance), 0) into v_saldo0
+    from account_balances where cash_account_id = v_pen;
+
+  select id into v_mov from crear_movimiento_desde_linea(v_l1, null, 'Portes del banco');
+
+  perform assert_true(
+    (select source = 'bank_import' and amount = 40.00 and direction = 'out'
+       and value_date = current_date - 60
+       from cash_movements where id = v_mov),
+    'anotar desde la línea copia su fecha, su importe y su sentido, y deja dicho de dónde salió');
+
+  perform assert_true(
+    (select cuadra from bank_line_status where line_id = v_l1),
+    'y la empareja en el mismo acto, porque para eso se anotó');
+
+  perform assert_true(
+    (select coalesce(max(balance), 0) from account_balances where cash_account_id = v_pen)
+      = v_saldo0 - 40,
+    'eso sí mueve el saldo, y es lo correcto: el dinero salió, solo que no estaba apuntado');
+
+  perform assert_raises(
+    format('select crear_movimiento_desde_linea(%L)', v_l1),
+    'linea_emparejada',
+    'pero no dos veces: la línea ya tiene su movimiento');
+
+  -- La segunda se aparta: no es suya.
+  perform ignorar_linea(v_l2, 'Es un cargo que el banco ya me devolvió');
+
+  perform assert_true(
+    (select count(*) from bank_reconciliations where cash_account_id = v_pen) = 0,
+    'todavía sin cerrar');
+
+  perform cerrar_conciliacion(v_pen, current_date - 58);
+
+  perform assert_true(
+    (select hasta = current_date - 58 from bank_reconciliations where cash_account_id = v_pen),
+    'resueltas las dos —una emparejada y otra apartada—, el cierre entra');
+
+  -- ---------------------------------------------- lo cerrado no se toca
+  select id into v_match from bank_line_matches where statement_line_id = v_l1;
+  perform assert_raises(
+    format('select desemparejar_linea(%L)', v_match),
+    'periodo_cerrado',
+    'desemparejar algo cerrado se rechaza con la fecha dentro');
+
+  perform assert_raises(
+    format('select ignorar_linea(%L, null)', v_l2),
+    'periodo_cerrado',
+    'devolver a pendientes algo cerrado, también');
+
+  perform assert_raises(
+    format('select importar_extracto(%L, ''Otro de hace meses'',
+             ''[{"fecha":"%s","importe":-10,"descripcion":"Tarde"}]''::jsonb)',
+           v_pen, (current_date - 59)::text),
+    'periodo_cerrado',
+    'y no se importa por debajo del cierre: dejaría líneas sin resolver bajo una fecha que dice que todo lo anterior lo está');
+
+  -- Lo de después del cierre sigue tocándose con normalidad.
+  select id into v_m1 from registrar_movimiento(
+    v_pen, 'out', 33, 'Algo de esta semana', current_date - 1);
+  perform assert_true(
+    (select count(*) from cash_movements where id = v_m1) = 1,
+    'y lo posterior al cierre no se entera de nada');
+
+  -- ------------------------------------------------------------ reabrir
+  perform cerrar_conciliacion(v_pen, null);
+  perform assert_true(
+    (select count(*) from bank_reconciliations where cash_account_id = v_pen) = 0,
+    'reabrir es explícito y sin condiciones: encontrar un error dos meses después es normal');
+
+  perform desemparejar_linea(v_match);
+  perform assert_true(
+    (select not cuadra from bank_line_status where line_id = v_l1),
+    'y reabierto, se vuelve a poder tocar');
+end $$;
+
+-- ---------------------------------------------------------------------------
+-- F4-4 · Que no falte ninguna línea (INV-8.12)
+-- ---------------------------------------------------------------------------
+--
+-- Lo que se vigila es el caso silencioso: un archivo cortado a la mitad cuyas
+-- líneas cuadran todas una por una. Lo único que lo delata es la aritmética
+-- del propio banco, y por eso hay tres estados y no dos: cuadra, no cuadra, y
+-- **no se pudo comprobar**, que no es lo mismo que cuadrar.
+
+do $$
+declare
+  v_org    uuid;
+  v_uno    uuid;
+  v_cuenta uuid;
+  v_ext    uuid;
+  v_lineas jsonb;
+begin
+  select id into v_org from organizations where slug = 'org-a';
+  select id into v_uno from legal_entities
+   where organization_id = v_org and legal_name = 'Entidad Uno';
+
+  -- Una cuenta propia de este bloque: así sus extractos y su cierre no pisan
+  -- los de los bloques de arriba, que afirman cosas sobre BCP Soles.
+  insert into cash_accounts (organization_id, legal_entity_id, name, currency_code)
+  values (v_org, v_uno, 'Cuenta de la prueba de cuadre', 'PEN')
+  returning id into v_cuenta;
+
+  v_lineas := jsonb_build_array(
+    jsonb_build_object('fecha', (current_date - 20)::text, 'importe', 500.00,
+                       'descripcion', 'ABONO'),
+    jsonb_build_object('fecha', (current_date - 19)::text, 'importe', -120.00,
+                       'descripcion', 'CARGO'));
+
+  -- ------------------------------------------------- sin saldos: no comprobado
+  select id into v_ext from importar_extracto(v_cuenta, 'Sin saldos', v_lineas);
+  perform assert_true(
+    (select diferencia is null and saldo_inicial is null from bank_statements where id = v_ext),
+    'sin los saldos del banco la diferencia queda NULA: «no se pudo comprobar» no es «cuadra»');
+
+  perform assert_raises(
+    format('select importar_extracto(%L, ''A medias'', %L::jsonb, 100, null)',
+           v_cuenta, v_lineas::text),
+    'saldos_a_medias',
+    'y un saldo solo no es una comprobación: hacen falta los dos o ninguno');
+
+  -- ------------------------------------------------------- con saldos: cuadra
+  v_lineas := jsonb_build_array(
+    jsonb_build_object('fecha', (current_date - 18)::text, 'importe', 500.00,
+                       'descripcion', 'ABONO'),
+    jsonb_build_object('fecha', (current_date - 17)::text, 'importe', -120.00,
+                       'descripcion', 'CARGO'));
+  select id into v_ext from importar_extracto(
+    v_cuenta, 'Cuadra al céntimo', v_lineas, 1000.00, 1380.00);
+  perform assert_true(
+    (select diferencia = 0 from bank_statements where id = v_ext),
+    'con los dos saldos y las líneas completas, la diferencia es exactamente cero');
+
+  -- --------------------------------------------------- con saldos: no cuadra
+  v_lineas := jsonb_build_array(
+    jsonb_build_object('fecha', (current_date - 16)::text, 'importe', 500.00,
+                       'descripcion', 'ABONO'),
+    jsonb_build_object('fecha', (current_date - 15)::text, 'importe', -120.00,
+                       'descripcion', 'CARGO'));
+  select id into v_ext from importar_extracto(
+    v_cuenta, 'Le falta una línea', v_lineas, 1000.00, 1500.00);
+
+  perform assert_true(
+    (select diferencia = 120 from bank_statements where id = v_ext),
+    'y si el banco dice que se movió más de lo que suman sus líneas, la diferencia lo dice con su cifra');
+
+  perform assert_true(
+    (select count(*) from bank_statement_lines where statement_id = v_ext) = 2,
+    'el extracto descuadrado se importa igual: rechazarlo dejaría al usuario sin sus líneas y sin saber por qué');
+
+  -- Y lo que de verdad protege: ese extracto no deja cerrar el periodo.
+  perform assert_raises(
+    format('select cerrar_conciliacion(%L, %L)', v_cuenta, current_date - 15),
+    'extracto_descuadrado',
+    'un extracto que no cuadra consigo mismo bloquea el cierre: no es que falte emparejar, es que no se sabe cuántas líneas hubo');
+end $$;
+
+-- ---------------------------------------------------------------------------
+-- F5-5 · Cuánto tiempo se fue (INV-16)
+-- ---------------------------------------------------------------------------
+--
+-- Lo que se vigila: que las horas no se conviertan en dinero por ningún
+-- camino, que se guarden en minutos enteros y que un dedo torpe no meta
+-- trece horas de más sin que nadie lo note.
+
+do $$
+declare
+  v_org    uuid;
+  v_job    uuid;
+  v_otro   uuid;
+  v_apunte uuid;
+  v_antes  numeric;
+begin
+  select id into v_org from organizations where slug = 'org-a';
+  select id into v_job from jobs where name = 'Campaña de lanzamiento' limit 1;
+  select id into v_otro from jobs where name = 'Gestión de redes · trimestre 1' limit 1;
+
+  perform assert_true(
+    has_table_privilege('authenticated', 'job_time_entries', 'select')
+    and not has_table_privilege('authenticated', 'job_time_entries', 'insert'),
+    'las horas se anotan por su puerta');
+
+  perform assert_true(
+    (select relrowsecurity and relforcerowsecurity
+       from pg_class where oid = 'job_time_entries'::regclass),
+    'con RLS, y forzada también para el dueño');
+
+  -- Lo que el trabajo costaba antes de anotar una sola hora.
+  select costo_neto into v_antes from job_margins
+   where job_id = v_job and currency_code = 'PEN';
+
+  perform anotar_horas(v_job, 'Chelo', 90, current_date - 5, 'Guion y reunión');
+  perform anotar_horas(v_job, 'Eli', 240, current_date - 4);
+  perform anotar_horas(v_job, 'chelo', 60, current_date - 3);
+
+  perform assert_true(
+    (select minutos = 390 and apuntes = 3 and personas = 2
+       from job_time where job_id = v_job),
+    'suma los minutos y cuenta las personas sin distinguir mayúsculas');
+
+  -- INV-16.1, la que manda: anotar horas no toca el dinero.
+  perform assert_true(
+    coalesce((select costo_neto from job_margins
+               where job_id = v_job and currency_code = 'PEN'), 0)
+      is not distinct from coalesce(v_antes, 0),
+    'anotar horas no cambia el costo del trabajo ni un céntimo (INV-16.1)');
+
+  perform assert_true(
+    (select count(*) from economic_facts f
+      join job_time_entries t on t.id::text = f.source_id::text) = 0,
+    'y no produce ningún hecho económico: una hora no es un gasto');
+
+  -- --------------------------------------------------- lo que no se puede
+  perform assert_raises(
+    format('select anotar_horas(%L, ''  '', 60)', v_job),
+    'quien_obligatorio',
+    'hace falta saber de quién fue ese tiempo');
+
+  perform assert_raises(
+    format('select anotar_horas(%L, ''Chelo'', 0)', v_job),
+    'minutos_invalidos',
+    'y que sean minutos de verdad');
+
+  -- Trece horas en un día de lanzamiento son reales, así que 800 entra. Lo
+  -- que el tope ataja es el dedo que teclea 25 horas donde quería 2,5, o el
+  -- que se come un decimal: cifras que nadie revisa y que dejan el margen
+  -- por hora en ridículo seis meses después.
+  perform assert_true(
+    (select count(*) from anotar_horas(v_job, 'Chelo', 800, current_date - 20)) = 1,
+    'un día de trece horas es largo pero posible, y se puede anotar');
+  perform quitar_horas((select id from job_time_entries
+                         where job_id = v_job and minutes = 800 limit 1));
+
+  perform assert_raises(
+    format('select anotar_horas(%L, ''Chelo'', 1500)', v_job),
+    'minutos_invalidos',
+    'pero veinticinco horas en un día no caben en un día');
+
+  perform assert_raises(
+    'select anotar_horas(''99999999-9999-9999-9999-999999999999'', ''Chelo'', 60)',
+    'trabajo_no_encontrado',
+    'ni horas en un trabajo que no existe');
+
+  -- ------------------------------------------------------------- quitar
+  select id into v_apunte from job_time_entries
+   where job_id = v_job and who = 'Eli' limit 1;
+  perform quitar_horas(v_apunte);
+
+  perform assert_true(
+    (select minutos = 150 and apuntes = 2 from job_time where job_id = v_job),
+    'un apunte mal puesto se borra: no es un hecho económico, y el rastro queda en la auditoría');
+
+  -- Un trabajo sin horas no aparece en la vista, que es distinto de cero.
+  perform assert_true(
+    (select count(*) from job_time where job_id = v_otro) = 0,
+    'un trabajo sin una sola hora anotada no tiene fila: «no se sabe» no es «cero»');
+end $$;
+
 reset request.jwt.claim.sub;
 
-select 'TODAS LAS PRUEBAS DE F1, F2 Y F3 PASARON · 167 aserciones' as resultado;
+select 'TODAS LAS PRUEBAS DE F1 A F6 PASARON · 284 aserciones' as resultado;

@@ -4,6 +4,8 @@ const SUBSECCIONES = [
   { ruta: 'caja', nombre: 'Caja' },
   { ruta: 'compras', nombre: 'Compras' },
   { ruta: 'gastos-fijos', nombre: 'Gastos fijos' },
+  { ruta: 'previstos', nombre: 'Previstos' },
+  { ruta: 'conciliacion', nombre: 'Conciliación' },
 ] as const;
 
 export default function Finanzas() {

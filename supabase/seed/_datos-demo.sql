@@ -61,6 +61,12 @@ declare
   v_cuota  uuid;
   v_doc    uuid;
   v_compra uuid;
+  v_trab_lanz  uuid;
+  v_trab_redes uuid;
+  v_previsto   uuid;
+  v_taxis      uuid;
+  v_extracto   uuid;
+  v_linea      uuid;
 begin
   -- Quién es el dueño de la demo: el primer usuario del proyecto. En «Margen
   -- Pilot» hay exactamente uno, así que es él; en la CI es uno de los dos de
@@ -254,6 +260,14 @@ begin
   perform emitir_cotizacion(v_q_aprobada, 'Versión final acordada');
   perform cambiar_estado_cotizacion(v_q_aprobada, 'approved', 'Firmada');
 
+  -- Aprobar convirtió cada línea de la versión en un trabajo (INV-14). No se
+  -- crean aquí: se buscan, porque crearlos a mano sería saltarse la puerta que
+  -- la aplicación usa de verdad.
+  select j.id into v_trab_lanz  from jobs j
+   where j.quote_id = v_q_aprobada and j.service_id = v_srv_lanz;
+  select j.id into v_trab_redes from jobs j
+   where j.quote_id = v_q_aprobada and j.service_id = v_srv_redes;
+
   -- ------------------------------------------------------------- el dinero
   -- El saldo de apertura es un movimiento más (`kind='opening'`), no un campo
   -- aparte: por eso hay una sola fórmula de saldo y no dos cifras que puedan
@@ -268,7 +282,7 @@ begin
     current_date - 6, 'Reponer la caja chica', 5, v_bcp);
 
   -- Un gasto con su IGV declarado, sin documento: él es su propio hecho.
-  perform registrar_movimiento(v_bcp, 'out', 118, 'Taxis de la semana',
+  select id into v_taxis from registrar_movimiento(v_bcp, 'out', 118, 'Taxis de la semana',
     current_date - 4, 'operating', v_g_servicios, null, null, 100, 18);
 
   -- Y uno sin desglose: el neto es el importe entero, no se inventa un IGV.
@@ -332,7 +346,8 @@ begin
     p_description => 'Impresión de material para el lanzamiento',
     p_issue_date => current_date - 35,
     p_due_date => current_date - 12,
-    p_category => v_g_proveedores);
+    p_category => v_g_proveedores,
+    p_job => v_trab_lanz);
 
   -- Una exonerada y pagada a medias.
   select id into v_compra from registrar_compra(v_pe, 'Freelance Video', 800, 'PEN',
@@ -340,7 +355,8 @@ begin
     p_description => 'Edición de dos piezas',
     p_issue_date => current_date - 15,
     p_due_date => current_date + 15,
-    p_category => v_g_personal);
+    p_category => v_g_personal,
+    p_job => v_trab_redes);
   perform registrar_pago_de_compra(v_compra, v_bcp, 300, current_date - 1, 'OP-884455');
 
   -- Y una en la otra empresa, en dólares y pagada entera.
@@ -351,6 +367,64 @@ begin
     p_due_date => current_date - 2,
     p_category => v_g_herramientas);
   perform registrar_pago_de_compra(v_compra, v_mercury, 59.99, current_date - 2);
+
+  -- Un gasto sin factura detrás también es costo de su trabajo. El pago de una
+  -- factura NO se atribuye: el hecho es la factura, y la base lo dice con
+  -- nombres si alguien lo intenta (`el_pago_no_se_atribuye`).
+  perform registrar_movimiento(v_bcp, 'out', 236, 'Pauta de prueba en redes',
+    current_date - 11, 'operating', v_g_proveedores, null, null, 200, 36,
+    null, v_trab_redes);
+
+  -- --------------------------------------------- el tiempo de cada trabajo
+  -- Las horas no son un costo y no se convierten en uno (INV-16.1). Lo que
+  -- producen es una división: estos dos trabajos tienen margen parecido y muy
+  -- distinto por hora, que es justo lo que el porcentaje solo no dice.
+  perform anotar_horas(v_trab_lanz, 'Chelo', 240, current_date - 18, 'Guion y dirección');
+  perform anotar_horas(v_trab_lanz, 'Eli', 480, current_date - 16, 'Edición');
+  perform anotar_horas(v_trab_lanz, 'Chelo', 120, current_date - 12);
+  perform anotar_horas(v_trab_redes, 'Chelo', 180, current_date - 10);
+  perform anotar_horas(v_trab_redes, 'Eli', 120, current_date - 8);
+
+  -- ------------------------------------------------- lo que el banco dice
+  -- Un extracto de tres líneas: una que cuadra con un gasto anotado, una que
+  -- no está en el libro —la comisión que nadie anotó, que es el caso de
+  -- verdad— y una que el banco cobró y tampoco está. Importar no mueve el
+  -- saldo ni un céntimo (INV-8): lo único que hay después es la lista del
+  -- banco al lado de la tuya.
+  select id into v_extracto from importar_extracto(v_bcp, 'BCP soles · este mes',
+    jsonb_build_array(
+      jsonb_build_object('fecha', (current_date - 4)::text, 'importe', -118.00,
+                         'descripcion', 'PAGO TAXI APP', 'referencia', 'OP-330011'),
+      jsonb_build_object('fecha', (current_date - 3)::text, 'importe', -14.50,
+                         'descripcion', 'COMISION MANTENIMIENTO CUENTA'),
+      jsonb_build_object('fecha', (current_date - 2)::text, 'importe', -35.00,
+                         'descripcion', 'ITF / IMPUESTO A LAS TRANSACCIONES')),
+    -- Con los dos saldos del banco: 2.000 − 167,50 = 1.832,50. Cuadra al
+    -- céntimo, así que el extracto entra comprobado y el periodo se podrá
+    -- cerrar en cuanto no queden líneas sueltas (INV-8.12).
+    2000.00, 1832.50);
+
+  -- La primera sí es un gasto anotado, y se empareja. Las otras dos se quedan
+  -- en «sobra del banco», que es justo lo que esta pantalla existe para
+  -- enseñar: dos cargos reales que no estaban en el libro.
+  select id into v_linea from bank_statement_lines
+   where statement_id = v_extracto and fila = 1;
+  perform emparejar_linea(v_linea, v_taxis);
+
+  -- ------------------------------------------- lo previsto de una sola vez
+  -- Lo que no cabe en una cuota, ni en un gasto fijo, ni en una compra: un
+  -- equipo pactado y un adelanto que van a pasar (INV-15.4). Son plan y no
+  -- dinero: entran en la proyección y no tocan el saldo.
+  select id into v_previsto from guardar_previsto(
+    v_pe, 'out', 'Cámara pactada para enero', 3000, 'PEN',
+    (current_date + interval '45 days')::date, v_bcp);
+  -- Adelantada una parte: la proyección tiene que seguir viendo los 2000 que
+  -- faltan, no los 3000 enteros ni cero.
+  perform saldar_previsto(v_previsto, v_bcp, 1000, current_date - 2, 'OP-771100');
+
+  perform guardar_previsto(
+    v_pe, 'in', 'Adelanto que nos pasa Nova', 1500, 'PEN',
+    (current_date + interval '20 days')::date, v_bcp);
 
   -- ----------------------------------------------------------- gastos fijos
   perform guardar_gasto_recurrente(v_us, 'Adobe Creative Cloud', 59.99, 'USD',

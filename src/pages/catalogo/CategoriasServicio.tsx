@@ -15,7 +15,7 @@ export default function CategoriasServicio() {
   const [nombre, setNombre] = useState('');
 
   const consulta = useQuery({
-    queryKey: ['categorias-servicio', organizacion.id],
+    queryKey: ['categorias-servicio', 'lista', organizacion.id],
     queryFn: async () => {
       const { data, error } = await requireSupabase()
         .from('service_categories')
@@ -58,6 +58,7 @@ export default function CategoriasServicio() {
 
   return (
     <Seccion
+      alta={{ texto: 'Nueva categoría', id: 'alta-categoria-servicio' }}
       titulo="Categorías de servicio"
       regla="Agrupan las fichas para encontrarlas y para medir rentabilidad por línea de negocio. Son opcionales: una ficha sin categoría funciona igual. Desactivar una categoría no toca las fichas que la usaban."
     >
@@ -99,7 +100,7 @@ export default function CategoriasServicio() {
 
       {alternar.error && <Aviso tipo="error">{mensajeDeError(alternar.error)}</Aviso>}
 
-      <Alta titulo="Nueva categoría" exito={exito} onSubmit={() => crear.mutate()}>
+      <Alta id="alta-categoria-servicio" titulo="Nueva categoría" exito={exito} onSubmit={() => crear.mutate()}>
         <Campo
           etiqueta="Nombre"
           value={nombre}

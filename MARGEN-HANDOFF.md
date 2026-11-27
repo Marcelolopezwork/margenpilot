@@ -4,7 +4,7 @@
 Dice qué es el proyecto, qué funciona ya y qué falta, para no rehacer lo hecho.
 Se actualiza al final de cada sesión que cambie algo.
 
-Última actualización: **4 de noviembre de 2026**.
+Última actualización: **26 de noviembre de 2026**.
 
 ---
 
@@ -65,16 +65,28 @@ que la clave sea secreta.
 Todo esto está **en producción y verificado contra la base real**, no solo
 compilado.
 
-### Base de datos · treinta y cinco migraciones aplicadas
+### Base de datos · cuarenta migraciones
 
-Las treinta y cinco están aplicadas en producción. La última, la de compras,
-la ejecutó Marcelo el 23/11 pegando `supabase/seed/demo.sql` en el editor SQL
-de Supabase, porque el modo automático no deja escribir en producción desde
-aquí. Ese mismo archivo creó la organización **Margen Demo**, que es donde
-viven los datos de prueba: va aparte de «Margen Pilot» porque nada financiero
-se borra (INV-7), así que dentro de la organización real los datos de prueba
-no se podrían quitar nunca. Se borra con `supabase/seed/borrar-demo.sql`, que
-es una sola fila y un `on delete cascade`.
+Las treinta y siete primeras están aplicadas en producción. La de compras
+(F3-6) la ejecutó Marcelo el 23/11 pegando `supabase/seed/demo.sql` en el
+editor SQL de Supabase, porque el modo automático no deja escribir en
+producción desde aquí. Ese mismo archivo creó la organización **Margen Demo**,
+que es donde viven los datos de prueba: va aparte de «Margen Pilot» porque
+nada financiero se borra (INV-7), así que dentro de la organización real los
+datos de prueba no se podrían quitar nunca. Se borra con
+`supabase/seed/borrar-demo.sql`, que es una sola fila y un `on delete
+cascade`.
+
+La de los trabajos (F5) la aplicó el 24/11 por el mismo camino, y quedó
+comprobada contra la base: tres trabajos, dos compras y un gasto atribuidos.
+
+La de lo previsto (F5-3) la aplicó el 24/11 por el mismo camino.
+
+**Las dos últimas —el cierre de conciliación y las horas— están escritas y
+verificadas en la CI pero todavía no aplicadas en producción.** Se aplican
+igual: `armar.sh` ahora admite varias y ya regeneró `supabase/seed/demo.sql`
+con las dos dentro, en una transacción, borrando y volviendo a crear Margen
+Demo para que traiga los datos nuevos.
 
 ```
 20261028120000 foundations      esquema, tablas, disparadores, auditoría
@@ -112,6 +124,11 @@ es una sola fila y un `on delete cascade`.
 20261110100000 una_transferencia_no_es_un_gasto  cabecera y patas (INV-5)
 20261110110000 el_hecho_economico     la vista economic_facts (INV-6)
 20261110120000 lo_que_compras_tiene_proveedor   proveedores y compras (INV-12, INV-13)
+20261123120000 cuanto_deja_cada_trabajo  trabajos, atribución y job_margins (INV-14)
+20261124120000 lo_puntual_tambien_es_caja  cobros y pagos previstos de una vez (INV-15.4)
+20261124140000 lo_que_el_banco_dice  extracto, líneas y emparejamiento (INV-8)
+20261125120000 hasta_aqui_esta_cuadrado  cierre de periodo y alta desde la línea (INV-8.8)
+20261125130000 cuanto_tiempo_se_fue  horas por trabajo (INV-16)
 ```
 
 ### Pantallas
@@ -149,15 +166,20 @@ es una sola fila y un `on delete cascade`.
   mientras se teclea y dice si el proveedor es nuevo—, el pago parcial o
   entero y la anulación con motivo. **Gastos fijos**: las reglas de lo que sale
   cada mes
-- **Análisis** · el lente Resultado: ingresos, gastos y resultado del periodo
-  por moneda, de qué cliente vino, en qué se fue, a quién se le pagó, y lo no
-  operativo aparte. El
-  periodo son meses y años completos, y el rango viaja a la base como filtro de
-  fechas: la pantalla no recorta nada que la vista no haya decidido
-- **Pipeline** · marcador honesto: dice en qué fase llega, qué parte de esa
-  pregunta ya se contesta hoy y dónde. El texto de lo que se puede hacer
-  mientras tanto se pasa por props desde `App.tsx`, para que se mueva con el
-  producto y no con la fecha en que se escribió la pantalla
+- **Análisis** · dos lentes. **Resultado**: ingresos, gastos y resultado del
+  periodo por moneda, el gráfico de barras mes a mes con su tabla,
+  de qué cliente vino, en qué se fue, a quién se le pagó,
+  y lo no operativo aparte. El periodo son meses y años completos, y el rango
+  viaja a la base como filtro de fechas: la pantalla no recorta nada que la
+  vista no haya decidido. **Trabajos**: cuánto deja cada trabajo y cuánto deja
+  cada servicio, el margen cotizado contra el real sobre el mismo precio
+  acordado, los que se están comiendo el margen y los que ya cuestan sin tener
+  una factura emitida
+- **Pipeline** · el tablero de lo que está en juego: las cotizaciones por
+  estado, el valor de las enviadas y en negociación por moneda, las que llevan
+  días sin moverse —según la bitácora, no la fecha de creación— y las que
+  pasaron su plazo sin que nadie lo marcara. Mover es un desplegable y un
+  botón, no arrastrar
 
 ### Datos reales que ya existen en producción
 
@@ -167,13 +189,14 @@ caja (BCP soles en PEN, Mercury en USD), un cliente y una cotización de prueba.
 
 ### Verificación
 
-- **280 pruebas** de Vitest: dinero, errores, formato, armazón, altas, el A4,
+- **496 pruebas** de Vitest: dinero, errores, formato, armazón, altas, el A4,
   la propuesta, la aritmética de la cotización, el panel de emisión, la
   reimpresión de una versión emitida, el reparto en cuotas, el margen
   agregado, la cartera, la pantalla de finanzas, la proyección de caja con sus
   salidas, los gastos fijos, la tasa efectiva, los destinos de una
-  transferencia, el resultado del periodo y el panel de inicio
-- **167 aserciones** SQL en `supabase/tests/invariants.sql`
+  transferencia, el resultado del periodo, el margen por trabajo y por
+  servicio, la atribución de un costo a su trabajo y el panel de inicio
+- **284 aserciones** SQL en `supabase/tests/invariants.sql`
 - CI en GitHub Actions: tipos, lint, pruebas, build, y las migraciones
   reaplicadas desde cero en cada push. El Postgres de la CI es pelado y no
   trae lo que Supabase pone encima, así que `supabase/stubs/auth.sql` y
@@ -340,22 +363,21 @@ Lo que resuelve, y por qué cada cosa es estructura y no aviso:
   deja el motivo, se niega si hay dinero asignado y devuelve la cuota a
   `planned` para poder volver a emitirla.
 
-Lo que falta de F3, por orden:
+Lo que falta, por orden:
 
-1. **Cuánto deja cada servicio.** El margen de una cotización ya se calcula y
-   se ve al abrirla, pero para llevarlo al lente Resultado hace falta atar cada
-   documento —y cada compra— a las líneas de la versión aceptada. Hoy la
-   categoría dice en qué se fue y el proveedor a quién, pero ninguna dice para
-   qué trabajo. Es lo siguiente y es lo que Marcelo pidió desde el principio.
-2. **Las compras anotadas no entran en la proyección de caja.** Desde F3-6 el
-   sistema sabe que debes 1.180 el día 30, pero la proyección de trece semanas
-   solo mira las cuotas de cobro y los gastos fijos. Es la pieza más barata que
-   queda y la que más cambia la cifra: hoy la proyección es optimista por
-   construcción.
-3. **Conciliación bancaria** (INV-8) e importación de extractos.
-4. **Pagos de una sola vez con fecha futura** sin factura detrás: un adelanto,
-   una compra de equipo pactada. No caben ni en las cuotas, ni en los gastos
-   fijos, ni en las compras.
+0. ~~La comprobación de cuadre del extracto~~ · hecha el 26/11 (F4-4).
+1. **Repartir una factura entre dos trabajos.** Hoy una compra pertenece a un
+   trabajo o a ninguno. Si una imprenta factura dos campañas juntas, hay que
+   pedir dos facturas o anotarla en la que pese más. Hace falta una tabla de
+   reparto con su propio tope, como `payment_allocations`.
+2. **Recordar el mapeo de columnas de cada banco.** Hoy lo adivina igual de
+   bien cada vez, pero no lo guarda. Desde el 26/11 ya no se confirma —vive
+   dentro de un `<details>` que solo se abre si no se leyó ninguna línea—, así
+   que lo que queda por ahorrar es menos de lo que era.
+3. **El `+` de acciones rápidas en móvil**, que el plan de interfaz describe y
+   nunca se hizo. Hay tres cosas que se hacen de pie —anotar un movimiento,
+   emitir el documento de una cuota, registrar un cobro— y falta la hoja que
+   las ofrezca.
 
 ### F4 · Pipeline
 
@@ -381,6 +403,378 @@ Tres decisiones, fijadas con pruebas:
 
 «Vencida» sigue siendo una decisión de una persona, no un cálculo: el tablero
 solo deja de disimular que el plazo pasó.
+
+### F5 · Cuánto deja cada trabajo
+
+Hecho el 23/11. Es la pregunta con la que empezó el producto. Las dos cifras
+que ya existían no la contestaban: el margen de una cotización dice lo que
+**prometía** la propuesta, y el resultado del mes dice lo que pasó con **todo
+junto**. Un trabajo rentable que se cobra en enero y se paga en marzo deja un
+enero magnífico y un marzo malo, y ninguno de los dos meses dice nada del
+trabajo.
+
+Un trabajo (`jobs`) es **una línea de una cotización aprobada**, y lo crea el
+disparador de estados al aprobar, igual que el cronograma de cobro. No se
+crean a mano a propósito: así el margen siempre tiene un precio acordado con
+el que compararse, y no uno que alguien pudo teclear después.
+
+Las cuatro decisiones que mandan, todas en INV-14 y todas con aserciones
+detrás:
+
+- **El ingreso se deriva; el costo se atribuye.** Una cotización de tres
+  líneas se factura con un documento por cuota, y ese documento no es de una
+  línea: es de la cotización. Pero el reparto entre líneas ya está decidido
+  —cada línea tiene su neto en la versión—, así que la parte del trabajo es
+  `price_net / quote_net` de lo facturado. El costo no se puede derivar de
+  nada: ninguna factura de proveedor sabe para qué trabajo era, y por eso
+  `job_id` está en las compras y en los gastos y **no** en las ventas.
+- **Los dos márgenes comparten denominador.** Cotizado `(acordado −
+  estimado) / acordado` y real `(acordado − costo real) / acordado`, así que
+  restarlos da puntos que significan algo. Calcular el real sobre lo facturado
+  sería medir el calendario: un trabajo de 6 000 con 2 000 de costo y la
+  primera cuota emitida daría 0 % en enero y 66 % en marzo sin que nada
+  hubiera cambiado. Lo facturado se enseña al lado y no se llama margen.
+- **La foto del día de la aprobación no se edita.** `price_net` y
+  `expected_cost` no tienen UPDATE para `authenticated`, y
+  `actualizar_trabajo` solo cambia nombre, estado y notas. Si el precio
+  acordado se pudiera tocar, «cotizaste 45 %» sería una cifra que se acomoda
+  al resultado.
+- **El margen de un servicio se pondera**, Σutilidad ÷ Σacordado, nunca el
+  promedio de los porcentajes. Y los cancelados quedan fuera: su precio
+  acordado no se va a facturar, así que meterlos hundiría el margen con dinero
+  que nadie perdió.
+
+La atribución **no** se hace en la pantalla de Trabajos, sino donde se anota
+el gasto: `registrar_compra` y `registrar_movimiento` ganaron `p_job`, y hay
+`atribuir_compra` / `atribuir_gasto` para corregir después. Es el único
+momento en que alguien se acuerda de para qué era. Las dos puertas se volvieron
+a declarar enteras y se tiró la firma anterior: añadir un parámetro con valor
+por defecto no reemplaza una función en Postgres, crea una sobrecarga, y
+quedarían dos puertas de las que una no sabe de trabajos.
+
+Análisis pasó a tener dos lentes: `/analisis/resultado` (lo que había) y
+`/analisis/trabajos`. `Analisis.tsx` es ahora el armazón con las dos pestañas
+y la pantalla de antes se llama `Resultados.tsx`.
+
+### F5-2 · La proyección cuenta lo que sale
+
+Hecho el 24/11. Era la pieza más barata que quedaba y la que más mueve la
+cifra: el sistema sabía que debías 1 180 el día 30 y la curva de trece semanas
+no se enteraba, porque solo miraba cobros previstos y gastos fijos. Era
+optimista **por construcción**, que es la peor forma de equivocarse en una
+cifra que existe para decidir si llegas a fin de mes.
+
+Las facturas de proveedor sin pagar se convierten en salidas esperadas en vez
+de proyectarse por su cuenta, así que la aritmética de las semanas sigue
+escrita una sola vez y una compra vencida cae en la primera semana por la
+misma regla que ya tenía una suscripción atrasada. Lo demás está en INV-15: lo
+que falta por pagar y no el total, con el IGV dentro porque esto es caja y no
+resultado, y por el vencimiento o, si no hay, por el día de la factura.
+
+La nota de la tarjeta cuenta cosas distintas y no vencimientos: una
+suscripción mensual aporta seis ocurrencias en trece semanas, y decir «6
+gastos fijos» haría buscar cinco que no existen.
+
+### F5-3 · Lo puntual también es caja
+
+Hecho el 24/11. Con esto la proyección ve **las cuatro cosas** que mueven la
+caja: los cobros de las cotizaciones, los gastos fijos, las facturas de
+proveedor y los cobros y pagos de una sola vez.
+
+Lo importante de esta pieza es que **no hay tabla nueva**.
+`payment_schedule_items` se escribió el 5/11 con este comentario dentro:
+
+> Nulos cuando la cuota no venga de una cotización. Hoy siempre vienen de una;
+> en F3 habrá pagos previstos a proveedores que no tienen detrás ninguna, y
+> por eso `direction` ya distingue entrada de salida.
+
+Es decir: la tabla ya tenía `quote_id` nulable y `direction`, y lo que faltaban
+eran las puertas —`guardar_previsto`, `saldar_previsto`, `quitar_previsto`—.
+Una tabla nueva habría dejado dos definiciones de «dinero previsto», dos
+índices para la proyección y dos sitios donde arreglar el mismo error.
+
+Las decisiones están en INV-15.4. Las dos que más cuesta ver:
+
+- **El estado se deriva del dinero, no de un botón.** Saldar crea el
+  movimiento y la asignación, y el estado lo pone un disparador. Un «marcar
+  como pagado» sería un estado que puede discrepar del dinero, y entonces la
+  proyección tendría dos verdades.
+- **El tope no se vigila, y es a propósito.** Una cuota de cotización no
+  admite más de lo que vale, porque es un derecho de cobro acordado (INV-3).
+  Un previsto es una estimación: si la cámara pactada en 3 000 costó 3 200,
+  negarse a registrar el pago sería obligar a editar el plan para poder anotar
+  la realidad.
+
+Y de paso se arregló lo que la misma revisión dejó a la vista: **una cuota con
+su documento cobrado a medias proyectaba el importe entero**. Una cuota de
+5 000 con 2 000 ya en el banco proyectaba 5 000, que es el mismo dinero
+contado dos veces en la única cifra que existe para no equivocarse.
+
+### F5-4 · El gráfico mes a mes
+
+Hecho el 24/11, a petición de Marcelo: «puro texto y números es medio denso».
+Dentro de la tarjeta de cada moneda en Análisis → Resultado, una columna por
+mes con dos barras, lo que entró y lo que salió.
+
+**Los colores no son el verde y el rojo del resto de la app, y no es un
+capricho.** El validador de paletas dice que ese par da ΔE 5,2 en
+deuteranopia: ocho de cada cien hombres verían dos barras del mismo color,
+pegadas y sin signo que las distinga. El azul y el ocre que se usan dan 22,6,
+y pasan además la banda de luminosidad, el suelo de croma y el contraste
+contra la superficie, en los dos temas por separado. Viven en `index.css`
+como `--serie-entra` y `--serie-sale`. Para un número suelto el verde sigue
+bien: viene con su signo y su texto.
+
+Lo demás que gobierna el gráfico:
+
+- **Una sola escala** para las dos series, la del mayor de los dos lados. Dos
+  escalas en un mismo gráfico inventan una correlación que no está en los
+  datos.
+- **Ninguna cifra depende del color ni del ratón**: hay leyenda, cada columna
+  es un botón que dice sus tres cifras al enfocarlo, y debajo hay una tabla
+  con todos los meses.
+- **Se etiquetan dos meses, no doce.** El de más y el de menos, con una
+  palabra y no con el importe: «S/ 11,756.00» mide noventa píxeles y la
+  columna cincuenta y dos, así que el número se saldría y pisaría al vecino.
+- **Un mes sin una sola operación no es «el peor»**: es un mes sin datos.
+- **La serie sale de los mismos hechos que las cifras de arriba**, así que la
+  suma de los meses es el total de la tarjeta por construcción.
+
+La línea de base es una sola línea continua por debajo de las doce columnas.
+Dibujada columna a columna se corta en cada hueco y lo que se ve es una línea
+de puntos, que es justo lo que un eje no debe parecer. Por eso los meses van
+en su propia fila, con el mismo ancho y el mismo hueco.
+
+### F6-1 · Lo que el banco dice
+
+Hecho el 24/11. Es la primera mitad de la conciliación: el extracto
+importado, sus líneas y el emparejamiento. La segunda —cerrar un periodo— es
+ahora lo primero de la lista de arriba.
+
+**La regla manda sobre la forma de la pantalla.** Conciliar no crea dinero
+(INV-8), así que desde ahí no se puede anotar, corregir ni borrar un
+movimiento: ninguna de las tres tablas tiene una escritura hacia
+`cash_movements`. De eso sale la pantalla de tres montones: lo que cuadra, lo
+que sobra del banco y **lo que sobra del libro**, que es el que casi nadie
+mira y el que más dice —un cobro que diste por hecho y no llegó—.
+
+Leer el archivo pasa entero en el cliente (`extracto.ts`) y nada de eso toca
+la base: se adivina el separador, el orden de la fecha, el separador decimal y
+qué columna es cuál, se enseña el resultado y **lo confirma una persona**. Un
+importador que se equivoca en silencio no da un error: da una contabilidad que
+cuadra con un extracto que no es el tuyo. Detalles que costaron su prueba:
+`03/11/2026` es 3 de noviembre o 11 de marzo y el orden se deduce del archivo
+entero, no de una fila; `1,180.00` y `1.180,00` son el mismo importe; un
+`(118.00)` es un negativo; y en un extracto de dos columnas el cargo es una
+salida aunque venga sin signo.
+
+La propuesta de emparejamiento tiene su propia regla, que es la que la hace
+útil: **si hay dos candidatos igual de buenos, no se propone ninguno.** Dos
+comisiones idénticas el mismo día aceptadas a ciegas dejan las dos listas
+cuadradas con los pares cambiados, que es peor que no haber conciliado.
+
+**El export real de Mercury (25/11).** Marcelo mandó el suyo y trajo dos
+cosas que el importador no sabía:
+
+- **Trae las nueve cuentas en el mismo CSV.** 68 filas repartidas entre
+  OPERATING, Mercury Credit, BUSINESS TOOLS, CASH RESERVE y cinco más.
+  Importarlo entero en una cuenta no daría un extracto: daría nueve
+  mezclados, y además cada traspaso entre cuentas aparece dos veces, una por
+  cada lado. Ahora el mapeo detecta la columna «Source Account», **no elige
+  ninguna** —elegir por él sería importar ocho cuentas ajenas en silencio— y
+  la pantalla no deja importar hasta que se elija.
+- **Trae transacciones rechazadas.** Dos filas con «Failed» y su motivo. No
+  ocurrieron: importarlas sería inventar un movimiento que el banco no hizo.
+  El mapeo busca una columna de estado y descarta los valores que significan
+  eso en cualquier banco (fail, rechaz, anulad, revers, declin, cancel…).
+
+Las dos salen por un filtro genérico, no por un caso especial de Mercury:
+«de esta columna, solo estos valores». Y cada fila que queda fuera se cuenta
+y se dice, para que las cifras de abajo sumen las filas del archivo.
+
+Su fecha es **mes-día-año** (`11-25-2026`), y eso lo deduce solo: no hay mes
+veinticinco. Es justo el caso para el que se escribió `adivinarOrdenDeFecha`.
+
+Un detalle de React que mordió y conviene no repetir: el paso de mapear
+columnas estaba escrito como un componente declarado dentro del componente
+padre y usado como `<Mapear />`. Su identidad cambia en cada render, así que
+React lo desmontaba y lo volvía a montar entero, y el campo que estuvieras
+escribiendo perdía el foco después de cada letra. Llamado como función
+—`mapear()`— es JSX del mismo árbol y no pasa.
+
+### F6-2 · Hasta aquí está cuadrado
+
+Hecho el 25/11. Cerrar un periodo, con las condiciones en INV-8.8: no se
+cierra lo que no está resuelto, ni contra un periodo sin extracto, ni hacia
+el futuro; lo cerrado no se toca sin reabrir, y no se importa por debajo.
+
+La fecha vive en `bank_reconciliations` y **no en una columna de
+`cash_accounts`**, que es donde habría ido por costumbre. El motivo es que
+`authenticated` tiene UPDATE sobre `cash_accounts`: una fecha ahí se podría
+escribir sin pasar por una sola de las comprobaciones de arriba, y entonces
+el cierre sería un adorno.
+
+Con esto llega la excepción que INV-8 siempre admitió:
+**`crear_movimiento_desde_linea`**, el gasto que el banco te cobró y nunca
+apuntaste. Se pide línea por línea, copia fecha, importe y sentido, queda
+marcado `source = 'bank_import'` y empareja en el mismo acto. No toca ningún
+movimiento que ya existiera: solo añade el que faltaba.
+
+Una decisión que conviene no deshacer: los **movimientos sin línea del banco
+no bloquean el cierre**, pero no se esconden. El extracto es la autoridad
+sobre lo que pasó en el banco y el cierre afirma que *ese* lado está
+explicado; un cheque que nadie depositó sigue a la vista después de cerrar.
+
+### F5-5 · Cuánto tiempo se fue
+
+Hecho el 25/11. La otra mitad de «cuánto deja cada trabajo». Las reglas están
+en INV-16 y la que lo gobierna todo es la primera: **una hora no es un
+costo**. No se multiplica por ninguna tarifa ni se suma al costo del trabajo
+—contaría dos veces el sueldo de quien ya cobra, o inventaría un gasto que
+nunca salió del banco— y hay una aserción que comprueba que anotar horas no
+mueve el costo ni un céntimo.
+
+Lo que producen es una división: `utilidadPorHora`, en aritmética entera
+sobre minutos. Y una lista nueva en Trabajos, **«Lo que deja la hora»**, con
+el que menos deja primero. Es la que el porcentaje solo no puede dar: un
+trabajo al 80 % que se comió ochenta horas deja menos por hora que uno al
+30 % hecho en cinco, y el peligroso es el primero, porque su margen es
+magnífico.
+
+Los trabajos sin horas quedan **fuera** de esa lista, no al final: no es que
+dejen poco por hora, es que no se sabe. Y con el costo real sin anotar
+tampoco hay cifra por hora, por lo mismo que no hay margen real (INV-14.9).
+
+### F6-3 · Que no haya que teclear veintitrés veces
+
+Hecho el 26/11, y lo pidió el primer uso real: Marcelo importó su extracto de
+Mercury —veinticinco líneas, veintitrés sin anotar— y la pantalla le pidió
+una decisión por línea. Sus palabras: «me puso un montón de datos que tenía
+que anotar yo. No entendí esa parte, sinceramente».
+
+La pantalla ya no es una bandeja de líneas: es **una tarjeta que dice qué
+falta y lo resuelve en dos botones**, y la frontera entre esos dos botones es
+lo único delicado (INV-8.9).
+
+- **Confirmar** las líneas que ya son un movimiento tuyo: mismo importe y el
+  mismo día, o la misma referencia. Eso se empareja, nunca se anota. Anotarlo
+  duplicaría el gasto, y un duplicado es peor que una línea sin explicar,
+  porque la línea se ve y el duplicado no.
+- **Traer al libro** las que no son ningún movimiento tuyo: comisiones,
+  cargos, un cobro que entró sin apuntarse. Eso sí cambia el saldo, y es lo
+  único de la pantalla que lo cambia.
+- **Lo parecido pero de otra fecha no entra en ninguna tanda**: se mira una
+  por una, y para eso sigue estando la lista detallada, ahora cerrada.
+- Y un aviso antes del botón que su caso necesita: **un traspaso entre dos
+  cuentas suyas no se trae desde aquí.** En el extracto es un gasto; traído
+  así sería un gasto de la empresa que nunca ocurrió.
+
+Las tandas van en bucle desde el cliente y no en una función nueva de la base,
+así que **esta entrega no trae SQL**: cada línea pasa por el mismo gate, en su
+propia transacción, y si una falla a la mitad el mensaje dice cuántas
+quedaron hechas. Lo que se agrupa es la petición, no la comprobación.
+
+Del importador desapareció la mitad de las preguntas: el nombre del extracto
+se deduce del archivo —las fechas de sus líneas y el nombre de la cuenta— y
+los seis desplegables de columnas viven dentro de un `<details>` que solo se
+abre si no se leyó ninguna línea. Lo que sí se sigue enseñando son las
+tres primeras líneas tal como quedaron: es la única pregunta que importa.
+
+### F4-4 · Que no falte ninguna línea
+
+Hecho el 26/11, y es la siguiente pieza del plan original (F4-4). Las reglas
+están en INV-8.12 y la que importa es que hay **tres** estados y no dos:
+cuadra, no cuadra, y no se pudo comprobar. Lo tercero es lo que evita el
+engaño: `diferencia` nula significa que el archivo no traía saldos, no que
+todo esté bien.
+
+Lo que ataja: un extracto cortado. Veinte líneas de las treinta que hubo, las
+veinte cuadrando una por una. Nada en la pantalla lo delataría —lo que falta
+no protesta— salvo la aritmética del propio banco. Al importar hay dos campos
+opcionales para el saldo inicial y el final; si están, la base comprueba que
+entre los dos quepa exactamente la suma de las líneas, y si no cabe guarda la
+diferencia y **bloquea el cierre del periodo**.
+
+Esta migración sí trae SQL. Toca `bank_statements` (tres columnas) y rehace
+`importar_extracto` y `cerrar_conciliacion`. La firma vieja de
+`importar_extracto` se tira antes de crear la nueva: añadir parámetros con
+valor por defecto crea una **sobrecarga**, y entonces quedarían dos funciones
+y PostgREST elegiría por los argumentos que le manden —la pantalla nueva
+comprobando y la vieja, ahí al lado, sin comprobar nada—.
+
+### Las claves de caché, otra vez, y ahora con red
+
+Encontrado el 26/11 desde el texto que mandó Marcelo: «Cannot read properties
+of undefined (reading 'currency_code')» en `/finanzas/compras`. Es la trampa
+que este documento ya tenía escrita para `['cotizacion', id]`, repetida en
+**ocho sitios más**.
+
+Inicio y Compras usaban la misma clave —`['compras', org, entidad]`— con
+formas distintas: Inicio devuelve filas planas y Compras devuelve
+`{ compra, pagado, pendiente }`. React Query guarda **una** entrada por clave,
+así que entrar a Compras después de Inicio leía las filas de Inicio y
+reventaba al pedirle `compra.currency_code` a algo que no lo tenía. Lo mismo
+pasaba, sin reventar y por eso peor, con `saldos`, `cartera`, `gastos-fijos`,
+`servicios`, `clientes`, `marcas`, `monedas` y —la más grave— con
+`['cotizacion', id, 'lineas']`: el editor selecciona `fee_pct` y la propuesta
+`service_id`, así que mirar una propuesta y volver al editor dejaba el margen
+calculándose con un honorario que no estaba en la fila.
+
+Arreglado de tres maneras, y la tercera es la que importa:
+
+1. **Una clave, un dueño.** Las que piden cosas distintas se distinguen con un
+   segundo elemento que dice para qué son: `['compras', 'inicio', …]` y
+   `['compras', 'cartera', …]`. Invalidar por `['compras']` sigue alcanzando a
+   las dos, que es lo que hacía útil compartir la clave.
+2. **Las que piden lo mismo se escriben una vez.** `useMonedasCatalogo` y
+   `useHechosDelPeriodo` viven en `src/app/consultas.ts`, y las usan las dos
+   pantallas que las necesitan.
+3. **`src/app/claves-de-cache.test.ts` recorre el código y falla si dos
+   `useQuery` declaran la misma clave.** También falla si alguna `useQuery`
+   deja de empezar por su clave, porque entonces la red dejaría de verla. Una
+   trampa escrita en un documento se vuelve a pisar; una comprobada, no.
+
+### La pantalla en blanco
+
+Encontrado el 26/11, y era dos cosas con el mismo síntoma. Marcelo: «cuando
+quiero darle a compras y tal, se queda como pegado en la pantalla en blanco.
+Tengo que ir atrás o refrescar».
+
+1. **No había ninguna red de error.** React desmonta el árbol entero cuando un
+   fallo al dibujar sube sin que nadie lo recoja: la aplicación completa
+   desaparece, sin mensaje, y solo se sale recargando. Ahora hay dos
+   `Pantalla.tsx`: una dentro del armazón, rearmada al navegar con
+   `key={pathname}`, que deja el menú en pie; y otra por encima, para el fallo
+   que ocurre donde ya no hay menú. Enseña el texto técnico en un `<details>`
+   para poder copiarlo: **un fallo que se puede mandar se arregla; uno que
+   solo vio el usuario, se adivina.**
+2. **Cambiar de pantalla conservaba la posición del desplazamiento.** Eso lo
+   hace el navegador solo al cargar una página, y aquí no carga ninguna: quien
+   venía de la mitad de una pantalla larga aterrizaba en la mitad de la
+   siguiente, a veces en una zona sin nada. Arreglado, con `POP` exceptuado
+   —volver atrás conserva su sitio a propósito— y con la barra lateral pegada
+   arriba, que antes se desplazaba fuera de la vista y obligaba a subir hasta
+   arriba para cambiar de sección.
+
+No se pudo reproducir el caso exacto de Compras con sus datos: la base no
+tiene ninguna fila con la forma que rompería esas pantallas —se comprobaron
+las monedas desconocidas, los importes nulos y los cruces de moneda entre
+movimiento y cuenta, y no hay ninguno—. Lo que hay ahora es la red que lo
+convierte en un mensaje con nombre en vez de una página blanca. Si vuelve a
+pasar, el texto del `<details>` dice dónde.
+
+### Un día no es un instante
+
+Encontrado el 25/11 escribiendo una prueba, y llevaba desde el principio:
+`formatoFecha('2026-11-30')` daba **29 nov**. `new Date` de una fecha sin
+hora es la medianoche UTC, y formatearla en Lima —o en cualquier zona detrás
+de UTC— la corre un día. Todas las fechas que vienen de una columna `date`
+se enseñaban un día antes: vencimientos de facturas, fechas de movimiento,
+hasta cuándo vale una cotización.
+
+Arreglado distinguiendo las dos cosas: una fecha sin hora se formatea en UTC,
+porque así se escribió; un instante —`created_at`, `issued_at`— en la zona de
+quien mira, que es lo que se quiere de una hora.
 
 ### Pendiente de Marcelo, no de código
 
@@ -408,7 +802,7 @@ solo deja de disimular que el plazo pasó.
   sigue siendo la buena: en cuanto el CLI pueda, regenerar el archivo entero.
   Para arreglarlo hace falta un token de acceso personal con permiso sobre el
   proyecto (`supabase login`), que es algo de Marcelo, no de código.
-- El bundle principal va por 686 kB en crudo (≈196 kB comprimidos). jsPDF y
+- El bundle principal va por 780 kB en crudo (≈221 kB comprimidos). jsPDF y
   sus dependencias ya van en trozos aparte, cargados solo al descargar; falta
   dividir las rutas con `React.lazy` antes de que entre F3.
 - La aritmética de la cotización está escrita dos veces: en
@@ -637,6 +1031,20 @@ Cada una costó tiempo. Están aquí para no repetirlas.
     plural y mayúscula —`Compras.tsx`—, su lógica en singular y minúscula
     —`compra.ts`—. En CI, sobre Linux, el choque no aparece: compila y luego
     falla en el Mac de quien lo abra.
+20. **Sin red de error, un fallo al dibujar no deja un fallo: deja una página
+    blanca.** React desmonta el árbol entero cuando el error sube sin que nadie
+    lo recoja, y entonces no hay mensaje, ni consola que nadie va a abrir, ni
+    forma de contar qué pasó: solo «se queda pegado en blanco y hay que
+    recargar», que es como llegó. Un producto que se usa sin la consola abierta
+    necesita que el fallo sea visible y **copiable**. La red no arregla el
+    fallo; sin ella no se puede ni diagnosticar.
+21. **En una aplicación de una sola página, cambiar de pantalla no te lleva
+    arriba.** Eso lo hace el navegador al cargar una página, y aquí no carga
+    ninguna: se aterriza en la mitad de la pantalla siguiente, a veces en una
+    zona vacía. El síntoma que describe quien lo sufre es idéntico al de la
+    trampa anterior y la causa no tiene nada que ver, así que ante un «se queda
+    en blanco» hay que mirar las dos. `POP` se exceptúa: volver atrás conserva
+    su sitio a propósito.
 
 ### Dos pantallas no comparten clave de caché si no traen las mismas columnas
 

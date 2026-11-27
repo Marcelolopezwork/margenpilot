@@ -59,6 +59,219 @@ export type Database = {
         }
         Relationships: []
       }
+      bank_statements: {
+        Row: {
+          cash_account_id: string
+          currency_code: string
+          desde: string
+          diferencia: number | null
+          hasta: string
+          id: string
+          imported_at: string
+          imported_by: string
+          label: string
+          legal_entity_id: string
+          lineas: number
+          organization_id: string
+          saldo_final: number | null
+          saldo_inicial: number | null
+          source_sha256: string
+        }
+        Insert: {
+          cash_account_id: string
+          currency_code: string
+          desde: string
+          diferencia?: number | null
+          hasta: string
+          id?: string
+          imported_at?: string
+          imported_by?: string
+          label: string
+          legal_entity_id: string
+          lineas: number
+          organization_id: string
+          saldo_final?: number | null
+          saldo_inicial?: number | null
+          source_sha256: string
+        }
+        Update: {
+          cash_account_id?: string
+          currency_code?: string
+          desde?: string
+          diferencia?: number | null
+          hasta?: string
+          id?: string
+          imported_at?: string
+          imported_by?: string
+          label?: string
+          legal_entity_id?: string
+          lineas?: number
+          organization_id?: string
+          saldo_final?: number | null
+          saldo_inicial?: number | null
+          source_sha256?: string
+        }
+        Relationships: []
+      }
+      bank_statement_lines: {
+        Row: {
+          amount: number
+          cash_account_id: string
+          created_at: string
+          currency_code: string
+          description: string
+          direction: Database["public"]["Enums"]["cash_direction"]
+          external_ref: string | null
+          fila: number
+          id: string
+          ignored_at: string | null
+          ignored_reason: string | null
+          legal_entity_id: string
+          organization_id: string
+          raw: Json
+          statement_id: string
+          value_date: string
+        }
+        Insert: {
+          amount: number
+          cash_account_id: string
+          created_at?: string
+          currency_code: string
+          description: string
+          direction: Database["public"]["Enums"]["cash_direction"]
+          external_ref?: string | null
+          fila: number
+          id?: string
+          ignored_at?: string | null
+          ignored_reason?: string | null
+          legal_entity_id: string
+          organization_id: string
+          raw?: Json
+          statement_id: string
+          value_date: string
+        }
+        Update: {
+          amount?: number
+          cash_account_id?: string
+          created_at?: string
+          currency_code?: string
+          description?: string
+          direction?: Database["public"]["Enums"]["cash_direction"]
+          external_ref?: string | null
+          fila?: number
+          id?: string
+          ignored_at?: string | null
+          ignored_reason?: string | null
+          legal_entity_id?: string
+          organization_id?: string
+          raw?: Json
+          statement_id?: string
+          value_date?: string
+        }
+        Relationships: []
+      }
+      bank_line_matches: {
+        Row: {
+          cash_account_id: string
+          cash_movement_id: string
+          currency_code: string
+          id: string
+          matched_at: string
+          matched_by: string
+          organization_id: string
+          statement_line_id: string
+        }
+        Insert: {
+          cash_account_id: string
+          cash_movement_id: string
+          currency_code: string
+          id?: string
+          matched_at?: string
+          matched_by?: string
+          organization_id: string
+          statement_line_id: string
+        }
+        Update: {
+          cash_account_id?: string
+          cash_movement_id?: string
+          currency_code?: string
+          id?: string
+          matched_at?: string
+          matched_by?: string
+          organization_id?: string
+          statement_line_id?: string
+        }
+        Relationships: []
+      }
+      bank_reconciliations: {
+        Row: {
+          cash_account_id: string
+          closed_at: string
+          closed_by: string
+          currency_code: string
+          hasta: string
+          legal_entity_id: string
+          organization_id: string
+        }
+        Insert: {
+          cash_account_id: string
+          closed_at?: string
+          closed_by?: string
+          currency_code: string
+          hasta: string
+          legal_entity_id: string
+          organization_id: string
+        }
+        Update: {
+          cash_account_id?: string
+          closed_at?: string
+          closed_by?: string
+          currency_code?: string
+          hasta?: string
+          legal_entity_id?: string
+          organization_id?: string
+        }
+        Relationships: []
+      }
+      job_time_entries: {
+        Row: {
+          created_at: string
+          created_by: string
+          id: string
+          job_id: string
+          legal_entity_id: string
+          minutes: number
+          note: string | null
+          organization_id: string
+          spent_on: string
+          who: string
+        }
+        Insert: {
+          created_at?: string
+          created_by?: string
+          id?: string
+          job_id: string
+          legal_entity_id: string
+          minutes: number
+          note?: string | null
+          organization_id: string
+          spent_on: string
+          who: string
+        }
+        Update: {
+          created_at?: string
+          created_by?: string
+          id?: string
+          job_id?: string
+          legal_entity_id?: string
+          minutes?: number
+          note?: string | null
+          organization_id?: string
+          spent_on?: string
+          who?: string
+        }
+        Relationships: []
+      }
       billing_documents: {
         Row: {
           amount_net: number
@@ -76,6 +289,7 @@ export type Database = {
           id: string
           is_opening: boolean
           issue_date: string
+          job_id: string | null
           legal_entity_id: string
           organization_id: string
           quote_version_id: string | null
@@ -102,6 +316,7 @@ export type Database = {
           id?: string
           is_opening?: boolean
           issue_date?: string
+          job_id: string | null
           legal_entity_id: string
           organization_id: string
           quote_version_id?: string | null
@@ -128,6 +343,7 @@ export type Database = {
           id?: string
           is_opening?: boolean
           issue_date?: string
+          job_id?: string | null
           legal_entity_id?: string
           organization_id?: string
           quote_version_id?: string | null
@@ -333,6 +549,7 @@ export type Database = {
           flow_class: Database["public"]["Enums"]["flow_class"]
           id: string
           is_void: boolean
+          job_id: string | null
           kind: Database["public"]["Enums"]["cash_kind"]
           legal_entity_id: string
           organization_id: string
@@ -360,6 +577,7 @@ export type Database = {
           external_ref?: string | null
           id?: string
           is_void?: boolean
+          job_id?: string | null
           kind?: Database["public"]["Enums"]["cash_kind"]
           legal_entity_id: string
           organization_id: string
@@ -387,6 +605,7 @@ export type Database = {
           external_ref?: string | null
           id?: string
           is_void?: boolean
+          job_id?: string | null
           kind?: Database["public"]["Enums"]["cash_kind"]
           legal_entity_id?: string
           organization_id?: string
@@ -707,6 +926,74 @@ export type Database = {
             isOneToOne: false
             referencedRelation: "currencies"
             referencedColumns: ["code"]
+          },
+        ]
+      }
+      jobs: {
+        Row: {
+          client_id: string
+          created_at: string
+          currency_code: string
+          expected_cost: number
+          id: string
+          legal_entity_id: string
+          name: string
+          notes: string | null
+          organization_id: string
+          price_net: number
+          quote_id: string
+          quote_line_id: string | null
+          quote_net: number
+          quote_version_id: string
+          service_id: string | null
+          status: string
+          updated_at: string
+        }
+        Insert: {
+          client_id: string
+          created_at?: string
+          currency_code: string
+          expected_cost?: number
+          id?: string
+          legal_entity_id: string
+          name: string
+          notes?: string | null
+          organization_id: string
+          price_net: number
+          quote_id: string
+          quote_line_id?: string | null
+          quote_net: number
+          quote_version_id: string
+          service_id?: string | null
+          status?: string
+          updated_at?: string
+        }
+        Update: {
+          client_id?: string
+          created_at?: string
+          currency_code?: string
+          expected_cost?: number
+          id?: string
+          legal_entity_id?: string
+          name?: string
+          notes?: string | null
+          organization_id?: string
+          price_net?: number
+          quote_id?: string
+          quote_line_id?: string | null
+          quote_net?: number
+          quote_version_id?: string
+          service_id?: string | null
+          status?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "jobs_organization_id_fkey"
+            columns: ["organization_id"]
+            isOneToOne: false
+            referencedRelation: "organizations"
+            referencedColumns: ["id"]
           },
         ]
       }
@@ -2258,6 +2545,29 @@ export type Database = {
       }
     }
     Views: {
+      job_time: {
+        Row: {
+          apuntes: number | null
+          desde: string | null
+          hasta: string | null
+          job_id: string | null
+          minutos: number | null
+          organization_id: string | null
+          personas: number | null
+        }
+        Relationships: []
+      }
+      bank_line_status: {
+        Row: {
+          cash_account_id: string | null
+          conciliado: number | null
+          cuadra: boolean | null
+          emparejados: number | null
+          line_id: string | null
+          organization_id: string | null
+        }
+        Relationships: []
+      }
       economic_facts: {
         Row: {
           amount_net: number | null
@@ -2270,12 +2580,26 @@ export type Database = {
           direction: Database["public"]["Enums"]["cash_direction"] | null
           fecha: string | null
           flow_class: Database["public"]["Enums"]["flow_class"] | null
+          job_id: string | null
           kind: Database["public"]["Enums"]["cash_kind"] | null
           legal_entity_id: string | null
           organization_id: string | null
           origen: string | null
           source_id: string | null
           supplier_id: string | null
+        }
+        Relationships: []
+      }
+      job_margins: {
+        Row: {
+          costo_neto: number | null
+          costos: number | null
+          currency_code: string | null
+          documentos: number | null
+          ingreso_neto: number | null
+          job_id: string | null
+          legal_entity_id: string | null
+          organization_id: string | null
         }
         Relationships: []
       }
@@ -2293,6 +2617,106 @@ export type Database = {
       }
     }
     Functions: {
+      cerrar_conciliacion: {
+        Args: { p_account: string; p_hasta?: string }
+        Returns: Database["public"]["Tables"]["bank_reconciliations"]["Row"][]
+      }
+      crear_movimiento_desde_linea: {
+        Args: {
+          p_category?: string
+          p_description?: string
+          p_kind?: Database["public"]["Enums"]["cash_kind"]
+          p_line: string
+        }
+        Returns: Database["public"]["Tables"]["cash_movements"]["Row"][]
+      }
+      anotar_horas: {
+        Args: {
+          p_job: string
+          p_minutes: number
+          p_note?: string
+          p_on?: string
+          p_who: string
+        }
+        Returns: Database["public"]["Tables"]["job_time_entries"]["Row"][]
+      }
+      quitar_horas: {
+        Args: { p_entry: string }
+        Returns: undefined
+      }
+      importar_extracto: {
+        Args: {
+          p_account: string
+          p_label: string
+          p_lines: Json
+          p_saldo_inicial?: number | null
+          p_saldo_final?: number | null
+        }
+        Returns: Database["public"]["Tables"]["bank_statements"]["Row"][]
+      }
+      emparejar_linea: {
+        Args: { p_line: string; p_movement: string }
+        Returns: Database["public"]["Tables"]["bank_line_matches"]["Row"][]
+      }
+      desemparejar_linea: {
+        Args: { p_match: string }
+        Returns: undefined
+      }
+      ignorar_linea: {
+        Args: { p_line: string; p_motivo?: string }
+        Returns: Database["public"]["Tables"]["bank_statement_lines"]["Row"][]
+      }
+      guardar_previsto: {
+        Args: {
+          p_account?: string
+          p_amount: number
+          p_currency: string
+          p_direction: string
+          p_due_date: string
+          p_entity: string
+          p_id?: string
+          p_label: string
+        }
+        Returns: Database["public"]["Tables"]["payment_schedule_items"]["Row"][]
+      }
+      quitar_previsto: {
+        Args: { p_item: string }
+        Returns: undefined
+      }
+      saldar_previsto: {
+        Args: {
+          p_account: string
+          p_amount: number
+          p_description?: string
+          p_external_ref?: string
+          p_item: string
+          p_value_date?: string
+        }
+        Returns: Database["public"]["Tables"]["cash_movements"]["Row"][]
+      }
+      actualizar_trabajo: {
+        Args: {
+          p_job: string
+          p_name?: string
+          p_notes?: string
+          p_status?: string
+        }
+        Returns: Database["public"]["Tables"]["jobs"]["Row"][]
+      }
+      atribuir_compra: {
+        Args: {
+          p_document: string
+          p_job?: string
+        }
+        Returns: Database["public"]["Tables"]["billing_documents"]["Row"][]
+      }
+      atribuir_gasto: {
+        Args: {
+          p_job?: string
+          p_movement: string
+        }
+        Returns: Database["public"]["Tables"]["cash_movements"]["Row"][]
+      }
       add_quote_line_from_service: {
         Args: { p_quantity?: number; p_quote: string; p_service: string }
         Returns: string
@@ -2587,6 +3011,7 @@ export type Database = {
           p_due_date?: string
           p_entity: string
           p_issue_date?: string
+          p_job?: string
           p_series?: string
           p_supplier: string
           p_tax_rate?: number
@@ -2607,6 +3032,7 @@ export type Database = {
           id: string
           is_opening: boolean
           issue_date: string
+          job_id: string | null
           legal_entity_id: string
           organization_id: string
           quote_version_id: string | null
@@ -2635,6 +3061,7 @@ export type Database = {
           p_description: string
           p_direction: Database["public"]["Enums"]["cash_direction"]
           p_external_ref?: string
+          p_job?: string
           p_kind?: Database["public"]["Enums"]["cash_kind"]
           p_recurring?: string
           p_value_date?: string
@@ -2657,6 +3084,7 @@ export type Database = {
           flow_class: Database["public"]["Enums"]["flow_class"]
           id: string
           is_void: boolean
+          job_id: string | null
           kind: Database["public"]["Enums"]["cash_kind"]
           legal_entity_id: string
           organization_id: string

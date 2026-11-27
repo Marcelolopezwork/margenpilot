@@ -1,9 +1,12 @@
+import { useState } from 'react';
 import { Link } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
+import { useHechosDelPeriodo } from '../app/consultas';
 import { puedeEscribirDinero, useOrg, useOrgElegida } from '../app/org-context';
 import { mensajeDeError } from '../lib/errors';
 import { formatoFecha } from '../lib/format';
 import {
+  add,
   currencyOf,
   format,
   fromRow,
@@ -16,18 +19,25 @@ import {
 import { requireSupabase } from '../lib/supabase';
 import { Aviso, Boton, Cargando, Etiqueta, Tarjeta } from '../components/ui';
 import { FiltradoPor } from '../components/piezas';
-import { cobradoPorDocumento } from './finanzas/cobrado';
+import { asignadoPorCuota, cobradoPorDocumento } from './finanzas/cobrado';
 import { diasDeAtraso, enRojo, pendienteDe, porMoneda, vencido } from './finanzas/cartera';
 import type { DocumentoEnCartera } from './finanzas/cartera';
 import {
   lunesDe,
   monedasConMovimiento,
   proyeccion,
+  salidasDeCompras,
   salidasEsperadas,
+  salidasPrevistas,
+  type PrevistoPorSalir,
   saldoProyectado,
   sumarSemanas,
 } from './finanzas/proyeccion';
 import type { CuotaEsperada, GastoRecurrente, PagoRegistrado } from './finanzas/proyeccion';
+import Barras from './analisis/Barras';
+import BarrasH from './analisis/BarrasH';
+import Semanas from './analisis/Semanas';
+import { ingresosPorCliente, rangoDe, seriePorMes } from './analisis/resultado';
 
 /**
  * Inicio es la pantalla de las ocho de la mañana: cuánto tengo, quién me debe
@@ -58,11 +68,21 @@ type Accion = {
   boton: string;
 };
 
+/** Las tres preguntas de temporada que el centro de mando sabe dibujar. */
+type Vista = 'mes' | 'semanas' | 'cliente';
+
+const VISTAS: readonly { id: Vista; nombre: string; pregunta: string }[] = [
+  { id: 'mes', nombre: 'Mes a mes', pregunta: 'Qué mes vendiste más y qué mes menos' },
+  { id: 'semanas', nombre: 'Trece semanas', pregunta: 'Con qué saldo cierras cada semana' },
+  { id: 'cliente', nombre: 'Por cliente', pregunta: 'De quién viene tu ingreso' },
+];
+
 export default function Home() {
   const { organizacion, entidad } = useOrgElegida();
   const { elegirEntidad } = useOrg();
   const conDinero = puedeEscribirDinero(organizacion.rol);
   const hoy = new Date().toISOString().slice(0, 10);
+  const [vista, setVista] = useState<Vista>('mes');
 
   const puesta = useQuery({
     queryKey: ['puesta-en-marcha', organizacion.id],
@@ -91,7 +111,7 @@ export default function Home() {
   });
 
   const caja = useQuery({
-    queryKey: ['saldos', organizacion.id, entidad?.id ?? null],
+    queryKey: ['saldos', 'inicio', organizacion.id, entidad?.id ?? null],
     enabled: conDinero,
     queryFn: async () => {
       const supabase = requireSupabase();
@@ -125,12 +145,12 @@ export default function Home() {
   // que te deben y otra que debes no se compensan, porque no vencen el mismo
   // día ni dependen de la misma persona (F3-6).
   const porPagar = useQuery({
-    queryKey: ['compras', organizacion.id, entidad?.id ?? null],
+    queryKey: ['compras', 'inicio', organizacion.id, entidad?.id ?? null],
     enabled: conDinero,
     queryFn: async () => {
       let q = requireSupabase()
         .from('billing_documents')
-        .select('id, description, series_number, due_date, currency_code, amount_total, amount_tax, status, legal_entity_id')
+        .select('id, description, series_number, issue_date, due_date, currency_code, amount_total, amount_tax, status, legal_entity_id')
         .eq('organization_id', organizacion.id)
         .eq('direction', 'purchase')
         .in('status', ['open', 'partially_paid'])
@@ -151,6 +171,7 @@ export default function Home() {
             (d.series_number ?? '').trim() ||
             'Compra sin número',
           due_date: d.due_date,
+          issue_date: d.issue_date,
           currency_code: d.currency_code,
           atraso:
             d.due_date && d.due_date < hoy
@@ -169,7 +190,7 @@ export default function Home() {
   });
 
   const cartera = useQuery({
-    queryKey: ['cartera', organizacion.id, entidad?.id ?? null],
+    queryKey: ['cartera', 'inicio', organizacion.id, entidad?.id ?? null],
     enabled: conDinero,
     queryFn: async () => {
       const supabase = requireSupabase();
@@ -215,19 +236,52 @@ export default function Home() {
     queryFn: async () => {
       let q = requireSupabase()
         .from('payment_schedule_items')
-        .select('id, label, due_date, amount, currency_code, status, quote_id, billing_document_id')
+        .select('id, label, direction, due_date, amount, currency_code, status, quote_id, billing_document_id')
         .eq('organization_id', organizacion.id)
         .in('status', ['planned', 'documented'])
         .order('due_date');
       if (entidad) q = q.eq('legal_entity_id', entidad.id);
       const { data, error } = await q;
       if (error) throw error;
-      return data ?? [];
+      const items = data ?? [];
+      if (items.length === 0) return [];
+
+      /*
+        Cuánto de cada cuota ya está en el banco. Son dos sitios distintos y
+        no se solapan: una cuota de cotización se cobra contra su **documento**
+        y un previsto suelto contra la **cuota** misma. Restarlo es la decisión
+        2 de la proyección —lo cobrado no se proyecta— aplicada en el único
+        sitio donde no se estaba aplicando.
+      */
+      const documentos = items
+        .map((i) => i.billing_document_id)
+        .filter((x): x is string => typeof x === 'string');
+      const [cobradoDeDocumento, asignadoACuota] = await Promise.all([
+        cobradoPorDocumento(documentos),
+        asignadoPorCuota(items.map((i) => i.id)),
+      ]);
+
+      return items.map((i) => {
+        let yaEntro = '0.00';
+        try {
+          const moneda = currencyOf(i.currency_code);
+          const deSuDocumento = i.billing_document_id
+            ? cobradoDeDocumento.get(i.billing_document_id) ?? zero(moneda)
+            : zero(moneda);
+          const deLaCuota = asignadoACuota.get(i.id) ?? zero(moneda);
+          yaEntro = toDb(add(deSuDocumento, deLaCuota));
+        } catch {
+          // Moneda que el producto no conoce, o dos monedas que no se pueden
+          // sumar: se proyecta el importe entero antes que una cifra inventada.
+          yaEntro = '0.00';
+        }
+        return { ...i, cobrado: yaEntro };
+      });
     },
   });
 
   const gastos = useQuery({
-    queryKey: ['gastos-fijos', organizacion.id, entidad?.id ?? null],
+    queryKey: ['gastos-fijos', 'inicio', organizacion.id, entidad?.id ?? null],
     enabled: conDinero,
     queryFn: async () => {
       let q = requireSupabase()
@@ -246,7 +300,7 @@ export default function Home() {
   // Los pagos ya registrados de gastos fijos. Sirven para que el mes que ya
   // pagaste deje de aparecer como pendiente.
   const pagosDeGastos = useQuery({
-    queryKey: ['pagos-de-gastos', organizacion.id, entidad?.id ?? null],
+    queryKey: ['pagos-de-gastos', 'inicio', organizacion.id, entidad?.id ?? null],
     enabled: conDinero,
     queryFn: async () => {
       let q = requireSupabase()
@@ -279,6 +333,29 @@ export default function Home() {
   // ------------------------------------------------------------------ roles
   // El rol comercial no ve caja ni cartera porque la base no se lo enseña.
   // Darle la misma pantalla vacía parecería una aplicación estropeada.
+  /*
+    El centro de mando: una gráfica elegible arriba de todo.
+
+    No es decoración. Las cifras de esta pantalla contestan «cuánto tengo» y
+    «quién me debe», que son preguntas de hoy; las tres vistas de aquí
+    contestan las de la temporada —en qué mes vendí más, si llego a fin de
+    trimestre, de quién depende el ingreso— y esas no se leen en una lista de
+    números. Sus palabras: «visualmente no acompaña, me pierdo con la
+    información».
+
+    Los hechos salen de la consulta compartida de Análisis, con su misma clave
+    de caché: entrar a Análisis después de Inicio no vuelve a pedir nada, y
+    las dos pantallas no pueden discrepar porque leen lo mismo.
+  */
+  const doceMeses = rangoDe('doce-meses', hoy);
+  const hechos = useHechosDelPeriodo({
+    orgId: organizacion.id,
+    entidadId: entidad?.id ?? null,
+    desde: doceMeses.desde,
+    hasta: doceMeses.hasta,
+    habilitada: conDinero,
+  });
+
   if (!conDinero) {
     return (
       <div className="flex flex-col gap-6">
@@ -332,12 +409,36 @@ export default function Home() {
   );
   const vencidasDeCompra = deudas.filter((d) => d.atraso > 0);
 
-  const esperadas: CuotaEsperada[] = (cuotas.data ?? []).map((c) => ({
-    due_date: c.due_date,
-    amount: String(c.amount),
-    currency_code: c.currency_code,
-    status: c.status,
-  }));
+  // Lo que entra: las cuotas de cotización y los previstos de entrada. Lo que
+  // sale va por el otro camino, con los gastos (INV-15.4).
+  const esperadas: CuotaEsperada[] = (cuotas.data ?? [])
+    .filter((c) => c.direction !== 'out')
+    .map((c) => ({
+      due_date: c.due_date,
+      amount: String(c.amount),
+      currency_code: c.currency_code,
+      status: c.status,
+      cobrado: c.cobrado,
+    }));
+
+  const previstosQueSalen: PrevistoPorSalir[] = (cuotas.data ?? [])
+    .filter((c) => c.direction === 'out')
+    .map((c) => {
+      let pendiente = String(c.amount);
+      try {
+        const moneda = currencyOf(c.currency_code);
+        pendiente = toDb(subtract(fromRow(c.amount, moneda), fromRow(c.cobrado, moneda)));
+      } catch {
+        pendiente = String(c.amount);
+      }
+      return {
+        id: c.id,
+        label: c.label,
+        due_date: c.due_date,
+        currency_code: c.currency_code,
+        pendiente,
+      };
+    });
 
   // La ventana arranca tres meses atrás para que lo atrasado entre en la
   // proyección: la primera semana se lo queda y lo señala.
@@ -362,7 +463,29 @@ export default function Home() {
     value_date: p.value_date,
     is_void: p.is_void,
   }));
-  const salidas = salidasEsperadas(gastosFijos, pagos, ventanaDesde, ventanaHasta);
+  /*
+    Las facturas de proveedor sin pagar se suman a lo que sale. No se les
+    aplica la ventana de trece semanas hacia atrás que sí llevan los gastos
+    fijos, y la asimetría es deliberada: los meses sin pagar de una
+    suscripción se **deducen** —nadie afirmó que no se pagaran—, mientras que
+    una factura sin pagar es un hecho anotado que sigue siendo deuda hasta
+    que se pague o se anule, sin fecha de caducidad. Si venció hace cinco
+    meses, la debes igual, y la primera semana se la queda y lo señala.
+  */
+  const salidas = [
+    ...salidasEsperadas(gastosFijos, pagos, ventanaDesde, ventanaHasta),
+    ...salidasPrevistas(previstosQueSalen),
+    ...salidasDeCompras(
+      deudas.map((d) => ({
+        id: d.id,
+        concepto: d.concepto,
+        due_date: d.due_date,
+        issue_date: d.issue_date,
+        currency_code: d.currency_code,
+        pendiente: toDb(d.pendiente),
+      })),
+    ),
+  ];
   const monedasProyectadas = monedasConMovimiento(esperadas, salidas);
 
   // Qué concepto cae en qué semana. La aritmética la lleva `proyeccion`; esto
@@ -446,6 +569,16 @@ export default function Home() {
       ]
     : [];
   const faltan = pasos.filter((p) => p.cuantas === 0);
+
+  const series = seriePorMes(
+    hechos.data?.hechos ?? [],
+    doceMeses.desde,
+    doceMeses.hasta,
+  );
+  const porCliente = ingresosPorCliente(
+    hechos.data?.hechos ?? [],
+    hechos.data?.clientes ?? new Map(),
+  );
 
   const cargando =
     caja.isPending ||
@@ -542,6 +675,125 @@ export default function Home() {
         </section>
       )}
 
+      {/* ------------------------------------------------ centro de mando */}
+      {conDinero && (
+        <section className="flex flex-col gap-3">
+          <h2 className="text-xs uppercase tracking-widest text-subtle">Cómo va el negocio</h2>
+          <Tarjeta className="p-5">
+            {/*
+              Los tres botones son un grupo de radio de verdad y no tres
+              botones sueltos: así las flechas del teclado los recorren y un
+              lector de pantalla dice «uno de tres». El `fieldset` no lleva
+              borde porque la pregunta ya está escrita debajo.
+            */}
+            <fieldset className="flex flex-col gap-2">
+              <legend className="sr-only">Qué gráfica mirar</legend>
+              <div className="flex flex-wrap gap-1">
+                {VISTAS.map((v) => (
+                  <label
+                    key={v.id}
+                    className={`inline-flex min-h-11 cursor-pointer items-center rounded-control px-3 text-sm ${
+                      vista === v.id
+                        ? 'bg-surface-2 font-medium text-text'
+                        : 'text-muted hover:bg-surface-2 hover:text-text'
+                    }`}
+                  >
+                    <input
+                      type="radio"
+                      name="vista-de-inicio"
+                      value={v.id}
+                      checked={vista === v.id}
+                      onChange={() => setVista(v.id)}
+                      className="sr-only"
+                    />
+                    {v.nombre}
+                  </label>
+                ))}
+              </div>
+              <p className="text-xs text-subtle">
+                {VISTAS.find((v) => v.id === vista)?.pregunta}
+              </p>
+            </fieldset>
+
+            <div className="mt-5 border-t border-border pt-5">
+              {hechos.isPending && vista !== 'semanas' && <Cargando que="la serie" />}
+              {hechos.error && vista !== 'semanas' && (
+                <Aviso tipo="error">{mensajeDeError(hechos.error)}</Aviso>
+              )}
+
+              {vista === 'mes' &&
+                (series.length === 0 ? (
+                  <p className="text-sm text-muted">
+                    Todavía no hay hechos económicos de los últimos doce meses, así que no hay
+                    serie que dibujar. Emite el documento de una cuota o anota un gasto y esto se
+                    llena solo.
+                  </p>
+                ) : (
+                  series.map((serie) => (
+                    <div key={serie.moneda} className="mt-4 first:mt-0">
+                      <p className="mb-2 text-sm font-medium">{serie.moneda}</p>
+                      <Barras serie={serie} />
+                    </div>
+                  ))
+                ))}
+
+              {vista === 'semanas' &&
+                (monedasProyectadas.length === 0 ? (
+                  <p className="text-sm text-muted">
+                    No hay nada previsto que entre ni que salga en las próximas trece semanas.
+                  </p>
+                ) : (
+                  monedasProyectadas.map((moneda) => {
+                    const semanas = proyeccion(esperadas, salidas, moneda, hoy);
+                    const saldoHoy =
+                      porMonedaCaja.get(moneda)?.total ?? { minor: 0n, currency: moneda };
+                    return (
+                      <div key={moneda} className="mt-4 first:mt-0">
+                        <p className="mb-2 text-sm font-medium">{moneda}</p>
+                        <Semanas semanas={semanas} saldos={saldoProyectado(saldoHoy, semanas)} />
+                      </div>
+                    );
+                  })
+                ))}
+
+              {vista === 'cliente' &&
+                (porCliente.length === 0 ? (
+                  <p className="text-sm text-muted">
+                    Todavía no hay ingresos con cliente en los últimos doce meses.
+                  </p>
+                ) : (
+                  [...new Set(porCliente.map((f) => f.moneda))].map((moneda) => (
+                    <div key={moneda} className="mt-5 first:mt-0">
+                      <BarrasH
+                        rotulo="Ingreso por cliente, últimos doce meses"
+                        moneda={moneda}
+                        destacarSobre={50}
+                        filas={porCliente
+                          .filter((f) => f.moneda === moneda)
+                          .map((f) => ({
+                            clave: `${moneda}-${f.clave}`,
+                            nombre: f.nombre,
+                            total: f.total,
+                            nota: `${f.hechos} ${f.hechos === 1 ? 'documento o cobro' : 'documentos o cobros'}`,
+                          }))}
+                      />
+                    </div>
+                  ))
+                ))}
+            </div>
+
+            <p className="mt-4 text-xs text-subtle">
+              Lo de arriba es el resumen. El detalle —el margen de cada trabajo, en qué se fue el
+              gasto, a quién se le pagó— está en{' '}
+              <Link to="/analisis" className="underline">
+                Análisis
+              </Link>
+              .
+            </p>
+          </Tarjeta>
+        </section>
+      )}
+
       {/* ----------------------------------------------------- por pagar */}
       {!cargando && deudas.length > 0 && (
         <section className="flex flex-col gap-3">
@@ -629,6 +881,40 @@ export default function Home() {
             const conMovimiento = semanas.filter(
               (x) => x.entra.minor > 0n || x.sale.minor > 0n,
             );
+            /*
+              Qué hay detrás de esta curva, en ESTA moneda. Se cuentan cosas
+              distintas y no vencimientos: una suscripción mensual aporta seis
+              ocurrencias en trece semanas y decir «6 gastos fijos» haría
+              buscar cinco que no existen.
+
+              El corte por fecha es el mismo que usa `proyeccion`, para que el
+              recuento no mencione nada que no esté dibujado encima.
+            */
+            const suyas = salidas.filter((x) => {
+              if (x.due_date >= ventanaHasta) return false;
+              try {
+                return currencyOf(x.currency_code) === moneda;
+              } catch {
+                return false;
+              }
+            });
+            const cuantosGastos = new Set(
+              suyas.filter((x) => x.origen === 'recurrente').map((x) => x.gasto),
+            ).size;
+            const cuantasCompras = new Set(
+              suyas.filter((x) => x.origen === 'compra').map((x) => x.gasto),
+            ).size;
+            const cuantosPrevistos = new Set(
+              suyas.filter((x) => x.origen === 'previsto').map((x) => x.gasto),
+            ).size;
+            const incluye = [
+              cuantosGastos > 0 &&
+                `${cuantosGastos} ${cuantosGastos === 1 ? 'gasto fijo' : 'gastos fijos'}`,
+              cuantasCompras > 0 &&
+                `${cuantasCompras} ${cuantasCompras === 1 ? 'factura de proveedor sin pagar' : 'facturas de proveedor sin pagar'}`,
+              cuantosPrevistos > 0 &&
+                `${cuantosPrevistos} ${cuantosPrevistos === 1 ? 'pago previsto' : 'pagos previstos'}`,
+            ].filter((x): x is string => typeof x === 'string');
 
             return (
               <Tarjeta key={moneda} className="p-5">
@@ -750,9 +1036,9 @@ export default function Home() {
                 )}
 
                 <p className="mt-3 max-w-prose text-xs text-subtle">
-                  {gastosFijos.length === 0
-                    ? 'Solo entradas: todavía no hay ningún gasto fijo cargado, así que la proyección es optimista por construcción.'
-                    : `Incluye ${gastosFijos.length} ${gastosFijos.length === 1 ? 'gasto fijo' : 'gastos fijos'}. Lo que no incluye todavía son las compras con documento y los pagos de una sola vez.`}
+                  {incluye.length === 0
+                    ? 'Solo entradas: en esta moneda no hay ningún gasto fijo, ninguna factura de proveedor sin pagar ni ningún pago previsto, así que la proyección es optimista por construcción.'
+                    : `Incluye ${incluye.join(', ')}. De todo entra lo que falta por pagar o cobrar, nunca lo que ya está en el saldo. Y de las compras, con su IGV dentro: del banco sale el total, aunque el impuesto no sea gasto tuyo.`}
                 </p>
               </Tarjeta>
             );

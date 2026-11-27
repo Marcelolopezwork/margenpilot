@@ -89,7 +89,55 @@ Anular un movimiento = marcar `is_void=true` con `void_reason` obligatorio. El s
 **Corregido el 6/11/2026.** Esta regla pedía además crear el movimiento contrapartida con `void_of_id` apuntando al original. Las dos cosas juntas son incompatibles con INV-1 tal como está escrita: si la fórmula del saldo excluye los anulados **y** además existe una contrapartida, el dinero se resta dos veces. Hay dos diseños coherentes —marcar y excluir, o no excluir y compensar— y se elige el primero, porque es el que INV-1 escribe literalmente y el que deja una sola fórmula de saldo. `void_of_id` deja de existir; la trazabilidad de quién anuló y cuándo la da `audit_log`, que guarda la fila antes y después.
 
 ### INV-8 — Conciliar no crea dinero
-Confirmar una coincidencia solo escribe en `reconciliation_matches`. El único camino que crea un `cash_movement` desde la conciliación es la acción explícita `create_movement`, que pasa por las mismas validaciones que el alta manual y queda marcada `source='bank_import'`.
+Implantado el 24/11/2026 (F6-1). El sistema sabe lo que anotaste; el banco sabe lo que pasó. Conciliar es cruzar las dos listas y dejar por escrito qué línea es qué movimiento. **Marcar una coincidencia no cambia ni un céntimo del saldo**, y eso no es una promesa: ninguna de las tres tablas de la conciliación tiene una escritura hacia `cash_movements`, y `authenticated` sigue sin INSERT ni UPDATE sobre ella. Si conciliar pudiera crear, corregir o borrar movimientos, dejaría de ser una comprobación: el libro siempre cuadraría consigo mismo.
+
+Siete corolarios:
+
+1. **El extracto se guarda como vino.** Cada línea conserva su fila original en `raw` y no se edita nunca. Si una línea está mal, está mal en el banco: eso es un dato, no un error que arreglar.
+2. **Una línea pertenece a una cuenta y lleva su moneda**, por la clave compuesta `(cash_account_id, organization_id, legal_entity_id, currency_code)`. No hay forma de meter el extracto del BCP en la cuenta de Mercury (INV-9, ADR-16).
+3. **El importe se guarda como lo guarda el libro**: positivo, con la dirección aparte, deducida del signo del extracto. Dos representaciones del dinero en el mismo producto serían dos sitios donde equivocarse.
+4. **Un emparejamiento une una línea con un movimiento de la misma cuenta y en el mismo sentido.** Lo primero lo impone la clave compuesta; lo segundo, el gate con nombres propios. Marcar una salida del banco contra un cobro tuyo daría por cuadrado lo que no cuadra.
+5. **El mismo movimiento no se marca dos veces** (índice único sobre `cash_movement_id`). Una línea puede ser varios movimientos —el banco junta dos depósitos del mismo día— pero un movimiento no puede estar en dos líneas: para eso hay dos movimientos.
+6. **Un movimiento anulado no concilia.** No es dinero; darlo por cuadrado escondería la línea de verdad. Por eso `bank_line_status` excluye los anulados al sumar, y anular un movimiento ya emparejado deshace el cuadre solo.
+7. **Lo que sobra se dice, no se borra.** Una línea que no es tuya se aparta con un motivo escrito y sale de pendientes sin desaparecer. Desemparejar sí borra la fila del emparejamiento, y se puede: no es un hecho económico, es la afirmación de una persona, y una afirmación se puede retirar; `audit_log` guarda quién la hizo y quién la quitó.
+
+La propuesta automática vive en el cliente (`src/pages/finanzas/extracto.ts`) y tiene su propia regla: **si hay dos candidatos igual de buenos, no se propone ninguno.** Una propuesta ambigua aceptada a ciegas tacha la línea con el movimiento equivocado, y entonces las dos listas cuadran con los pares cambiados, que es peor que no haber conciliado.
+
+#### INV-8.8 — Un cierre es una afirmación con condiciones, no una fecha
+Añadida el 25/11/2026 (F6-2). Sin cierre, conciliar es una tarea que nunca termina: cada mes se vuelven a mirar las mismas líneas viejas porque nada dice que ya se miraron.
+
+1. **No se cierra lo que no está resuelto.** Cada línea del extracto hasta esa fecha tiene que estar cuadrada o apartada con su motivo (`quedan_lineas`, que dice cuántas y la más antigua). Un cierre que admite líneas sueltas no afirma nada: las esconde.
+2. **No se cierra contra nada**: hace falta un extracto importado que llegue hasta esa fecha (`sin_extracto`).
+3. **Ni hacia el futuro** (`fecha_futura`).
+4. **Lo cerrado no se toca.** Emparejar, desemparejar, apartar o anotar una línea anterior al cierre se rechaza (`periodo_cerrado`); primero se reabre.
+5. **Y no se importa por debajo.** Un extracto con líneas anteriores al cierre se rechaza entero: dejaría líneas sin resolver debajo de una fecha que afirma que todo lo anterior lo está.
+6. **Reabrir se puede, con fecha nula, y es explícito.** Encontrar un error dos meses después es normal.
+7. **El cierre vive en `bank_reconciliations`, no en una columna de `cash_accounts`**, donde `authenticated` tiene UPDATE y podría escribir la fecha sin pasar por ninguna comprobación. Allí no tiene ni un permiso de escritura.
+8. **Los movimientos sin línea del banco no bloquean el cierre, pero no se esconden.** El extracto es la autoridad sobre lo que pasó en el banco y el cierre afirma que *ese* lado está explicado; un cheque que nadie depositó sigue a la vista después de cerrar, porque sigue sin explicación.
+
+**La excepción que INV-8 siempre admitió, ya implantada:** `crear_movimiento_desde_linea` anota el gasto que el banco cobró y nadie apuntó. Copia la fecha, el importe y el sentido de la línea, queda marcado `source = 'bank_import'` y empareja en el mismo acto. No toca ningún movimiento que ya existiera: solo añade el que faltaba, y por eso no contradice la regla.
+
+#### INV-8.9 — Pedirlo para muchas no es pedirlo menos
+Añadida el 26/11/2026. La excepción se pide una vez para todas las líneas que la necesitan, y no una por una. El motivo es que una pantalla que exige la misma decisión veinticinco veces no se usa: el extracto real de un mes de Mercury trae veinticinco líneas, veintitrés de ellas sin anotar, y revisarlas de una en una no es revisar, es teclear. Lo que **no** cambia con la tanda es ninguna comprobación: cada línea pasa por el mismo gate, en su propia transacción, y un fallo a la mitad deja hechas las anteriores y dice cuántas iban.
+
+Lo que sí hace falta escribir, porque es la frontera que la tanda podría borrar:
+
+1. **Una línea que ya es un movimiento tuyo no se anota: se empareja.** La pantalla separa las dos tandas por eso. La que se anota es la que no tiene ningún candidato; la que tiene uno exacto —mismo importe y el mismo día, o la misma referencia— se confirma. Anotar lo que ya estaba apuntado duplicaría el gasto, y un duplicado en el libro es peor que una línea sin explicar: la línea se ve, el duplicado no.
+2. **Lo parecido no entra en ninguna tanda.** Mismo importe y otra fecha puede ser el mismo pago contado con tres días de diferencia, o dos cosas distintas que valen lo mismo. Eso se mira una por una, y por eso la lista detallada sigue existiendo.
+3. **Un traspaso entre cuentas propias no se trae desde aquí.** En el extracto es un gasto, y traído así sería un gasto de la empresa que nunca ocurrió: el resultado del mes saldría peor y el dinero seguiría estando. Un traspaso se anota entero, con sus dos lados (INV-5). La pantalla lo advierte antes del botón, porque es el caso de quien reparte su dinero en varias cuentas del mismo banco.
+
+#### INV-8.12 — Un extracto tiene que cuadrar consigo mismo
+Añadida el 26/11/2026 (F4-4). El fallo más silencioso de toda la conciliación es **un archivo cortado**: descargas el extracto, la descarga se trunca o el rango de fechas no es el que creías, e importas veinte líneas de las treinta que hubo. Las veinte cuadran una por una, cada emparejamiento es correcto, y el cierre del periodo afirmaría algo falso. Lo que falta no protesta, porque lo que falta no está.
+
+Lo único que lo detecta es la aritmética del propio banco: `saldo_final − saldo_inicial = Σ abonos − Σ cargos`. De ahí, tres reglas:
+
+1. **Los saldos son opcionales; la comprobación, no.** Hay extractos que no los traen, y obligar a inventarlos sería peor que no comprobar: un saldo inventado hace cuadrar cualquier cosa. Sin ellos, `bank_statements.diferencia` queda **nula**, que significa «no se pudo comprobar» —y no cero, que significaría «comprobado y cuadra»—. Son tres estados, no dos. Y los dos saldos van juntos o no van: con uno solo no hay nada que comparar (`saldos_a_medias`).
+2. **Un extracto descuadrado se importa igual, pero marcado.** Rechazarlo dejaría al usuario sin sus líneas y sin saber por qué. Entra con su diferencia escrita y la pantalla la dice con la cifra dentro.
+3. **Y bloquea el cierre** (`extracto_descuadrado`). No es que falte emparejar una línea: es que no se sabe cuántas líneas hubo, así que ninguna afirmación sobre ese periodo se sostiene. Esto es lo que da sentido a INV-8.8.
+
+Lo que esto **no** detecta: un hueco entre dos extractos. Septiembre y noviembre importados, octubre no, cada uno cuadrando consigo mismo. Detectarlo exigiría que un extracto prometiera continuidad con el anterior, y no la promete. Queda dicho en vez de fingir que se comprueba.
+
+Lo que **todavía no** hay: recordar de un mes para otro qué columna era cuál en cada banco.
 
 ### INV-9 — El dinero vive en la moneda de su cuenta
 `cash_movements.currency_code` = `cash_accounts.currency_code`, validado por trigger. Una cuenta tiene una sola moneda. Si una cuenta real es multimoneda (algunos bancos lo permiten), se modela como dos cuentas con el mismo `account_ref_masked` y se concilia por separado.
@@ -113,10 +161,59 @@ Implantado el 10/11/2026 (F3-6). Las ventas y las compras viven en la misma tabl
 5. **La factura es un hecho el día que llega, no el día que se paga.** Por INV-6 el documento es el hecho y el pago solo es dinero. Es lo que hace que el resultado de un mes sea el de ese mes aunque se compre a treinta días.
 6. **Cobrar y pagar comparten un solo cuerpo.** `app.saldar_documento` hace las dos cosas y deriva el signo, la contraparte y el verbo de la dirección del documento; `registrar_cobro` y `registrar_pago_de_compra` son dos puertas que se niegan a la dirección que no les toca (`esto_es_una_compra`, `esto_es_una_venta`). El tope de «cuánto queda» está escrito una vez. Y `app.respeta_los_topes` rechaza una asignación cuyo movimiento vaya en sentido contrario al documento (`direccion_no_concuerda`): un ingreso no paga una factura de proveedor.
 
-Lo que esto **todavía no** permite: saber cuánto deja cada servicio. Para eso hace falta atar cada compra y cada venta a las líneas de la versión aceptada, y hoy una compra no sabe a qué trabajo pertenece. La categoría dice en qué se fue y el proveedor dice a quién; ninguna de las dos dice para qué trabajo.
+Lo que faltaba —saber para qué trabajo era cada compra— lo resuelve INV-14. La categoría dice en qué se fue el dinero y el proveedor dice a quién; ninguna de las dos decía para qué trabajo.
+
+### INV-15 — La proyección de caja cuenta todo lo que sale, o es optimista por construcción
+Añadida el 24/11/2026. La proyección de trece semanas vive en `src/pages/finanzas/proyeccion.ts` y sus cinco decisiones están escritas ahí. La que faltaba: **una factura de proveedor sin pagar también sale.** Hasta hoy la curva miraba los cobros previstos y los gastos fijos, y nada más, así que el sistema sabía que debías 1 180 el día 30 y la curva no se enteraba. Tres corolarios:
+
+1. **Entra lo que falta por pagar, no el total.** Lo ya pagado está en el saldo, y contarlo otra vez sería contar el mismo dinero dos veces (decisión 2 de la proyección, que es INV-1 aplicada).
+2. **Con el IGV dentro.** Esto es caja, no resultado: el impuesto de una compra no es gasto tuyo (INV-12.4) pero sale del banco igual. Una proyección que lo descontara se quedaría corta en el 18 % de cada factura.
+3. **La fecha es el vencimiento y, si no hay, el día de la factura.** Una compra sin plazo acordado se paga al recibirla; suponerle treinta días empujaría el dinero a una semana futura y dejaría la curva optimista otra vez. Y lo vencido no se descarta ni se esconde en su semana pasada: cae en la primera y se señala, igual que una suscripción atrasada. A las compras no se les aplica el tope de trece semanas hacia atrás que sí llevan los gastos fijos, y la asimetría es deliberada: los meses sin pagar de una suscripción se **deducen** —nadie afirmó que no se pagaran—, mientras que una factura sin pagar es un hecho anotado que sigue siendo deuda hasta que se pague o se anule.
+
+4. **Lo ya cobrado de una cuota no se proyecta otra vez.** Una cuota de 5 000 con su documento emitido y 2 000 ya cobrados proyecta 3 000, no 5 000: los otros 2 000 están en el saldo. Era el corolario 1 incumplido en el único sitio donde no se veía, y se arregló el 24/11 con el resto.
+
+#### INV-15.4 — Un previsto es un plan; se salda con dinero, no con un botón
+Añadida el 24/11/2026 (F5-3). Lo último que la curva no veía: un cobro o un pago de **una sola vez**, con fecha y sin factura detrás —un adelanto, un equipo pactado—. **No hay tabla nueva:** `payment_schedule_items` se escribió el 5/11 con `quote_id` nulable y `direction` precisamente para esto, y lo que faltaban eran las puertas. Un previsto es una fila de esa tabla con `quote_id` nulo; una **cuota** es la que viene de una cotización.
+
+1. **No mueve dinero.** Como una cuota prevista o un gasto fijo: entra en la proyección y no toca el saldo (INV-1).
+2. **Su estado se deriva de lo asignado.** `saldar_previsto` crea el movimiento y la asignación; `app.recalcula_estado_previsto` pone el estado, por los mismos disparadores que siguen a un documento. Un botón «marcar como pagado» sería un estado que puede discrepar del dinero, y entonces la proyección tendría dos verdades.
+3. **Saldado a medias sigue proyectando lo que falta.** Pactas 3 000, adelantas 1 000, quedan 2 000 en la curva.
+4. **El dinero va en el sentido del previsto** (`direccion_no_concuerda`): un pago no salda un cobro previsto.
+5. **El tope NO se vigila, y es deliberado.** A una cuota de cotización no se le puede asignar más de lo que vale, porque es un derecho de cobro con importe acordado (INV-3). Un previsto es una estimación tuya: si la cámara pactada en 3 000 costó 3 200, negarse a registrar el pago sería obligarte a editar el plan para poder anotar la realidad. El movimiento es el dinero y es correcto; el plan solo queda saldado.
+6. **Mientras es un plan se puede quitar; con dinero asignado, no.** Se borra, y se puede porque no es un hecho económico —el mismo razonamiento de `guardar_cronograma`— y `audit_log` guarda el rastro. Con dinero, borrarlo dejaría un movimiento señalando a algo que no existe.
+7. **Una cuota de cotización no entra por estas puertas** (`cuota_de_cotizacion`). Se emite su documento y se cobra: si estas puertas la aceptaran, habría dos caminos para cobrar una venta y uno no dejaría documento.
+8. **El movimiento de un previsto es su propio hecho económico.** La asignación señala a una cuota y no a un documento, así que INV-6 no lo excluye del resultado: no hay documento que lo cuente por él.
+
+Con esto la proyección ve las cuatro cosas que mueven la caja: los cobros de las cotizaciones, los gastos fijos, las facturas de proveedor y lo previsto de una sola vez. Lo que **todavía no** hace: repetir un previsto —para eso están los gastos fijos— ni atarlo a un trabajo, porque el costo de un trabajo se cuenta por su factura.
 
 ### INV-13 — Un documento se anula; no se borra ni se vacía
 `anular_documento` marca `status='void'` con su motivo escrito, y se **niega** si el documento tiene movimientos vivos asignados (`documento_con_dinero`): anularlo dejando sus cobros o pagos vivos convertiría ese dinero en una entrada o salida sin hecho que la explique. El orden es: primero el movimiento, después el documento. Al anularlo, la cuota de la que salió vuelve a `planned` con su `billing_document_id` en nulo, porque si no quedaría «documentada» señalando a un documento anulado y no habría forma de volver a facturarla.
+
+### INV-14 — Un trabajo es una línea aprobada, y el dinero se le atribuye
+Implantado el 23/11/2026 (F5). Un trabajo (`jobs`) nace al aprobar una cotización: cada línea de la versión vigente se convierte en uno, con el disparador de estados, igual que el cronograma de cobro. Ocho reglas.
+
+1. **El trabajo guarda la foto del día que se aprobó.** `price_net` es el neto de su línea en la versión aceptada y `expected_cost` el costo que estaba estimado ese día, con la misma aritmética que usó `emitir_cotizacion`. Ninguno se puede editar: `authenticated` no tiene UPDATE en `jobs`, y `actualizar_trabajo` solo toca el nombre, el estado y las notas. La frase «cotizaste 45 % y te está dejando 28 %» exige que el 45 % no se mueva.
+2. **El ingreso se deriva; no se atribuye.** Una cotización de tres líneas se factura con un documento por cuota, y ese documento no es de una línea: es de la cotización. Pero el reparto entre líneas ya está decidido y escrito, así que la parte del trabajo es `price_net / quote_net` de lo facturado. Al derivarlo no hay nada que se pueda atribuir mal.
+3. **El costo sí se atribuye a mano**, porque no hay nada de donde derivarlo: ninguna factura de proveedor sabe para qué trabajo era. `job_id` existe en las compras (`check el_trabajo_solo_en_las_compras`) y en los gastos (`el_trabajo_solo_en_los_gastos`, que exige además `direction='out'` y descarta las patas de transferencia y las aperturas), y **no** en las ventas: una venta ya tiene su parte calculada y atribuirla además sería contarla dos veces.
+4. **Un trabajo vive en un libro.** La clave compuesta `(id, organization_id, legal_entity_id)` hace estructuralmente imposible colgarle un documento de otra empresa (INV-11, ADR-16), y `app.comprueba_el_trabajo` lo explica antes con los dos nombres propios dentro.
+5. **El margen se calcula sobre netos de los dos lados.** El IGV que cobras no es tuyo y el que pagas es crédito fiscal (INV-12.4). Un margen sobre totales se equivoca en los dos sentidos a la vez.
+6. **Los dos márgenes comparten denominador.** `margen cotizado = (acordado − estimado) / acordado` y `margen real = (acordado − costo real) / acordado`. Calcular el real sobre lo facturado estaría mal: facturar es un calendario, no un hecho del trabajo, y un trabajo de 6 000 con 2 000 de costo y la primera cuota emitida daría 0 % en enero y 66 % en marzo sin que nada hubiera cambiado. Lo facturado se enseña al lado, con su nombre, y nunca se llama margen. Un trabajo cancelado no se mide contra un precio que ya no va a cobrar: no tiene margen y queda fuera del resumen por servicio.
+7. **Dos monedas no se suman** (INV-10). `job_margins` devuelve una fila por trabajo y moneda. Un costo en dólares de un trabajo en soles se enseña aparte y sin convertir: convertirlo en silencio daría un margen que depende del día.
+8. **Este lente no es el resultado del mes y no lo alimenta.** El reparto por línea redondea, así que los céntimos de los trabajos de una cotización pueden no sumar exactamente su documento. El resultado del periodo sigue saliendo de `economic_facts` sin pasar por aquí, que es donde los céntimos tienen que cuadrar.
+
+9. **Un costo que no se anotó no es un costo de cero.** Si a un trabajo con costo estimado no se le atribuyó ni un apunte, su margen real **no se sabe**: no es el 100 %. Enseñar el 100 % sería la mentira más cómoda del producto, porque llega con un desvío magnífico a favor justo cuando falta el dato que lo hundiría. Si el costo estimado también era cero, el 100 % sí es la cifra —la cotización dijo que no costaba nada y el desvío sale cero—: lo que no se puede es confundir «no costó» con «no se anotó». Lo mismo en grupo: si a ninguno del servicio se le anotó costo, el servicio tampoco tiene margen real; si a alguno sí, la cifra se enseña diciendo en cuántos trabajos se apoya, porque esconderla haría que un servicio con nueve medidos y uno sin medir no dijera nada. Encontrado el 24/11 mirando los datos reales: una cotización aprobada antes de esta migración enseñaba «cotizaste 46 % y te está dejando 100 %».
+
+Lo que esto **todavía no** permite: repartir una factura entre dos trabajos, y saber cuántas horas se le fueron a cada uno. Un trabajo sabe cuánto dinero costó, no cuánto tiempo.
+
+### INV-16 — Las horas se cuentan aparte del dinero, y no se convierten
+Añadida el 25/11/2026 (F5-5). Es la otra mitad de «cuánto deja cada trabajo»: hoy un trabajo sabe cuánto **dinero** costó, no cuánto **tiempo**. El margen por dinero premia al trabajo que se hace con pocos proveedores aunque se lo coma el equipo entero; el margen por hora dice la verdad.
+
+1. **Una hora no es un costo.** No se multiplica por una tarifa ni se suma al costo real del trabajo: contaría dos veces el sueldo de quien ya cobra, o inventaría un gasto que nunca salió del banco. El resultado del mes no cambia ni un céntimo por anotar horas, y hay una aserción que lo comprueba.
+2. **Lo que producen es una división, no una suma.** «Deja 4 000 y se comió 80 horas» son 50 por hora, y esa es la cifra que compara dos servicios de verdad.
+3. **Se guardan en minutos enteros.** «Hora y media» es 90. Un `numeric` de horas con decimales es la misma trampa que un importe en coma flotante.
+4. **Quién es un texto, no un usuario**: el freelance que editó el vídeo no tiene cuenta y no la va a tener.
+5. **Un apunte se borra.** No es un hecho económico; el rastro lo guarda `audit_log`.
+6. **Con el costo real sin anotar no hay cifra por hora.** La utilidad estaría inflada (INV-14.9) y dividirla daría una cifra por hora inflada: la más peligrosa, porque suena concreta.
 
 ---
 

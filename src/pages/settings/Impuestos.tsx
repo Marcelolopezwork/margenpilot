@@ -82,6 +82,7 @@ export default function Impuestos() {
 
   return (
     <Seccion
+      alta={{ texto: 'Nueva tasa', id: 'alta-impuesto' }}
       titulo="Impuestos"
       regla="Cada entidad tiene sus propias tasas, porque el régimen es de la empresa y no del grupo: IGV 18 % en Perú, 0 % en Estados Unidos. Una entidad puede tener varias tasas, pero solo una por defecto, y es la que propone el cotizador. Una entidad al 0 % no muestra bloque de impuesto en la cotización."
     >
@@ -139,7 +140,7 @@ export default function Impuestos() {
       {porDefecto.error && <Aviso tipo="error">{mensajeDeError(porDefecto.error)}</Aviso>}
 
       {entidades.length > 0 && (
-        <Alta titulo="Nueva tasa" exito={exito} onSubmit={() => crear.mutate()}>
+        <Alta id="alta-impuesto" titulo="Nueva tasa" exito={exito} onSubmit={() => crear.mutate()}>
           <Selector
             etiqueta="Entidad"
             value={entidadId}

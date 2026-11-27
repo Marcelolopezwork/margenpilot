@@ -43,7 +43,7 @@ export const DESTINOS: readonly Destino[] = [
     ruta: '/finanzas',
     nombre: 'Finanzas',
     icono: IconoFinanzas,
-    para: 'Caja, cartera, compras y gastos fijos, separados por entidad.',
+    para: 'Caja, cartera, compras, gastos fijos y lo previsto, separados por entidad.',
   },
   {
     ruta: '/pipeline',
@@ -55,7 +55,7 @@ export const DESTINOS: readonly Destino[] = [
     ruta: '/analisis',
     nombre: 'Análisis',
     icono: IconoAnalisis,
-    para: 'Ingresos, gastos y resultado del periodo, sin contar nada dos veces.',
+    para: 'El resultado del periodo y cuánto deja cada trabajo, sin contar nada dos veces.',
   },
   {
     ruta: '/configuracion',

@@ -1,7 +1,8 @@
 // @vitest-environment jsdom
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { cleanup, render, screen } from '@testing-library/react';
-import { Alta } from './piezas';
+import userEvent from '@testing-library/user-event';
+import { Alta, Seccion } from './piezas';
 
 /**
  * Marcelo reportó las dos cosas que se comprueban aquí: que al crear algo la
@@ -54,5 +55,43 @@ describe('confirmación del alta', () => {
     const aviso = screen.getByRole('status');
     expect(aviso.textContent).toContain('Segunda creada.');
     expect(document.activeElement).toBe(aviso);
+  });
+});
+
+/**
+ * Y la tercera que reportó: «para agregar compra no es nada intuitivo».
+ * El formulario estaba al final de la página, debajo de la lista, y nada
+ * arriba decía que existiera.
+ */
+describe('el atajo al formulario de alta', () => {
+  it('pone un botón arriba que deja el cursor dentro del formulario', async () => {
+    const usuario = userEvent.setup();
+    render(
+      <Seccion
+        titulo="Compras"
+        regla="Lo que compras."
+        alta={{ texto: 'Anotar una compra', id: 'alta-compra' }}
+      >
+        <Alta id="alta-compra" titulo="Anotar una compra" onSubmit={vi.fn()}>
+          <input aria-label="El proveedor" />
+          <button type="submit">Anotar</button>
+        </Alta>
+      </Seccion>,
+    );
+
+    // El botón de la cabecera no es el de enviar: no envía nada.
+    const atajo = screen.getByRole('button', { name: 'Anotar una compra' });
+    await usuario.click(atajo);
+
+    expect(document.activeElement).toBe(screen.getByLabelText('El proveedor'));
+  });
+
+  it('sin atajo declarado, la cabecera no inventa ningún botón', () => {
+    render(
+      <Seccion titulo="Compras" regla="Lo que compras.">
+        <p>nada</p>
+      </Seccion>,
+    );
+    expect(screen.queryByRole('button')).toBeNull();
   });
 });

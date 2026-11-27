@@ -5,8 +5,13 @@ import {
   gastosPorCategoria,
   gastosPorProveedor,
   ingresosPorCliente,
+  alturaDeBarra,
+  mesDe,
+  mesesEntre,
+  nombreMes,
   rangoDe,
   resultadoPorMoneda,
+  seriePorMes,
   type Hecho,
 } from './resultado';
 
@@ -186,5 +191,161 @@ describe('de dónde vino y en qué se fue', () => {
       hecho({ concepto: 'Hosting' }),
     ]);
     expect(fuera.map((h) => h.concepto)).toEqual(['Retiro']);
+  });
+});
+
+describe('la serie por mes', () => {
+  it('los meses sin nada existen: un verano muerto es un hueco, no una columna que falta', () => {
+    const [serie] = seriePorMes(
+      [
+        hecho({ fecha: '2026-06-10', direction: 'in', amount_net: '1000.00' }),
+        hecho({ fecha: '2026-09-10', direction: 'in', amount_net: '2000.00' }),
+      ],
+      '2026-06-01',
+      '2026-09-30',
+    );
+
+    expect(serie!.meses.map((m) => m.mes)).toEqual(['2026-06', '2026-07', '2026-08', '2026-09']);
+    expect(serie!.meses[1]!.hechos).toBe(0);
+    expect(format(serie!.meses[1]!.ingresos)).toBe('S/ 0.00');
+  });
+
+  it('suma lo mismo que el resultado del periodo: una sola aritmética', () => {
+    const hechos = [
+      hecho({ fecha: '2026-10-05', direction: 'in', amount_net: '3000.00' }),
+      hecho({ fecha: '2026-11-05', direction: 'in', amount_net: '5000.00' }),
+      hecho({ fecha: '2026-11-20', direction: 'out', amount_net: '1200.00' }),
+    ];
+    const [serie] = seriePorMes(hechos, '2026-10-01', '2026-11-30');
+    const [total] = resultadoPorMoneda(hechos);
+
+    const sumaIngresos = serie!.meses.reduce((n, m) => n + m.ingresos.minor, 0n);
+    const sumaGastos = serie!.meses.reduce((n, m) => n + m.gastos.minor, 0n);
+    expect(sumaIngresos).toBe(total!.ingresos.minor);
+    expect(sumaGastos).toBe(total!.gastos.minor);
+  });
+
+  it('lo no operativo se queda fuera, igual que arriba', () => {
+    const [serie] = seriePorMes(
+      [
+        hecho({ fecha: '2026-11-05', direction: 'in', amount_net: '1000.00' }),
+        hecho({
+          fecha: '2026-11-06',
+          direction: 'out',
+          flow_class: 'non_operating',
+          kind: 'owner_draw',
+          amount_net: '2500.00',
+          amount_total: '2500.00',
+        }),
+      ],
+      '2026-11-01',
+      '2026-11-30',
+    );
+    // Un retiro del dueño no es un gasto: no hunde el mes.
+    expect(format(serie!.meses[0]!.gastos)).toBe('S/ 0.00');
+    expect(format(serie!.meses[0]!.resultado)).toBe('S/ 1,000.00');
+  });
+
+  it('dice qué mes se vendió más y qué mes menos, por ingresos', () => {
+    const [serie] = seriePorMes(
+      [
+        hecho({ fecha: '2026-09-10', direction: 'in', amount_net: '800.00' }),
+        hecho({ fecha: '2026-10-10', direction: 'in', amount_net: '4000.00' }),
+        hecho({ fecha: '2026-11-10', direction: 'in', amount_net: '2000.00' }),
+      ],
+      '2026-09-01',
+      '2026-11-30',
+    );
+
+    expect(serie!.mejor?.mes).toBe('2026-10');
+    expect(serie!.peor?.mes).toBe('2026-09');
+    // Y un mes sin nada no es «el peor»: es un mes sin datos.
+    expect(serie!.peor?.hechos).toBeGreaterThan(0);
+  });
+
+  it('sin un solo hecho no hay mejor ni peor, y no se inventan', () => {
+    expect(seriePorMes([], '2026-01-01', '2026-12-31')).toEqual([]);
+    const [serie] = seriePorMes(
+      [
+        hecho({
+          fecha: '2026-11-05',
+          direction: 'out',
+          flow_class: 'non_operating',
+          kind: 'owner_draw',
+        }),
+      ],
+      '2026-11-01',
+      '2026-11-30',
+    );
+    expect(serie!.mejor).toBeNull();
+    expect(serie!.peor).toBeNull();
+  });
+
+  it('cada moneda es su propia serie (INV-10)', () => {
+    const series = seriePorMes(
+      [
+        hecho({ fecha: '2026-11-05', direction: 'in', amount_net: '1000.00' }),
+        hecho({
+          fecha: '2026-11-05',
+          direction: 'in',
+          currency_code: 'USD',
+          amount_net: '300.00',
+        }),
+      ],
+      '2026-11-01',
+      '2026-11-30',
+    );
+    expect(series.map((s) => s.moneda)).toEqual(['PEN', 'USD']);
+  });
+
+  it('el techo es el mayor de los dos lados, para que se puedan comparar a ojo', () => {
+    const [serie] = seriePorMes(
+      [
+        hecho({ fecha: '2026-11-05', direction: 'in', amount_net: '1000.00' }),
+        hecho({ fecha: '2026-11-06', direction: 'out', amount_net: '2500.00' }),
+      ],
+      '2026-11-01',
+      '2026-11-30',
+    );
+    expect(format(serie!.techo)).toBe('S/ 2,500.00');
+  });
+});
+
+describe('las piezas del gráfico', () => {
+  it('mesDe recorta sin pasar por Date', () => {
+    expect(mesDe('2026-11-23')).toBe('2026-11');
+  });
+
+  it('mesesEntre cruza el año', () => {
+    expect(mesesEntre('2026-11-01', '2027-02-15')).toEqual([
+      '2026-11',
+      '2026-12',
+      '2027-01',
+      '2027-02',
+    ]);
+  });
+
+  it('mesesEntre de un solo mes devuelve ese mes', () => {
+    expect(mesesEntre('2026-11-01', '2026-11-30')).toEqual(['2026-11']);
+  });
+
+  it('el nombre del mes se lee, y una clave rota se devuelve tal cual', () => {
+    expect(nombreMes('2026-11')).toBe('nov 2026');
+    expect(nombreMes('vaya')).toBe('vaya');
+  });
+
+  it('la altura es relativa al techo, y nunca se sale de la caja', () => {
+    const pen = (v: string) => ({ minor: BigInt(v), currency: 'PEN' as const });
+    expect(alturaDeBarra(pen('5000'), pen('10000'))).toBe(50);
+    expect(alturaDeBarra(pen('10000'), pen('10000'))).toBe(100);
+    expect(alturaDeBarra(pen('20000'), pen('10000'))).toBe(100);
+    expect(alturaDeBarra(pen('0'), pen('10000'))).toBe(0);
+    // Sin techo no hay escala, y una división por cero no se intenta.
+    expect(alturaDeBarra(pen('5000'), pen('0'))).toBe(0);
+  });
+
+  it('una barra diminuta se ve: un píxel es mejor que nada', () => {
+    const pen = (v: string) => ({ minor: BigInt(v), currency: 'PEN' as const });
+    expect(alturaDeBarra(pen('1'), pen('1000000'))).toBe(1);
   });
 });

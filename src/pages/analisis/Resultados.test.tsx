@@ -90,7 +90,7 @@ const hecho = (h: Record<string, unknown>) => ({
 });
 
 async function montar(rol: Enums<'membership_role'> = 'owner') {
-  const { default: Analisis } = await import('./Analisis');
+  const { default: Resultados } = await import('./Resultados');
   const org: ContextoOrg = {
     cargando: false,
     error: null,
@@ -117,7 +117,7 @@ async function montar(rol: Enums<'membership_role'> = 'owner') {
     <MemoryRouter>
       <QueryClientProvider client={cliente}>
         <OrgContext.Provider value={org}>
-          <Analisis />
+          <Resultados />
         </OrgContext.Provider>
       </QueryClientProvider>
     </MemoryRouter>,
@@ -146,20 +146,20 @@ describe('Análisis · el lente Resultado', () => {
     await montar();
     await screen.findByText('Ingresos · PEN');
 
-    // Los ingresos salen dos veces: la cifra de arriba y la fila del cliente
-    // del que vinieron. El gasto sale tres: la cifra, su categoría y su
-    // proveedor —que aquí es «sin proveedor anotado», porque es un movimiento
-    // suelto y no una compra con factura.
-    expect(screen.getAllByText('S/ 10,000.00')).toHaveLength(2);
-    expect(screen.getAllByText('S/ 1,000.00')).toHaveLength(3);
-    expect(screen.getByText('Sin proveedor anotado')).toBeTruthy();
+    // Los ingresos salen más de una vez a propósito: la cifra de arriba, la
+    // barra del cliente del que vinieron y la tabla que cada gráfico lleva
+    // dentro para poder leerse sin ver. Lo que se comprueba es que estén, no
+    // cuántas veces: contarlas ataba la prueba al número de gráficos.
+    expect(screen.getAllByText('S/ 10,000.00').length).toBeGreaterThanOrEqual(2);
+    expect(screen.getAllByText('S/ 1,000.00').length).toBeGreaterThanOrEqual(3);
+    expect(screen.getAllByText('Sin proveedor anotado').length).toBeGreaterThan(0);
     expect(screen.getByText('S/ 9,000.00')).toBeTruthy();
     expect(screen.getByText(/margen del 90.0 %/)).toBeTruthy();
     // El IGV cobrado y el pagado se dicen, y se dice que no son resultado.
     expect(screen.getByText(/IGV cobrado S\/ 1,800.00 y pagado S\/ 180.00/)).toBeTruthy();
     // Y el desglose: de qué cliente vino y en qué se fue.
-    expect(screen.getByText('EJ Deportes')).toBeTruthy();
-    expect(screen.getByText('Herramientas')).toBeTruthy();
+    expect(screen.getAllByText('EJ Deportes').length).toBeGreaterThan(0);
+    expect(screen.getAllByText('Herramientas').length).toBeGreaterThan(0);
   });
 
   it('una compra con factura es gasto del día que llegó, y su IGV queda aparte', async () => {
@@ -179,7 +179,8 @@ describe('Análisis · el lente Resultado', () => {
     expect(screen.getByText(/pagado S\/ 180.00/)).toBeTruthy();
     // Y se dice a quién se le pagó, con el nombre del proveedor.
     expect(screen.getByText('A quién se le pagó')).toBeTruthy();
-    expect(screen.getByText('Movistar')).toBeTruthy();
+    // En la barra y en la tabla del gráfico: las dos son la misma fila.
+    expect(screen.getAllByText('Movistar').length).toBeGreaterThan(0);
   });
 
   it('dos monedas son dos tarjetas y dice por qué no las suma', async () => {

@@ -68,6 +68,27 @@ const CON_CIFRAS: readonly string[] = [
   'esto_es_una_compra',
   'esto_es_una_venta',
   'proveedor_obligatorio',
+  // F5 · los trabajos. Los dos traen nombres propios: qué trabajo, de qué
+  // empresa, qué factura salda el pago que se intentaba atribuir.
+  'trabajo_de_otra_empresa',
+  'el_pago_no_se_atribuye',
+  // F5-3 · los previstos. Traen dentro el nombre del previsto, y en el caso
+  // de «ya saldado», también cuánto se le asignó y cuánto se había previsto.
+  'cuota_de_cotizacion',
+  'previsto_con_dinero',
+  'previsto_ya_saldado',
+  'previsto_cancelado',
+  // F6-1 · la conciliación. Traen dentro con qué línea choca y de qué fecha.
+  'extracto_repetido',
+  'movimiento_ya_conciliado',
+  'linea_ignorada',
+  // F6-2 y F5-5 · el cierre y las horas. Traen la fecha, el número de líneas
+  // sueltas o los minutos de más, que es lo que hay que corregir.
+  'periodo_cerrado',
+  'fecha_futura',
+  'sin_extracto',
+  'quedan_lineas',
+  'minutos_invalidos',
 ];
 
 function conCifras(bruto: string): string | null {
@@ -179,6 +200,74 @@ const FIJOS: readonly (readonly [string, string])[] = [
   [
     'etiqueta_obligatoria',
     'El gasto necesita un nombre, el que vas a reconocer en el extracto del banco.',
+  ],
+  // F5-5 · las horas
+  [
+    'quien_obligatorio',
+    'Hace falta saber de quién fue ese tiempo. Sin eso no se puede responder a «en qué se le va el mes al equipo».',
+  ],
+  [
+    'apunte_no_encontrado',
+    'Ese apunte de horas ya no existe, o no tienes permiso de finanzas en esta organización.',
+  ],
+  // F6-1 · la conciliación
+  [
+    'linea_no_encontrada',
+    'Esa línea del extracto ya no existe, o no tienes permiso de finanzas en esta organización.',
+  ],
+  [
+    'extracto_vacio',
+    'De ese archivo no se leyó ninguna línea. Casi siempre es que la columna marcada como fecha no era la de la fecha.',
+  ],
+  [
+    'extracto_enorme',
+    'Cinco mil líneas son más de las que trae un extracto. Pártelo por meses.',
+  ],
+  [
+    'linea_emparejada',
+    'Esa línea ya está marcada contra un movimiento. Quita el emparejamiento antes de apartarla.',
+  ],
+  [
+    'movimiento_anulado',
+    'Ese movimiento está anulado, así que no es dinero. Darlo por cuadrado contra una línea del banco escondería la línea de verdad.',
+  ],
+  [
+    'emparejamiento_no_encontrado',
+    'Ese emparejamiento ya no existe, o no tienes permiso de finanzas en esta organización.',
+  ],
+  // F5-3 · los previstos
+  [
+    'previsto_no_encontrado',
+    'Ese previsto ya no existe, o no tienes permiso de finanzas en esta organización.',
+  ],
+  [
+    'direccion_invalida',
+    'Un previsto es dinero que entra o dinero que sale. Elige una de las dos: el sentido decide con qué movimiento se puede saldar.',
+  ],
+  [
+    'fecha_obligatoria',
+    'El previsto necesita fecha. Sin ella no cae en ninguna semana, y entonces no proyectaría nada, que es justo para lo que sirve.',
+  ],
+  // F5 · los trabajos
+  [
+    'trabajo_no_encontrado',
+    'Ese trabajo ya no existe, o no tienes permiso de finanzas en esta organización.',
+  ],
+  [
+    'no_es_una_compra',
+    'A un trabajo se le atribuye lo que costó, no lo que se vendió. La parte que un trabajo se lleva de una venta sale de la línea que se aprobó, y por eso no se puede tocar a mano.',
+  ],
+  [
+    'no_es_un_gasto',
+    'Solo una salida de dinero puede ser costo de un trabajo. Una entrada no, porque el ingreso del trabajo ya sale de la línea que se aprobó: atribuirla además la contaría dos veces.',
+  ],
+  [
+    'nombre_obligatorio',
+    'El trabajo necesita un nombre, el que vas a reconocer en la lista dentro de tres meses.',
+  ],
+  [
+    'estado_invalido',
+    'Un trabajo está en curso, terminado o cancelado. No hay un cuarto estado.',
   ],
   [
     'entidad_no_encontrada',

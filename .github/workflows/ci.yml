@@ -95,6 +95,58 @@ jobs:
               select count(*) into v_cuantas from economic_facts where organization_id = v_org;
               if v_cuantas = 0 then raise exception 'la demo no produjo ningún hecho económico'; end if;
 
+              -- Aprobar la cotización de dos líneas tuvo que dejar dos trabajos.
+              select count(*) into v_cuantas from jobs where organization_id = v_org;
+              if v_cuantas <> 2 then raise exception 'la demo necesita dos trabajos, hay %', v_cuantas; end if;
+
+              -- Y el costo del trabajo cuenta el NETO de su factura, no el total:
+              -- el IGV de una compra es crédito fiscal (INV-12.2, INV-14.5).
+              if not exists (
+                select 1 from job_margins m
+                 where m.organization_id = v_org
+                   and m.costo_neto = (select d.amount_net from billing_documents d
+                                        where d.organization_id = v_org
+                                          and d.series_number = 'F002-000450')
+              ) then
+                raise exception 'el trabajo no se llevó el neto de su factura';
+              end if;
+
+              -- Lo facturado se reparte entre las líneas aprobadas, así que la
+              -- suma de las partes es el neto de los documentos de esa cotización.
+              if not exists (select 1 from job_margins
+                              where organization_id = v_org and ingreso_neto > 0) then
+                raise exception 'ningún trabajo se llevó su parte de lo facturado';
+              end if;
+
+              -- Y el tiempo: cinco apuntes, dos personas, y ni un céntimo de
+              -- diferencia en el costo (INV-16.1).
+              select coalesce(sum(minutos), 0) into v_cuantas from job_time t
+                join jobs j on j.id = t.job_id where j.organization_id = v_org;
+              if v_cuantas <> 1140 then raise exception 'la demo necesita 1140 minutos, hay %', v_cuantas; end if;
+
+              -- Un extracto de tres líneas, una de ellas ya cuadrada.
+              select count(*) into v_cuantas from bank_statement_lines
+               where organization_id = v_org;
+              if v_cuantas <> 3 then raise exception 'la demo necesita tres líneas de extracto, hay %', v_cuantas; end if;
+
+              select count(*) into v_cuantas from bank_line_status s
+               where s.organization_id = v_org and s.cuadra;
+              if v_cuantas <> 1 then raise exception 'la demo necesita una línea cuadrada, hay %', v_cuantas; end if;
+
+              -- Dos previstos de una sola vez, sin cotización detrás.
+              select count(*) into v_cuantas from payment_schedule_items
+               where organization_id = v_org and quote_id is null;
+              if v_cuantas <> 2 then raise exception 'la demo necesita dos previstos, hay %', v_cuantas; end if;
+
+              -- Y el que se adelantó a medias sigue siendo un plan: si pasara a
+              -- «settled», la proyección dejaría de ver los 2000 que faltan.
+              if not exists (
+                select 1 from payment_schedule_items
+                 where organization_id = v_org and quote_id is null
+                   and label like 'Cámara%' and status = 'planned') then
+                raise exception 'el previsto adelantado a medias no sigue siendo un plan';
+              end if;
+
               raise notice 'Demo comprobada: % hechos económicos', v_cuantas;
             end \$$;"
           psql -v ON_ERROR_STOP=1 -f supabase/seed/borrar-demo.sql

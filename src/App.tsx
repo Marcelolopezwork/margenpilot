@@ -9,6 +9,8 @@ import { isConfigured } from './lib/supabase';
 import Home from './pages/Home';
 import Onboarding from './pages/Onboarding';
 import Analisis from './pages/analisis/Analisis';
+import Resultados from './pages/analisis/Resultados';
+import Trabajos from './pages/analisis/Trabajos';
 import Pipeline from './pages/pipeline/Pipeline';
 import Setup from './pages/Setup';
 import SignIn from './pages/SignIn';
@@ -21,6 +23,8 @@ import Finanzas from './pages/finanzas/Finanzas';
 import Caja from './pages/finanzas/Caja';
 import Compras from './pages/finanzas/Compras';
 import GastosFijos from './pages/finanzas/GastosFijos';
+import Previstos from './pages/finanzas/Previstos';
+import Conciliacion from './pages/finanzas/Conciliacion';
 import Propuesta from './pages/comercial/Propuesta';
 import PropuestaEmitida from './pages/comercial/PropuestaEmitida';
 import CategoriasServicio from './pages/catalogo/CategoriasServicio';
@@ -122,9 +126,15 @@ function ConOrganizacion() {
           <Route path="caja" element={<Caja />} />
           <Route path="compras" element={<Compras />} />
           <Route path="gastos-fijos" element={<GastosFijos />} />
+          <Route path="previstos" element={<Previstos />} />
+          <Route path="conciliacion" element={<Conciliacion />} />
         </Route>
         <Route path="pipeline" element={<Pipeline />} />
-        <Route path="analisis" element={<Analisis />} />
+        <Route path="analisis" element={<Analisis />}>
+          <Route index element={<Navigate to="resultado" replace />} />
+          <Route path="resultado" element={<Resultados />} />
+          <Route path="trabajos" element={<Trabajos />} />
+        </Route>
         <Route path="configuracion" element={<Settings />}>
           <Route index element={<Navigate to="entidades" replace />} />
           <Route path="entidades" element={<Entidades />} />

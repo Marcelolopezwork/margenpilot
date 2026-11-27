@@ -31,6 +31,21 @@ import type { Enums } from '../../types/database';
  *     movimiento hasta que se paga. Aquí se expande en las fechas que le
  *     tocan, y la ocurrencia cuyo periodo ya tiene un pago registrado
  *     desaparece: si no, el mes pagado seguiría apareciendo como pendiente.
+ *  5. **Lo previsto de una sola vez entra y sale.** Añadido el 24/11. Un
+ *     adelanto que te van a pasar, la cámara que pactaste para enero: una
+ *     fila de `payment_schedule_items` sin cotización detrás (INV-15.4). El
+ *     de entrada va con las cuotas; el de salida, con los gastos.
+ *  6. **Lo ya cobrado de una cuota no se proyecta otra vez.** Una cuota de
+ *     5 000 con su documento emitido y 2 000 ya cobrados proyecta 3 000: los
+ *     otros 2 000 están en el saldo. Antes proyectaba los 5 000 enteros, que
+ *     era la decisión 2 incumplida en el único sitio donde no se veía.
+ *  7. **Una factura de proveedor sin pagar también sale.** Añadida el 24/11.
+ *     Hasta entonces la proyección miraba los cobros previstos y los gastos
+ *     fijos, y nada más: el sistema sabía que debías 1 180 el día 30 y la
+ *     curva no se enteraba. Era optimista **por construcción**, que es la
+ *     peor forma de equivocarse en una cifra que existe para decidir si
+ *     llegas a fin de mes. Lo que entra aquí es lo que falta por pagar, no el
+ *     total: lo ya pagado está en el saldo (decisión 2).
  *
  * Y la de siempre: cada moneda es una proyección aparte (INV-10).
  */
@@ -40,6 +55,13 @@ export interface CuotaEsperada {
   amount: string;
   currency_code: string;
   status: Enums<'schedule_status'>;
+  /**
+   * Lo que ya entró de esta cuota: lo cobrado de su documento, o lo asignado
+   * a ella si es un previsto suelto. Se resta, porque ya está en el saldo
+   * (decisión 6). Sin nada cobrado va en cero, no en vacío: un importe de
+   * este producto nunca es `undefined`.
+   */
+  cobrado: string;
 }
 
 export interface GastoRecurrente {
@@ -73,11 +95,52 @@ export interface PagoRegistrado {
 }
 
 export interface SalidaEsperada {
+  /** El gasto fijo o el documento de compra del que sale. */
   gasto: string;
   label: string;
   due_date: string;
   amount: string;
   currency_code: string;
+  /**
+   * De dónde viene. No es decoración: una suscripción que vence y una factura
+   * de proveedor que vence se arreglan de maneras distintas, y la pantalla
+   * tiene que poder decir cuántas hay de cada una.
+   */
+  origen: 'recurrente' | 'compra' | 'previsto';
+}
+
+/**
+ * Un pago previsto de una sola vez, de los que no tienen factura detrás.
+ *
+ * `pendiente` ya viene con lo asignado descontado, por la misma razón que en
+ * una compra: lo que ya salió está en el saldo.
+ */
+export interface PrevistoPorSalir {
+  id: string;
+  label: string;
+  due_date: string;
+  currency_code: string;
+  pendiente: string;
+}
+
+/**
+ * Una factura de proveedor sin pagar del todo, como la lee la pantalla.
+ *
+ * `pendiente` ya viene con lo pagado descontado, y **lleva el IGV dentro**.
+ * Aquí sí: esto es caja, no resultado. El impuesto de una compra no es tu
+ * gasto (INV-12.4) pero sale del banco igual, y una proyección que lo
+ * descontara se quedaría corta justo en el 18 % de cada factura.
+ */
+export interface CompraPorPagar {
+  id: string;
+  concepto: string;
+  /** Lo acordado. Nulo cuando nadie acordó plazo. */
+  due_date: string | null;
+  /** El día que llegó la factura. */
+  issue_date: string;
+  currency_code: string;
+  /** Lo que falta por pagar, en texto (ADR-33). */
+  pendiente: string;
 }
 
 export interface SemanaDeCaja {
@@ -87,7 +150,12 @@ export interface SemanaDeCaja {
   sale: Money;
   neto: Money;
   cuotas: number;
+  /** Cuántas ocurrencias de gasto fijo caen en la semana. */
   gastos: number;
+  /** Cuántas facturas de proveedor vencen en la semana. */
+  compras: number;
+  /** Cuántos pagos previstos de una sola vez caen en la semana. */
+  previstos: number;
   /** Cuánto de lo que entra esta semana ya venció. Solo la primera lo tiene. */
   entraVencido: Money;
   /** Cuánto de lo que sale esta semana ya debía haberse pagado. */
@@ -220,8 +288,77 @@ export function salidasEsperadas(
         due_date: fecha,
         amount: gasto.amount,
         currency_code: gasto.currency_code,
+        origen: 'recurrente',
       });
     }
+  }
+
+  return salidas;
+}
+
+/**
+ * Las compras sin pagar, convertidas en salidas esperadas.
+ *
+ * Se convierten en vez de proyectarse aparte para que la aritmética de las
+ * semanas siga escrita una sola vez: una compra vencida cae en la primera
+ * semana y se señala por la misma regla que ya tenía una suscripción
+ * atrasada (decisión 3), sin un segundo camino que un día discrepe.
+ *
+ * **La fecha es el vencimiento, y si no hay, el día de la factura.** Una
+ * compra sin plazo acordado se paga al recibirla: suponerle treinta días
+ * empujaría el dinero a una semana futura y dejaría la proyección optimista,
+ * que es exactamente el defecto que esto viene a arreglar. Si esa fecha ya
+ * pasó, cae en la primera semana marcada como vencida, y es verdad: lo debes
+ * y la fecha pasó.
+ *
+ * Lo pagado del todo y lo anulado no llegan hasta aquí: los filtra la
+ * consulta por `status`. Lo pagado a medias llega por su parte pendiente.
+ */
+export function salidasDeCompras(compras: readonly CompraPorPagar[]): SalidaEsperada[] {
+  const salidas: SalidaEsperada[] = [];
+
+  for (const compra of compras) {
+    const importe = compra.pendiente.trim();
+    // Una compra saldada no aporta nada y ensuciaría la cuenta de la semana.
+    if (importe === '' || Number(importe) <= 0) continue;
+
+    salidas.push({
+      gasto: compra.id,
+      label: compra.concepto,
+      due_date: compra.due_date ?? compra.issue_date,
+      amount: importe,
+      currency_code: compra.currency_code,
+      origen: 'compra',
+    });
+  }
+
+  return salidas;
+}
+
+/**
+ * Los pagos previstos de una sola vez, convertidos en salidas esperadas.
+ *
+ * Misma conversión que las compras y por el mismo motivo: la aritmética de
+ * las semanas se escribe una vez. Un previsto cuya fecha ya pasó cae en la
+ * primera semana y se señala, igual que todo lo demás que venció.
+ */
+export function salidasPrevistas(
+  previstos: readonly PrevistoPorSalir[],
+): SalidaEsperada[] {
+  const salidas: SalidaEsperada[] = [];
+
+  for (const previsto of previstos) {
+    const importe = previsto.pendiente.trim();
+    if (importe === '' || Number(importe) <= 0) continue;
+
+    salidas.push({
+      gasto: previsto.id,
+      label: previsto.label,
+      due_date: previsto.due_date,
+      amount: importe,
+      currency_code: previsto.currency_code,
+      origen: 'previsto',
+    });
   }
 
   return salidas;
@@ -252,6 +389,8 @@ export function proyeccion(
       neto: cero,
       cuotas: 0,
       gastos: 0,
+      compras: 0,
+      previstos: 0,
       entraVencido: cero,
       saleVencido: cero,
     });
@@ -288,8 +427,14 @@ export function proyeccion(
     const semana = i === null ? undefined : resultado[i];
     if (i === null || !semana) continue;
 
-    const importe = importeDe(cuota.amount);
-    if (!importe) continue;
+    const acordado = importeDe(cuota.amount);
+    const yaCobrado = importeDe(cuota.cobrado);
+    if (!acordado || !yaCobrado) continue;
+
+    // Lo que ya entró está en el saldo: proyectarlo otra vez sería contar el
+    // mismo dinero dos veces (decisión 6).
+    const importe = subtract(acordado, yaCobrado);
+    if (importe.minor <= 0n) continue;
 
     const vencida = cuota.due_date < primera;
     resultado[i] = {
@@ -315,7 +460,9 @@ export function proyeccion(
     resultado[i] = {
       ...semana,
       sale: add(semana.sale, importe),
-      gastos: semana.gastos + 1,
+      gastos: salida.origen === 'recurrente' ? semana.gastos + 1 : semana.gastos,
+      compras: salida.origen === 'compra' ? semana.compras + 1 : semana.compras,
+      previstos: salida.origen === 'previsto' ? semana.previstos + 1 : semana.previstos,
       saleVencido: vencida ? add(semana.saleVencido, importe) : semana.saleVencido,
     };
   }

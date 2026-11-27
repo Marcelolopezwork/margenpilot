@@ -28,6 +28,8 @@ export default {
         'info-bg': 'var(--info-bg)',
         neutral: 'var(--neu)',
         'neutral-bg': 'var(--neu-bg)',
+        'serie-entra': 'var(--serie-entra)',
+        'serie-sale': 'var(--serie-sale)',
       },
       fontFamily: {
         sans: ['Inter', 'system-ui', 'sans-serif'],

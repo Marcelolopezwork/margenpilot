@@ -74,7 +74,7 @@ export default function Cotizacion() {
   });
 
   const servicios = useQuery({
-    queryKey: ['servicios', organizacion.id],
+    queryKey: ['servicios', 'catalogo', organizacion.id],
     queryFn: async () => {
       const { data, error } = await requireSupabase()
         .from('services')
@@ -88,7 +88,7 @@ export default function Cotizacion() {
   });
 
   const lineas = useQuery({
-    queryKey: ['cotizacion', id, 'lineas'],
+    queryKey: ['cotizacion', id, 'lineas', 'editor'],
     queryFn: async (): Promise<Linea[]> => {
       const { data, error } = await requireSupabase()
         .from('quote_lines')
@@ -117,7 +117,7 @@ export default function Cotizacion() {
   });
 
   const entregables = useQuery({
-    queryKey: ['cotizacion', id, 'entregables'],
+    queryKey: ['cotizacion', id, 'entregables', 'editor'],
     queryFn: async () => {
       const { data, error } = await requireSupabase()
         .from('quote_line_terms')
@@ -130,7 +130,7 @@ export default function Cotizacion() {
   });
 
   const cliente = useQuery({
-    queryKey: ['cliente', cabecera.data?.client_id],
+    queryKey: ['cliente', cabecera.data?.client_id, 'editor'],
     enabled: Boolean(cabecera.data?.client_id),
     queryFn: async () => {
       const { data, error } = await requireSupabase()
@@ -144,7 +144,7 @@ export default function Cotizacion() {
   });
 
   const marcas = useQuery({
-    queryKey: ['marcas', organizacion.id, null],
+    queryKey: ['marcas', 'editor', organizacion.id, null],
     queryFn: async () => {
       const { data, error } = await requireSupabase()
         .from('brands')

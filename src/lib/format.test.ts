@@ -78,3 +78,31 @@ describe('nombres de catálogo', () => {
     expect(nombreDireccion('both')).toBe('Ambos');
   });
 });
+
+describe('un día no es un instante', () => {
+  /**
+   * `new Date('2026-11-30')` es la medianoche UTC. Formateada en Lima —y en
+   * cualquier zona detrás de UTC— caía en el 29, así que todas las fechas
+   * que vienen de una columna `date` se enseñaban un día antes: el
+   * vencimiento de una factura, la fecha de un movimiento, hasta cuándo vale
+   * una cotización.
+   */
+  it('una fecha sin hora se lee en UTC, que es como se escribió', () => {
+    expect(formatoFecha('2026-11-30')).toBe('30 nov. 2026');
+    expect(formatoFecha('2026-01-01')).toBe('1 ene. 2026');
+    // El primero de mes es donde más duele: se iba al mes anterior.
+    expect(formatoMesAño('2026-03-01')).toBe('MARZO 2026');
+  });
+
+  it('un instante se lee en la zona de quien mira, que es lo que se quiere', () => {
+    // Las 03:00 UTC del día 1 son todavía el 30 en Lima, y eso es correcto
+    // para una hora: pasó cuando pasó.
+    const texto = formatoFecha('2026-12-01T03:00:00Z');
+    expect(['30 nov. 2026', '1 dic. 2026']).toContain(texto);
+  });
+
+  it('lo ilegible sigue dando una raya, no una fecha inventada', () => {
+    expect(formatoFecha('mañana')).toBe('—');
+    expect(formatoMesAño('mañana')).toBe('');
+  });
+});

@@ -36,7 +36,7 @@ export default function Servicios() {
   const [entidadId, setEntidadId] = useState(entidad?.id ?? '');
 
   const categorias = useQuery({
-    queryKey: ['categorias-servicio', organizacion.id],
+    queryKey: ['categorias-servicio', 'para-servicios', organizacion.id],
     queryFn: async () => {
       const { data, error } = await requireSupabase()
         .from('service_categories')
@@ -122,6 +122,7 @@ export default function Servicios() {
 
   return (
     <Seccion
+      alta={{ texto: 'Nueva ficha', id: 'alta-servicio' }}
       titulo="Fichas de servicio"
       regla="Lo que vendes, con su código, su tipo y el fee que propones por defecto. Ojo con el fee: es markup SOBRE EL COSTO, no margen sobre el precio. Un fee del 80 % sobre un costo de 100 da un precio de 180, y eso es un margen del 44,4 %, no del 80 %. Son dos cifras distintas y el cotizador las mostrará por separado."
     >
@@ -192,7 +193,7 @@ export default function Servicios() {
 
       {alternar.error && <Aviso tipo="error">{mensajeDeError(alternar.error)}</Aviso>}
 
-      <Alta titulo="Nueva ficha de servicio" exito={exito} onSubmit={() => crear.mutate()}>
+      <Alta id="alta-servicio" titulo="Nueva ficha de servicio" exito={exito} onSubmit={() => crear.mutate()}>
         <Selector
           etiqueta="Empresa que lo vende"
           value={entidadId}

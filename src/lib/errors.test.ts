@@ -99,3 +99,125 @@ describe('mensajeDeError', () => {
     );
   });
 });
+
+describe('F5 · los trabajos', () => {
+  it('el trabajo de otra empresa conserva los nombres, que son lo que hay que corregir', () => {
+    expect(
+      mensajeDeError({
+        message:
+          'trabajo_de_otra_empresa: «Campaña de lanzamiento» es un trabajo de Demo Perú SAC y esto es de Demo Studio LLC. El dinero no cruza de una empresa a otra: el costo de un trabajo de Demo Perú SAC tiene que anotarse en Demo Perú SAC',
+      }),
+    ).toContain('«Campaña de lanzamiento» es un trabajo de Demo Perú SAC');
+  });
+
+  it('atribuir el pago de una factura dice cuál es la factura', () => {
+    expect(
+      mensajeDeError({
+        message:
+          'el_pago_no_se_atribuye: este pago salda la factura «Impresión del lanzamiento». Lo que cuenta en el trabajo es la factura, no el pago: atribuye la factura',
+      }),
+    ).toContain('«Impresión del lanzamiento»');
+  });
+
+  it('atribuir una venta a mano se explica, no se deja en el código crudo', () => {
+    const frase = mensajeDeError({ message: 'no_es_una_compra: a un trabajo se le atribuye…' });
+    expect(frase).toContain('sale de la línea que se aprobó');
+    expect(frase).not.toContain('no_es_una_compra');
+  });
+
+  it('una entrada atribuida explica por qué se contaría dos veces', () => {
+    expect(mensajeDeError({ message: 'no_es_un_gasto: una entrada no' })).toContain(
+      'la contaría dos veces',
+    );
+  });
+});
+
+describe('F5-3 · los previstos', () => {
+  it('una cuota de cotización dice cuál es y a dónde ir', () => {
+    expect(
+      mensajeDeError({
+        message:
+          'cuota_de_cotizacion: «Pago único» es una cuota de una cotización: emite su documento y cóbralo, que es lo que la mete en la cartera',
+      }),
+    ).toContain('«Pago único»');
+  });
+
+  it('uno con dinero asignado dice qué anular primero', () => {
+    expect(
+      mensajeDeError({
+        message:
+          'previsto_con_dinero: «Cámara pactada» ya tiene un movimiento asignado. Anula ese movimiento desde Caja antes de cambiarlo',
+      }),
+    ).toContain('Anula ese movimiento desde Caja');
+  });
+
+  it('la dirección se explica por lo que decide, no por lo que prohíbe', () => {
+    const frase = mensajeDeError({ message: 'direccion_invalida: un previsto es…' });
+    expect(frase).toContain('con qué movimiento se puede saldar');
+    expect(frase).not.toContain('direccion_invalida');
+  });
+
+  it('la fecha se explica por para qué sirve', () => {
+    expect(mensajeDeError({ message: 'fecha_obligatoria: sin fecha' })).toContain(
+      'no caería en ninguna semana'.replace('caería', 'cae'),
+    );
+  });
+});
+
+describe('F6-1 · la conciliación', () => {
+  it('el extracto repetido dice cuál era y cuándo entró', () => {
+    expect(
+      mensajeDeError({
+        message:
+          'extracto_repetido: este mismo extracto ya se importó como «BCP · noviembre» el 23/11/2026. Importarlo otra vez duplicaría media conciliación',
+      }),
+    ).toContain('«BCP · noviembre»');
+  });
+
+  it('un movimiento ya conciliado dice contra qué línea está', () => {
+    expect(
+      mensajeDeError({
+        message:
+          'movimiento_ya_conciliado: ese movimiento ya está marcado contra la línea «COMISION» del 03/11/2026. Un movimiento no puede ser dos apuntes del banco',
+      }),
+    ).toContain('«COMISION» del 03/11/2026');
+  });
+
+  it('un archivo del que no se leyó nada apunta a la causa de siempre', () => {
+    expect(mensajeDeError({ message: 'extracto_vacio: no se leyó nada' })).toContain(
+      'la columna marcada como fecha',
+    );
+  });
+
+  it('un movimiento anulado explica por qué no vale para cuadrar', () => {
+    expect(mensajeDeError({ message: 'movimiento_anulado: está anulado' })).toContain(
+      'escondería la línea de verdad',
+    );
+  });
+});
+
+describe('F6-2 y F5-5 · el cierre y las horas', () => {
+  it('el periodo cerrado dice hasta cuándo y qué fecha se intentó tocar', () => {
+    expect(
+      mensajeDeError({
+        message:
+          'periodo_cerrado: esta cuenta está cuadrada hasta el 31/10/2026, y eso es del 15/10/2026. Si de verdad hay que cambiarlo, reabre el cierre primero',
+      }),
+    ).toContain('cuadrada hasta el 31/10/2026');
+  });
+
+  it('cerrar con líneas sueltas dice cuántas y la más antigua', () => {
+    expect(
+      mensajeDeError({
+        message:
+          'quedan_lineas: todavía hay 3 líneas del banco sin resolver hasta el 31/10/2026, la más antigua del 04/10/2026',
+      }),
+    ).toContain('3 líneas del banco sin resolver');
+  });
+
+  it('las horas sin dueño se explican por lo que se pierde', () => {
+    expect(mensajeDeError({ message: 'quien_obligatorio: falta' })).toContain(
+      'en qué se le va el mes al equipo',
+    );
+  });
+});

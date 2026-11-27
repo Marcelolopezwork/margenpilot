@@ -1,5 +1,5 @@
 import { useEffect, useRef } from 'react';
-import { Tarjeta } from './ui';
+import { Boton, Tarjeta } from './ui';
 
 /**
  * Lo que repiten las seis pantallas de Configuración: la cabecera que explica
@@ -12,20 +12,67 @@ import { Tarjeta } from './ui';
 export function Seccion({
   titulo,
   regla,
+  alta,
   children,
 }: {
   titulo: string;
   regla: string;
+  /**
+   * El atajo al formulario de alta de esta pantalla: qué dice el botón y a
+   * qué `id` lleva. Existe porque el formulario vive al final de la página,
+   * debajo de la lista, y «para agregar una compra no es nada intuitivo» fue
+   * exactamente lo que pasó. Un botón arriba que diga qué va a crear resuelve
+   * el descubrimiento sin mover el formulario de sitio, que es donde tiene
+   * sentido cuando ya sabes que está.
+   */
+  alta?: { texto: string; id: string } | undefined;
   children: React.ReactNode;
 }) {
   return (
     <div className="flex flex-col gap-5">
-      <header>
-        <h1 className="text-xl font-semibold tracking-tight">{titulo}</h1>
-        <p className="mt-2 max-w-prose text-sm text-muted">{regla}</p>
+      <header className="flex flex-wrap items-start justify-between gap-3">
+        <div>
+          <h1 className="text-xl font-semibold tracking-tight">{titulo}</h1>
+          <p className="mt-2 max-w-prose text-sm text-muted">{regla}</p>
+        </div>
+        {alta && <BotonDeAlta {...alta} />}
       </header>
       {children}
     </div>
+  );
+}
+
+/**
+ * El botón que lleva al formulario y deja el cursor dentro.
+ *
+ * Desplaza y enfoca en vez de abrir un diálogo a propósito: el formulario de
+ * estas pantallas enseña cosas mientras lo rellenas —el desglose del IGV, el
+ * saldo de la cuenta, lo que queda por asignar— y un diálogo que tapa la
+ * pantalla se lleva por delante justo eso.
+ */
+function BotonDeAlta({ texto, id }: { texto: string; id: string }) {
+  return (
+    <Boton
+      variante="primario"
+      onClick={() => {
+        const form = document.getElementById(id);
+        if (!form) return;
+        // La tarjeta y no el formulario: su título —«Anotar una compra»— está
+        // justo encima y es la mitad de la respuesta a «¿dónde estoy?».
+        // Llamada opcional: en jsdom —y en navegadores viejos— no existe, y un
+        // fallo aquí se llevaría por delante el foco, que es lo que importa.
+        (form.parentElement ?? form).scrollIntoView?.({ behavior: 'smooth', block: 'start' });
+        const primero = form.querySelector<HTMLElement>(
+          'input:not([type="hidden"]):not([disabled]), select:not([disabled]), textarea:not([disabled])',
+        );
+        // Sin `preventScroll` el navegador haría su propio salto brusco y se
+        // comería la animación de arriba.
+        primero?.focus({ preventScroll: true });
+      }}
+    >
+      <span aria-hidden="true">+ </span>
+      {texto}
+    </Boton>
   );
 }
 
@@ -87,12 +134,15 @@ export function FiltradoPor({
 export function Alta({
   titulo,
   exito,
+  id,
   children,
   onSubmit,
 }: {
   titulo: string;
   /** Qué se acaba de crear. Null mientras no haya nada que confirmar. */
   exito?: string | null | undefined;
+  /** Para que el botón de arriba de la pantalla pueda traer aquí el foco. */
+  id?: string | undefined;
   children: React.ReactNode;
   onSubmit: () => void;
 }) {
@@ -100,6 +150,7 @@ export function Alta({
     <Tarjeta className="p-5">
       <h2 className="mb-4 font-medium">{titulo}</h2>
       <form
+        id={id}
         className="flex flex-col gap-4"
         onSubmit={(e) => {
           e.preventDefault();

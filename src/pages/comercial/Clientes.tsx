@@ -17,7 +17,7 @@ export default function Clientes() {
   const [correo, setCorreo] = useState('');
 
   const consulta = useQuery({
-    queryKey: ['clientes', organizacion.id],
+    queryKey: ['clientes', 'ficha', organizacion.id],
     queryFn: async () => {
       const { data, error } = await requireSupabase()
         .from('clients')
@@ -64,6 +64,7 @@ export default function Clientes() {
 
   return (
     <Seccion
+      alta={{ texto: 'Nuevo cliente', id: 'alta-cliente' }}
       titulo="Clientes"
       regla="Son de la organización, no de la entidad: el mismo cliente puede recibir una cotización en soles de la peruana y otra en dólares de la americana. Nada se borra; un cliente que deja de serlo se archiva y sus cotizaciones se quedan donde están."
     >
@@ -106,7 +107,7 @@ export default function Clientes() {
 
       {alternar.error && <Aviso tipo="error">{mensajeDeError(alternar.error)}</Aviso>}
 
-      <Alta titulo="Nuevo cliente" exito={exito} onSubmit={() => crear.mutate()}>
+      <Alta id="alta-cliente" titulo="Nuevo cliente" exito={exito} onSubmit={() => crear.mutate()}>
         <Campo
           etiqueta="Nombre o razón social"
           value={nombre}
