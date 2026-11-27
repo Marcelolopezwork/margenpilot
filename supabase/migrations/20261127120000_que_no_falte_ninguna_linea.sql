@@ -89,6 +89,8 @@ declare
   v_id      uuid;
   v_neto    numeric;
   v_dif     numeric;
+  v_cerrado date;
+  v_viejas  int;
 begin
   select a.* into v_cuenta from cash_accounts a where a.id = p_account;
 
@@ -135,6 +137,27 @@ begin
 
   if v_desde is null then
     raise exception 'fecha_obligatoria: alguna línea no trae fecha. Revisa qué columna mapeaste como fecha';
+  end if;
+
+  /*
+    INV-8.8.5 · nada por debajo del cierre, o el cierre deja de significar que
+    todo lo anterior está resuelto.
+
+    Esto ya estaba en esta función desde F6-2, y la primera versión de esta
+    migración lo perdió por copiar el cuerpo de F6-1. La aserción que lo
+    vigilaba llevaba escrita dos días y lo cazó en la CI: **reescribir una
+    función entera es heredar todo lo que le habían añadido, y lo único que
+    sabe cuánto era es la prueba.**
+  */
+  v_cerrado := app.cerrada_hasta(p_account);
+  if v_cerrado is not null and v_desde <= v_cerrado then
+    select count(*) into v_viejas
+      from jsonb_array_elements(p_lines) as e(item)
+     where (e.item->>'fecha')::date <= v_cerrado;
+
+    raise exception
+      'periodo_cerrado: % de esas líneas son del % o antes, y esta cuenta está cuadrada hasta el %. Importarlas dejaría líneas sin resolver por debajo de una fecha que dice que todo lo anterior lo está: reabre el cierre, impórtalas y vuelve a cerrar',
+      v_viejas, to_char(v_cerrado, 'DD/MM/YYYY'), to_char(v_cerrado, 'DD/MM/YYYY');
   end if;
 
   if exists (
@@ -225,6 +248,17 @@ begin
       to_char(p_hasta, 'DD/MM/YYYY');
   end if;
 
+  /*
+    La fecha tiene que caer **dentro** de lo importado: ni antes del primer
+    día que trajo un extracto —estarías cerrando un periodo que nadie miró—
+    ni después del último —el banco todavía no ha dicho qué pasó ahí—.
+
+    Lo que esto NO detecta es un hueco en medio: si importaste septiembre y
+    noviembre y cierras a mitad de octubre, octubre no se miró y esto deja
+    pasar. Detectarlo exigiría saber que los extractos son continuos, y un
+    extracto no trae esa promesa. Queda dicho aquí en vez de fingir que se
+    comprueba.
+  */
   select min(s.desde), max(s.hasta) into v_primero, v_ultimo
     from bank_statements s where s.cash_account_id = p_account;
 
