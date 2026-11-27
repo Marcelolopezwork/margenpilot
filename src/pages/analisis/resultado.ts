@@ -411,3 +411,10 @@ export function alturaDeBarra(valor: Money, techo: Money): number {
   const alto = (Number(valor.minor) / Number(techo.minor)) * 100;
   return Math.max(1, Math.min(100, alto));
 }
+
+/**
+ * La misma proporción cuando la barra crece a lo ancho. Es un alias y no una
+ * copia a propósito: si la regla de los mínimos y los topes cambia, cambia
+ * para los dos gráficos a la vez.
+ */
+export const anchoDeBarra = alturaDeBarra;

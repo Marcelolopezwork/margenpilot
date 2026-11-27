@@ -62,7 +62,7 @@ export default function Propuesta() {
   });
 
   const lineas = useQuery({
-    queryKey: ['cotizacion', id, 'lineas'],
+    queryKey: ['cotizacion', id, 'lineas', 'propuesta'],
     queryFn: async () => {
       const { data, error } = await requireSupabase()
         .from('quote_lines')
@@ -78,7 +78,7 @@ export default function Propuesta() {
   });
 
   const entregables = useQuery({
-    queryKey: ['cotizacion', id, 'entregables'],
+    queryKey: ['cotizacion', id, 'entregables', 'propuesta'],
     queryFn: async () => {
       const { data, error } = await requireSupabase()
         .from('quote_line_terms')
@@ -92,7 +92,7 @@ export default function Propuesta() {
   });
 
   const cliente = useQuery({
-    queryKey: ['cliente', cabecera.data?.client_id],
+    queryKey: ['cliente', cabecera.data?.client_id, 'propuesta'],
     enabled: Boolean(cabecera.data?.client_id),
     queryFn: async () => {
       const { data, error } = await requireSupabase()
@@ -106,7 +106,7 @@ export default function Propuesta() {
   });
 
   const marcas = useQuery({
-    queryKey: ['marcas', organizacion.id, null],
+    queryKey: ['marcas', 'propuesta', organizacion.id, null],
     queryFn: async () => {
       const { data, error } = await requireSupabase()
         .from('brands')
@@ -122,7 +122,7 @@ export default function Propuesta() {
   // Cada ficha de servicio puede traer su propia foto: una propuesta de
   // branding sale con el banner de branding sin elegirlo cada vez.
   const servicios = useQuery({
-    queryKey: ['servicios', organizacion.id],
+    queryKey: ['servicios', 'portadas', organizacion.id],
     queryFn: async () => {
       const { data, error } = await requireSupabase()
         .from('services')

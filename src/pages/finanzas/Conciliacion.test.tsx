@@ -144,6 +144,10 @@ function conDatos() {
     hasta: '2026-11-30',
     lineas: 2,
     imported_at: '2026-11-30T10:00:00Z',
+    // Sin saldos declarados: «no se pudo comprobar», que no es «cuadra».
+    saldo_inicial: null,
+    saldo_final: null,
+    diferencia: null,
   });
   LINEAS.push(
     {
@@ -446,6 +450,33 @@ describe('Finanzas · Conciliación', () => {
     expect(screen.getByText(/quedaron guardadas/)).toBeTruthy();
   });
 
+  it('un extracto que no cuadra consigo mismo se dice antes que nada', async () => {
+    conDatos();
+    // Lo que delata un archivo cortado: la aritmética del propio banco.
+    EXTRACTOS[0]!.saldo_inicial = '1000.00';
+    EXTRACTOS[0]!.saldo_final = '2000.00';
+    EXTRACTOS[0]!.diferencia = '120.00';
+    const usuario = userEvent.setup();
+    await montar();
+    await screen.findByRole('option', { name: /BCP soles/ });
+    await usuario.selectOptions(screen.getByLabelText('Qué cuenta'), 'cta-1');
+
+    expect(await screen.findByText(/no cuadra con sus propios saldos/)).toBeTruthy();
+    expect(screen.getByText(/S\/ 120.00 que sus líneas no explican/)).toBeTruthy();
+    expect(screen.getByText(/el periodo no se puede cerrar/)).toBeTruthy();
+  });
+
+  it('sin saldos declarados no se inventa un descuadre: no es lo mismo que cuadrar', async () => {
+    conDatos();
+    const usuario = userEvent.setup();
+    await montar();
+    await screen.findByRole('option', { name: /BCP soles/ });
+    await usuario.selectOptions(screen.getByLabelText('Qué cuenta'), 'cta-1');
+
+    await screen.findByText('Faltan 2 líneas por explicar');
+    expect(screen.queryByText(/no cuadra con sus propios saldos/)).toBeNull();
+  });
+
   it('cerrar el periodo afirma una fecha, y reabrir la quita', async () => {
     conDatos();
     const usuario = userEvent.setup();
@@ -566,14 +597,14 @@ describe('Finanzas · Conciliación', () => {
     await usuario.type(screen.getByLabelText('Cómo se llama este extracto'), 'Mercury nov');
 
     // Mientras no se elija la cuenta, no se puede importar.
-    const boton = screen.getByRole('button', { name: /^Importar/ });
+    const boton = screen.getByRole('button', { name: /^Importar \d/ });
     expect(boton).toHaveProperty('disabled', true);
 
     await usuario.selectOptions(
       screen.getByLabelText('De qué cuenta son estas líneas'),
       'Mercury Credit',
     );
-    await usuario.click(screen.getByRole('button', { name: /^Importar/ }));
+    await usuario.click(screen.getByRole('button', { name: /^Importar \d/ }));
 
     await waitFor(() => expect(llamadas).toHaveLength(1));
     // Solo la suya, y sin la rechazada: dos fuera por cuenta y una por estado.

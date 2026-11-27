@@ -74,7 +74,7 @@ export default function Compras() {
   const [motivo, setMotivo] = useState('');
 
   const compras = useQuery({
-    queryKey: ['compras', organizacion.id, entidad?.id ?? null],
+    queryKey: ['compras', 'cartera', organizacion.id, entidad?.id ?? null],
     enabled: conDinero,
     queryFn: async () => {
       const cliente = requireSupabase();
@@ -186,7 +186,7 @@ export default function Compras() {
   // terminados: una factura que llega tarde sigue siendo costo del trabajo que
   // la provocó, y esconderla sería dejar el margen mintiendo al alza.
   const trabajos = useQuery({
-    queryKey: ['trabajos', organizacion.id, 'para-atribuir'],
+    queryKey: ['trabajos', 'para-compras', organizacion.id],
     enabled: conDinero,
     queryFn: async () => {
       const { data, error } = await requireSupabase()
@@ -356,6 +356,7 @@ export default function Compras() {
 
   return (
     <Seccion
+      alta={{ texto: 'Anotar una compra', id: 'alta-compra' }}
       titulo="Compras"
       regla="La factura de un proveedor es un gasto el día que llega, no el día que la pagas. Y el IGV que lleva dentro no es tu gasto: es crédito fiscal que vuelve contra el IGV que cobraste, así que se guarda aparte y no se resta del resultado."
     >
@@ -614,7 +615,7 @@ export default function Compras() {
         </Alta>
       )}
 
-      <Alta titulo="Anotar una compra" exito={exito} onSubmit={() => anotar.mutate()}>
+      <Alta id="alta-compra" titulo="Anotar una compra" exito={exito} onSubmit={() => anotar.mutate()}>
         <Selector
           etiqueta="De qué empresa es la compra"
           value={entidadId}

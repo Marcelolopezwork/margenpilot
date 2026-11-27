@@ -156,7 +156,7 @@ describe('Finanzas · Previstos', () => {
   it('anotar uno pasa por su puerta con la dirección dentro', async () => {
     const usuario = userEvent.setup();
     await montar();
-    await screen.findByText('Anotar un previsto');
+    await screen.findByRole('heading', { name: 'Anotar un previsto' });
 
     await usuario.selectOptions(screen.getByLabelText('De qué empresa'), 'e-1');
     await usuario.type(screen.getByLabelText('Qué es'), 'Cámara pactada');

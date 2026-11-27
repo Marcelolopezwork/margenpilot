@@ -365,6 +365,7 @@ Lo que resuelve, y por qué cada cosa es estructura y no aviso:
 
 Lo que falta, por orden:
 
+0. ~~La comprobación de cuadre del extracto~~ · hecha el 26/11 (F4-4).
 1. **Repartir una factura entre dos trabajos.** Hoy una compra pertenece a un
    trabajo o a ninguno. Si una imprenta factura dos campañas juntas, hay que
    pedir dos facturas o anotarla en la que pese más. Hace falta una tabla de
@@ -678,6 +679,60 @@ se deduce del archivo —las fechas de sus líneas y el nombre de la cuenta— y
 los seis desplegables de columnas viven dentro de un `<details>` que solo se
 abre si no se leyó ninguna línea. Lo que sí se sigue enseñando son las
 tres primeras líneas tal como quedaron: es la única pregunta que importa.
+
+### F4-4 · Que no falte ninguna línea
+
+Hecho el 26/11, y es la siguiente pieza del plan original (F4-4). Las reglas
+están en INV-8.12 y la que importa es que hay **tres** estados y no dos:
+cuadra, no cuadra, y no se pudo comprobar. Lo tercero es lo que evita el
+engaño: `diferencia` nula significa que el archivo no traía saldos, no que
+todo esté bien.
+
+Lo que ataja: un extracto cortado. Veinte líneas de las treinta que hubo, las
+veinte cuadrando una por una. Nada en la pantalla lo delataría —lo que falta
+no protesta— salvo la aritmética del propio banco. Al importar hay dos campos
+opcionales para el saldo inicial y el final; si están, la base comprueba que
+entre los dos quepa exactamente la suma de las líneas, y si no cabe guarda la
+diferencia y **bloquea el cierre del periodo**.
+
+Esta migración sí trae SQL. Toca `bank_statements` (tres columnas) y rehace
+`importar_extracto` y `cerrar_conciliacion`. La firma vieja de
+`importar_extracto` se tira antes de crear la nueva: añadir parámetros con
+valor por defecto crea una **sobrecarga**, y entonces quedarían dos funciones
+y PostgREST elegiría por los argumentos que le manden —la pantalla nueva
+comprobando y la vieja, ahí al lado, sin comprobar nada—.
+
+### Las claves de caché, otra vez, y ahora con red
+
+Encontrado el 26/11 desde el texto que mandó Marcelo: «Cannot read properties
+of undefined (reading 'currency_code')» en `/finanzas/compras`. Es la trampa
+que este documento ya tenía escrita para `['cotizacion', id]`, repetida en
+**ocho sitios más**.
+
+Inicio y Compras usaban la misma clave —`['compras', org, entidad]`— con
+formas distintas: Inicio devuelve filas planas y Compras devuelve
+`{ compra, pagado, pendiente }`. React Query guarda **una** entrada por clave,
+así que entrar a Compras después de Inicio leía las filas de Inicio y
+reventaba al pedirle `compra.currency_code` a algo que no lo tenía. Lo mismo
+pasaba, sin reventar y por eso peor, con `saldos`, `cartera`, `gastos-fijos`,
+`servicios`, `clientes`, `marcas`, `monedas` y —la más grave— con
+`['cotizacion', id, 'lineas']`: el editor selecciona `fee_pct` y la propuesta
+`service_id`, así que mirar una propuesta y volver al editor dejaba el margen
+calculándose con un honorario que no estaba en la fila.
+
+Arreglado de tres maneras, y la tercera es la que importa:
+
+1. **Una clave, un dueño.** Las que piden cosas distintas se distinguen con un
+   segundo elemento que dice para qué son: `['compras', 'inicio', …]` y
+   `['compras', 'cartera', …]`. Invalidar por `['compras']` sigue alcanzando a
+   las dos, que es lo que hacía útil compartir la clave.
+2. **Las que piden lo mismo se escriben una vez.** `useMonedasCatalogo` y
+   `useHechosDelPeriodo` viven en `src/app/consultas.ts`, y las usan las dos
+   pantallas que las necesitan.
+3. **`src/app/claves-de-cache.test.ts` recorre el código y falla si dos
+   `useQuery` declaran la misma clave.** También falla si alguna `useQuery`
+   deja de empezar por su clave, porque entonces la red dejaría de verla. Una
+   trampa escrita en un documento se vuelve a pisar; una comprobada, no.
 
 ### La pantalla en blanco
 

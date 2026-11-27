@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { useMutation, useQuery } from '@tanstack/react-query';
+import { useMonedasCatalogo } from '../../app/consultas';
 import { useOrgElegida } from '../../app/org-context';
 import { mensajeDeError } from '../../lib/errors';
 import { formatoFecha } from '../../lib/format';
@@ -31,18 +32,7 @@ export default function TiposDeCambio() {
   const [fecha, setFecha] = useState(HOY);
   const [fuente, setFuente] = useState('');
 
-  const monedas = useQuery({
-    queryKey: ['monedas'],
-    staleTime: Infinity,
-    queryFn: async () => {
-      const { data, error } = await requireSupabase()
-        .from('currencies')
-        .select('code, name')
-        .order('code');
-      if (error) throw error;
-      return data ?? [];
-    },
-  });
+  const monedas = useMonedasCatalogo();
 
   const consulta = useQuery({
     queryKey: ['tipos-de-cambio', organizacion.id],
@@ -83,6 +73,7 @@ export default function TiposDeCambio() {
 
   return (
     <Seccion
+      alta={{ texto: 'Registrar una tasa', id: 'alta-tasa' }}
       titulo="Tipos de cambio"
       regla="Sirven para una sola cosa: convertir el costo de algo que te facturan en otra moneda, como un hosting en dólares dentro de una cotización en soles. Nunca para sumar dos monedas en un total. Nada se reescribe: la tasa de mañana se añade, y por eso una cotización de hace tres meses sigue diciendo con qué tasa se hizo."
     >
@@ -116,7 +107,7 @@ export default function TiposDeCambio() {
         </Lista>
       )}
 
-      <Alta titulo="Registrar una tasa" exito={exito} onSubmit={() => crear.mutate()}>
+      <Alta id="alta-tasa" titulo="Registrar una tasa" exito={exito} onSubmit={() => crear.mutate()}>
         <div className="grid gap-3 sm:grid-cols-2">
           <Selector etiqueta="De" value={desde} onChange={(e) => setDesde(e.target.value)}>
             {(monedas.data ?? []).map((m) => (

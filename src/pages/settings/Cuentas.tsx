@@ -88,6 +88,7 @@ export default function Cuentas() {
 
   return (
     <Seccion
+      alta={{ texto: 'Nueva cuenta', id: 'alta-cuenta' }}
       titulo="Cuentas de caja"
       regla="Una cuenta, una moneda y una entidad. Si tu banco te da una cuenta multimoneda, aquí son dos cuentas: registrar un movimiento en una moneda distinta a la de su cuenta es imposible, y eso está en un disparador, no en un aviso. Del número de cuenta se guardan solo los últimos dígitos; el número completo no se almacena en ninguna tabla ni en ningún registro."
     >
@@ -151,7 +152,7 @@ export default function Cuentas() {
       {alternar.error && <Aviso tipo="error">{mensajeDeError(alternar.error)}</Aviso>}
 
       {puedeCrear && (
-        <Alta titulo="Nueva cuenta" exito={exito} onSubmit={() => crear.mutate()}>
+        <Alta id="alta-cuenta" titulo="Nueva cuenta" exito={exito} onSubmit={() => crear.mutate()}>
           <Campo
             etiqueta="Nombre de la cuenta"
             value={nombre}

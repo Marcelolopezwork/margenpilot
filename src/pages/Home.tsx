@@ -1,5 +1,7 @@
+import { useState } from 'react';
 import { Link } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
+import { useHechosDelPeriodo } from '../app/consultas';
 import { puedeEscribirDinero, useOrg, useOrgElegida } from '../app/org-context';
 import { mensajeDeError } from '../lib/errors';
 import { formatoFecha } from '../lib/format';
@@ -32,6 +34,10 @@ import {
   sumarSemanas,
 } from './finanzas/proyeccion';
 import type { CuotaEsperada, GastoRecurrente, PagoRegistrado } from './finanzas/proyeccion';
+import Barras from './analisis/Barras';
+import BarrasH from './analisis/BarrasH';
+import Semanas from './analisis/Semanas';
+import { ingresosPorCliente, rangoDe, seriePorMes } from './analisis/resultado';
 
 /**
  * Inicio es la pantalla de las ocho de la mañana: cuánto tengo, quién me debe
@@ -62,11 +68,21 @@ type Accion = {
   boton: string;
 };
 
+/** Las tres preguntas de temporada que el centro de mando sabe dibujar. */
+type Vista = 'mes' | 'semanas' | 'cliente';
+
+const VISTAS: readonly { id: Vista; nombre: string; pregunta: string }[] = [
+  { id: 'mes', nombre: 'Mes a mes', pregunta: 'Qué mes vendiste más y qué mes menos' },
+  { id: 'semanas', nombre: 'Trece semanas', pregunta: 'Con qué saldo cierras cada semana' },
+  { id: 'cliente', nombre: 'Por cliente', pregunta: 'De quién viene tu ingreso' },
+];
+
 export default function Home() {
   const { organizacion, entidad } = useOrgElegida();
   const { elegirEntidad } = useOrg();
   const conDinero = puedeEscribirDinero(organizacion.rol);
   const hoy = new Date().toISOString().slice(0, 10);
+  const [vista, setVista] = useState<Vista>('mes');
 
   const puesta = useQuery({
     queryKey: ['puesta-en-marcha', organizacion.id],
@@ -95,7 +111,7 @@ export default function Home() {
   });
 
   const caja = useQuery({
-    queryKey: ['saldos', organizacion.id, entidad?.id ?? null],
+    queryKey: ['saldos', 'inicio', organizacion.id, entidad?.id ?? null],
     enabled: conDinero,
     queryFn: async () => {
       const supabase = requireSupabase();
@@ -129,7 +145,7 @@ export default function Home() {
   // que te deben y otra que debes no se compensan, porque no vencen el mismo
   // día ni dependen de la misma persona (F3-6).
   const porPagar = useQuery({
-    queryKey: ['compras', organizacion.id, entidad?.id ?? null],
+    queryKey: ['compras', 'inicio', organizacion.id, entidad?.id ?? null],
     enabled: conDinero,
     queryFn: async () => {
       let q = requireSupabase()
@@ -174,7 +190,7 @@ export default function Home() {
   });
 
   const cartera = useQuery({
-    queryKey: ['cartera', organizacion.id, entidad?.id ?? null],
+    queryKey: ['cartera', 'inicio', organizacion.id, entidad?.id ?? null],
     enabled: conDinero,
     queryFn: async () => {
       const supabase = requireSupabase();
@@ -265,7 +281,7 @@ export default function Home() {
   });
 
   const gastos = useQuery({
-    queryKey: ['gastos-fijos', organizacion.id, entidad?.id ?? null],
+    queryKey: ['gastos-fijos', 'inicio', organizacion.id, entidad?.id ?? null],
     enabled: conDinero,
     queryFn: async () => {
       let q = requireSupabase()
@@ -284,7 +300,7 @@ export default function Home() {
   // Los pagos ya registrados de gastos fijos. Sirven para que el mes que ya
   // pagaste deje de aparecer como pendiente.
   const pagosDeGastos = useQuery({
-    queryKey: ['pagos-de-gastos', organizacion.id, entidad?.id ?? null],
+    queryKey: ['pagos-de-gastos', 'inicio', organizacion.id, entidad?.id ?? null],
     enabled: conDinero,
     queryFn: async () => {
       let q = requireSupabase()
@@ -317,6 +333,29 @@ export default function Home() {
   // ------------------------------------------------------------------ roles
   // El rol comercial no ve caja ni cartera porque la base no se lo enseña.
   // Darle la misma pantalla vacía parecería una aplicación estropeada.
+  /*
+    El centro de mando: una gráfica elegible arriba de todo.
+
+    No es decoración. Las cifras de esta pantalla contestan «cuánto tengo» y
+    «quién me debe», que son preguntas de hoy; las tres vistas de aquí
+    contestan las de la temporada —en qué mes vendí más, si llego a fin de
+    trimestre, de quién depende el ingreso— y esas no se leen en una lista de
+    números. Sus palabras: «visualmente no acompaña, me pierdo con la
+    información».
+
+    Los hechos salen de la consulta compartida de Análisis, con su misma clave
+    de caché: entrar a Análisis después de Inicio no vuelve a pedir nada, y
+    las dos pantallas no pueden discrepar porque leen lo mismo.
+  */
+  const doceMeses = rangoDe('doce-meses', hoy);
+  const hechos = useHechosDelPeriodo({
+    orgId: organizacion.id,
+    entidadId: entidad?.id ?? null,
+    desde: doceMeses.desde,
+    hasta: doceMeses.hasta,
+    habilitada: conDinero,
+  });
+
   if (!conDinero) {
     return (
       <div className="flex flex-col gap-6">
@@ -531,6 +570,16 @@ export default function Home() {
     : [];
   const faltan = pasos.filter((p) => p.cuantas === 0);
 
+  const series = seriePorMes(
+    hechos.data?.hechos ?? [],
+    doceMeses.desde,
+    doceMeses.hasta,
+  );
+  const porCliente = ingresosPorCliente(
+    hechos.data?.hechos ?? [],
+    hechos.data?.clientes ?? new Map(),
+  );
+
   const cargando =
     caja.isPending ||
     cartera.isPending ||
@@ -623,6 +672,125 @@ export default function Home() {
               )}
             </p>
           )}
+        </section>
+      )}
+
+      {/* ------------------------------------------------ centro de mando */}
+      {conDinero && (
+        <section className="flex flex-col gap-3">
+          <h2 className="text-xs uppercase tracking-widest text-subtle">Cómo va el negocio</h2>
+          <Tarjeta className="p-5">
+            {/*
+              Los tres botones son un grupo de radio de verdad y no tres
+              botones sueltos: así las flechas del teclado los recorren y un
+              lector de pantalla dice «uno de tres». El `fieldset` no lleva
+              borde porque la pregunta ya está escrita debajo.
+            */}
+            <fieldset className="flex flex-col gap-2">
+              <legend className="sr-only">Qué gráfica mirar</legend>
+              <div className="flex flex-wrap gap-1">
+                {VISTAS.map((v) => (
+                  <label
+                    key={v.id}
+                    className={`inline-flex min-h-11 cursor-pointer items-center rounded-control px-3 text-sm ${
+                      vista === v.id
+                        ? 'bg-surface-2 font-medium text-text'
+                        : 'text-muted hover:bg-surface-2 hover:text-text'
+                    }`}
+                  >
+                    <input
+                      type="radio"
+                      name="vista-de-inicio"
+                      value={v.id}
+                      checked={vista === v.id}
+                      onChange={() => setVista(v.id)}
+                      className="sr-only"
+                    />
+                    {v.nombre}
+                  </label>
+                ))}
+              </div>
+              <p className="text-xs text-subtle">
+                {VISTAS.find((v) => v.id === vista)?.pregunta}
+              </p>
+            </fieldset>
+
+            <div className="mt-5 border-t border-border pt-5">
+              {hechos.isPending && vista !== 'semanas' && <Cargando que="la serie" />}
+              {hechos.error && vista !== 'semanas' && (
+                <Aviso tipo="error">{mensajeDeError(hechos.error)}</Aviso>
+              )}
+
+              {vista === 'mes' &&
+                (series.length === 0 ? (
+                  <p className="text-sm text-muted">
+                    Todavía no hay hechos económicos de los últimos doce meses, así que no hay
+                    serie que dibujar. Emite el documento de una cuota o anota un gasto y esto se
+                    llena solo.
+                  </p>
+                ) : (
+                  series.map((serie) => (
+                    <div key={serie.moneda} className="mt-4 first:mt-0">
+                      <p className="mb-2 text-sm font-medium">{serie.moneda}</p>
+                      <Barras serie={serie} />
+                    </div>
+                  ))
+                ))}
+
+              {vista === 'semanas' &&
+                (monedasProyectadas.length === 0 ? (
+                  <p className="text-sm text-muted">
+                    No hay nada previsto que entre ni que salga en las próximas trece semanas.
+                  </p>
+                ) : (
+                  monedasProyectadas.map((moneda) => {
+                    const semanas = proyeccion(esperadas, salidas, moneda, hoy);
+                    const saldoHoy =
+                      porMonedaCaja.get(moneda)?.total ?? { minor: 0n, currency: moneda };
+                    return (
+                      <div key={moneda} className="mt-4 first:mt-0">
+                        <p className="mb-2 text-sm font-medium">{moneda}</p>
+                        <Semanas semanas={semanas} saldos={saldoProyectado(saldoHoy, semanas)} />
+                      </div>
+                    );
+                  })
+                ))}
+
+              {vista === 'cliente' &&
+                (porCliente.length === 0 ? (
+                  <p className="text-sm text-muted">
+                    Todavía no hay ingresos con cliente en los últimos doce meses.
+                  </p>
+                ) : (
+                  [...new Set(porCliente.map((f) => f.moneda))].map((moneda) => (
+                    <div key={moneda} className="mt-5 first:mt-0">
+                      <BarrasH
+                        rotulo="Ingreso por cliente, últimos doce meses"
+                        moneda={moneda}
+                        destacarSobre={50}
+                        filas={porCliente
+                          .filter((f) => f.moneda === moneda)
+                          .map((f) => ({
+                            clave: `${moneda}-${f.clave}`,
+                            nombre: f.nombre,
+                            total: f.total,
+                            nota: `${f.hechos} ${f.hechos === 1 ? 'documento o cobro' : 'documentos o cobros'}`,
+                          }))}
+                      />
+                    </div>
+                  ))
+                ))}
+            </div>
+
+            <p className="mt-4 text-xs text-subtle">
+              Lo de arriba es el resumen. El detalle —el margen de cada trabajo, en qué se fue el
+              gasto, a quién se le pagó— está en{' '}
+              <Link to="/analisis" className="underline">
+                Análisis
+              </Link>
+              .
+            </p>
+          </Tarjeta>
         </section>
       )}
 

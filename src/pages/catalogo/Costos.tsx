@@ -98,6 +98,7 @@ export default function Costos() {
 
   return (
     <Seccion
+      alta={{ texto: 'Nuevo ítem', id: 'alta-costo' }}
       titulo="Ítems de costo"
       regla="Lo que cuesta producir, con su unidad y su precio por unidad. Las personas pertenecen a una empresa, porque son dos contabilidades. Las herramientas suelen ser compartidas: tu hosting aloja las webs de las dos y te lo facturan en una sola moneda, así que se registra una vez en esa moneda y cada cotización lo convierte con el tipo de cambio registrado. Al añadir un costo a una ficha se copia su precio del momento, así que subirlo después no reescribe las fichas que ya existían."
     >
@@ -148,7 +149,7 @@ export default function Costos() {
 
       {alternar.error && <Aviso tipo="error">{mensajeDeError(alternar.error)}</Aviso>}
 
-      <Alta titulo="Nuevo ítem de costo" exito={exito} onSubmit={() => crear.mutate()}>
+      <Alta id="alta-costo" titulo="Nuevo ítem de costo" exito={exito} onSubmit={() => crear.mutate()}>
         <Selector
           etiqueta="Empresa a la que pertenece"
           value={entidadId}

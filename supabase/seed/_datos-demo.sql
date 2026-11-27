@@ -398,7 +398,11 @@ begin
       jsonb_build_object('fecha', (current_date - 3)::text, 'importe', -14.50,
                          'descripcion', 'COMISION MANTENIMIENTO CUENTA'),
       jsonb_build_object('fecha', (current_date - 2)::text, 'importe', -35.00,
-                         'descripcion', 'ITF / IMPUESTO A LAS TRANSACCIONES')));
+                         'descripcion', 'ITF / IMPUESTO A LAS TRANSACCIONES')),
+    -- Con los dos saldos del banco: 2.000 − 167,50 = 1.832,50. Cuadra al
+    -- céntimo, así que el extracto entra comprobado y el periodo se podrá
+    -- cerrar en cuanto no queden líneas sueltas (INV-8.12).
+    2000.00, 1832.50);
 
   -- La primera sí es un gasto anotado, y se empareja. Las otras dos se quedan
   -- en «sobra del banco», que es justo lo que esta pantalla existe para

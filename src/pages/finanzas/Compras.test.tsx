@@ -168,7 +168,7 @@ describe('Compras · lo que debes y el IGV que no es tu gasto', () => {
     IMPUESTOS.push({ legal_entity_id: 'e-1', name: 'IGV', rate: '18.0000', is_default: true });
     const usuario = userEvent.setup();
     await montar();
-    await screen.findByText('Anotar una compra');
+    await screen.findByRole('heading', { name: 'Anotar una compra' });
 
     await usuario.selectOptions(screen.getByLabelText('De qué empresa es la compra'), 'e-1');
     await usuario.selectOptions(screen.getByLabelText('Moneda de la compra'), 'PEN');
@@ -187,7 +187,7 @@ describe('Compras · lo que debes y el IGV que no es tu gasto', () => {
     PROVEEDORES.push({ id: 'p-1', name: 'Movistar', is_active: true });
     const usuario = userEvent.setup();
     await montar();
-    await screen.findByText('Anotar una compra');
+    await screen.findByRole('heading', { name: 'Anotar una compra' });
 
     const campo = screen.getByLabelText('A quién le compras');
     await usuario.type(campo, 'movistar');
@@ -202,7 +202,7 @@ describe('Compras · lo que debes y el IGV que no es tu gasto', () => {
     CUENTAS.push({ id: 'c-1', name: 'BCP soles', currency_code: 'PEN', legal_entity_id: 'e-1' });
     const usuario = userEvent.setup();
     await montar();
-    await screen.findByText('Anotar una compra');
+    await screen.findByRole('heading', { name: 'Anotar una compra' });
 
     await usuario.selectOptions(screen.getByLabelText('De qué empresa es la compra'), 'e-1');
     await usuario.type(screen.getByLabelText('A quién le compras'), 'Movistar');

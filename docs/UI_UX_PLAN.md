@@ -237,6 +237,18 @@ Y la mitad de las preguntas del importador desaparecieron: el nombre del extract
 
 ---
 
+### 4.6 Dos cosas que faltaban en todas las pantallas
+
+Escritas el 26/11/2026, las dos después de que Marcelo las pidiera con sus palabras.
+
+**El botón de alta, arriba.** «Para agregar compra no es nada intuitivo. Debería haber un botón de más.» El formulario de alta vive al final de la página, debajo de la lista, y nada arriba decía que existiera: si no bajas, no lo encuentras. `Seccion` acepta ahora un atajo —`alta={{ texto, id }}`— que dibuja un `+ Anotar una compra` en la cabecera, desplaza hasta el formulario y **deja el cursor dentro del primer campo**. Dieciséis pantallas lo llevan. No abre un diálogo a propósito: estos formularios enseñan cosas mientras los rellenas —el desglose del IGV, el saldo de la cuenta, lo que queda por asignar— y un diálogo que tapa la pantalla se lleva por delante justo eso.
+
+**El centro de mando, en Inicio.** «Me gustaría que en el inicio haya una gráfica, que sea como el centro de comando, que pueda elegir gráficas… visualmente no acompaña, me pierdo con la información.» Debajo de la caja de hoy hay una tarjeta con tres vistas, en un grupo de radio de verdad —flechas del teclado, «uno de tres» para un lector de pantalla—: **mes a mes** (en qué mes vendiste más), **trece semanas** (con qué saldo cierras cada una, con su línea de cero y el rojo al otro lado) y **por cliente** (de quién viene el ingreso, con el aviso de concentración si uno pesa más de la mitad). Los datos salen de la misma consulta que Análisis, con la misma clave de caché: las dos pantallas no pueden discrepar porque leen lo mismo.
+
+En Análisis → Resultado las tres listas de números —de dónde vino, en qué se fue, a quién se le pagó— son ahora barras horizontales, una serie por moneda y nunca dos monedas en la misma escala. Un solo color por gráfico: la identidad la lleva el nombre escrito al lado, no el tono, porque un color por cliente obliga a inventar un tono con cada cliente nuevo y a partir del quinto nadie distingue cuál es cuál.
+
+---
+
 ## 5. Estados: un vocabulario único
 
 | Estado | Texto | Icono | Color |

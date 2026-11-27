@@ -61,6 +61,10 @@ export default function Conciliacion() {
   const [categoriaGasto, setCategoriaGasto] = useState('');
   const [categoriaIngreso, setCategoriaIngreso] = useState('');
   const [verUnaPorUna, setVerUnaPorUna] = useState(false);
+  // Los dos saldos que trae el extracto, si los trae. Opcionales a propósito:
+  // un saldo inventado hace cuadrar cualquier cosa (INV-8.12).
+  const [saldoInicial, setSaldoInicial] = useState('');
+  const [saldoFinal, setSaldoFinal] = useState('');
   // Aparte del de importar: cada mensaje se queda donde está el botón que
   // lo provocó, y los dos botones están en sitios distintos de la pantalla.
   const [exitoTanda, setExitoTanda] = useState<string | null>(null);
@@ -92,7 +96,7 @@ export default function Conciliacion() {
 
       const { data: extractos, error } = await cliente
         .from('bank_statements')
-        .select('id, label, desde, hasta, lineas, imported_at')
+        .select('id, label, desde, hasta, lineas, imported_at, saldo_inicial, saldo_final, diferencia')
         .eq('organization_id', organizacion.id)
         .eq('cash_account_id', cuentaId)
         .order('hasta', { ascending: false });
@@ -196,6 +200,14 @@ export default function Conciliacion() {
         // pero el nombre se puede deducir del propio archivo, y una pregunta
         // que el programa sabe contestar no se le hace a nadie.
         p_label: etiqueta.trim() || nombreDelExtracto(lineas, cuenta?.name),
+        // Los dos o ninguno: con uno solo la base se niega, porque no hay
+        // nada que comparar.
+        ...(saldoInicial.trim() !== '' && saldoFinal.trim() !== ''
+          ? {
+              p_saldo_inicial: Number(saldoInicial.replace(/,/g, '')),
+              p_saldo_final: Number(saldoFinal.replace(/,/g, '')),
+            }
+          : {}),
         // `LineaImportable` es JSON por construcción —texto, texto y un
         // objeto de textos— pero TypeScript no lo sabe sin una firma de
         // índice, y añadírsela haría que cualquier campo colara.
@@ -209,6 +221,8 @@ export default function Conciliacion() {
       );
       setTexto('');
       setEtiqueta('');
+      setSaldoInicial('');
+      setSaldoFinal('');
       setMapeo(null);
       setPaso('elegir');
       recargar();
@@ -366,6 +380,20 @@ export default function Conciliacion() {
     [matches],
   );
 
+  /*
+    Los extractos que no cuadran consigo mismos.
+
+    `diferencia` nula significa «no se pudo comprobar» —el archivo no traía
+    saldos—, que no es lo mismo que cuadrar, y por eso no entra aquí. Y se
+    comprueba que sea un número de verdad antes de darla por descuadrada: una
+    fila sin esa columna —un extracto importado antes de que existiera— daría
+    `NaN`, y un aviso que dice «faltan NaN» es peor que no avisar.
+  */
+  const descuadrados = (datos.data?.extractos ?? []).filter((e) => {
+    if (e.diferencia === null || e.diferencia === undefined) return false;
+    const n = Number(e.diferencia);
+    return Number.isFinite(n) && n !== 0;
+  });
   const cuadradas = lineas.filter((l) => estados.get(l.id)?.cuadra);
   const apartadas = lineas.filter((l) => l.ignored_reason !== null);
   const pendientes = lineas.filter(
@@ -427,6 +455,7 @@ export default function Conciliacion() {
 
   return (
     <Seccion
+      alta={{ texto: 'Importar un extracto', id: 'alta-extracto' }}
       titulo="Conciliación"
       regla="El banco sabe lo que pasó; tú sabes lo que anotaste. Esto cruza las dos listas y te dice qué falta en cada una."
     >
@@ -473,6 +502,22 @@ export default function Conciliacion() {
       {cerrar.error && <Aviso tipo="error">{mensajeDeError(cerrar.error)}</Aviso>}
       {confirmarTodas.error && <Aviso tipo="error">{mensajeDeError(confirmarTodas.error)}</Aviso>}
       {traerTodas.error && <Aviso tipo="error">{mensajeDeError(traerTodas.error)}</Aviso>}
+
+      {/*
+        El extracto que no cuadra consigo mismo. Va antes que todo lo demás
+        porque mientras esté ahí nada de lo de abajo significa lo que parece:
+        no es que falte emparejar una línea, es que no se sabe cuántas líneas
+        hubo.
+      */}
+      {descuadrados.map((e) => (
+        <Aviso key={e.id} tipo="atencion">
+          El extracto «{e.label}» no cuadra con sus propios saldos: entre el que abre y el que
+          cierra hay {importe(Math.abs(Number(e.diferencia)).toFixed(2))} que sus líneas no
+          explican. Lo más probable es que la descarga se cortara, o que el rango de fechas no
+          fuera el que creías. Vuelve a descargarlo completo y reimpórtalo: mientras siga así, el
+          periodo no se puede cerrar.
+        </Aviso>
+      ))}
 
       {/* --------------------------------------------------- qué falta hacer */}
       {cuentaId !== '' && lineas.length > 0 && (
@@ -1061,6 +1106,7 @@ export default function Conciliacion() {
       {/* ------------------------------------------------------- importar */}
       {cuentaId !== '' && (
         <Alta
+          id="alta-extracto"
           titulo="Importar un extracto"
           exito={exito}
           onSubmit={() => (paso === 'elegir' ? leer() : importar.mutate())}
@@ -1245,13 +1291,43 @@ export default function Conciliacion() {
             Si algo no cuadra: cambiar las columnas o el nombre
           </summary>
           <div className="mt-4 flex flex-col gap-4">
+        {/*
+          Sin `required`, y no por descuido: este campo vive dentro de un
+          `<details>` cerrado, y un campo obligatorio que no se ve no valida
+          nada —el navegador se niega a enviar el formulario y no puede
+          enfocar el campo para explicar por qué—. El nombre lo pone la base
+          si aquí no se escribe ninguno.
+        */}
         <Campo
           etiqueta="Cómo se llama este extracto"
-          ayuda="Lo que vas a reconocer dentro de seis meses. Por ejemplo: «BCP soles · noviembre»."
+          ayuda={`Si lo dejas vacío se llamará «${nombreDelExtracto(leidas, cuenta?.name)}».`}
           value={etiqueta}
           onChange={(e) => setEtiqueta(e.target.value)}
-          required
         />
+
+        {/*
+          La comprobación que ataja el fallo más silencioso de todos: un
+          archivo cortado, cuyas líneas cuadran todas una por una. Lo único
+          que lo delata es la aritmética del propio banco. Opcional porque hay
+          extractos que no traen saldos, y un saldo inventado hace cuadrar
+          cualquier cosa (INV-8.12).
+        */}
+        <div className="grid gap-3 sm:grid-cols-2">
+          <Campo
+            etiqueta="Saldo con el que abre"
+            ayuda="Opcional, y los dos o ninguno. Si los pones, compruebo que no falte ninguna línea."
+            inputMode="decimal"
+            value={saldoInicial}
+            onChange={(e) => setSaldoInicial(e.target.value)}
+          />
+          <Campo
+            etiqueta="Saldo con el que cierra"
+            ayuda="El que dice tu banco al final del periodo."
+            inputMode="decimal"
+            value={saldoFinal}
+            onChange={(e) => setSaldoFinal(e.target.value)}
+          />
+        </div>
 
         <div className="grid gap-3 sm:grid-cols-2">
           <Selector

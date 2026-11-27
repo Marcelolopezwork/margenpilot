@@ -188,6 +188,7 @@ export default function Previstos() {
 
   return (
     <Seccion
+      alta={{ texto: 'Anotar un previsto', id: 'alta-previsto' }}
       titulo="Previstos"
       regla="Un cobro o un pago de una sola vez: un adelanto, un equipo pactado. Es un plan y no dinero, así que no toca el saldo; entra en la proyección de trece semanas y sale de ella el día que registras el movimiento. Lo que ya se registró deja de proyectarse, porque ya está en el saldo."
     >
@@ -374,7 +375,7 @@ export default function Previstos() {
       )}
 
       {/* ---------------------------------------------------------------- */}
-      <Alta titulo="Anotar un previsto" exito={exito} onSubmit={() => guardar.mutate()}>
+      <Alta id="alta-previsto" titulo="Anotar un previsto" exito={exito} onSubmit={() => guardar.mutate()}>
         <Selector
           etiqueta="De qué empresa"
           value={entidadId}

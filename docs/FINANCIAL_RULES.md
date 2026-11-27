@@ -126,6 +126,17 @@ Lo que sí hace falta escribir, porque es la frontera que la tanda podría borra
 2. **Lo parecido no entra en ninguna tanda.** Mismo importe y otra fecha puede ser el mismo pago contado con tres días de diferencia, o dos cosas distintas que valen lo mismo. Eso se mira una por una, y por eso la lista detallada sigue existiendo.
 3. **Un traspaso entre cuentas propias no se trae desde aquí.** En el extracto es un gasto, y traído así sería un gasto de la empresa que nunca ocurrió: el resultado del mes saldría peor y el dinero seguiría estando. Un traspaso se anota entero, con sus dos lados (INV-5). La pantalla lo advierte antes del botón, porque es el caso de quien reparte su dinero en varias cuentas del mismo banco.
 
+#### INV-8.12 — Un extracto tiene que cuadrar consigo mismo
+Añadida el 26/11/2026 (F4-4). El fallo más silencioso de toda la conciliación es **un archivo cortado**: descargas el extracto, la descarga se trunca o el rango de fechas no es el que creías, e importas veinte líneas de las treinta que hubo. Las veinte cuadran una por una, cada emparejamiento es correcto, y el cierre del periodo afirmaría algo falso. Lo que falta no protesta, porque lo que falta no está.
+
+Lo único que lo detecta es la aritmética del propio banco: `saldo_final − saldo_inicial = Σ abonos − Σ cargos`. De ahí, tres reglas:
+
+1. **Los saldos son opcionales; la comprobación, no.** Hay extractos que no los traen, y obligar a inventarlos sería peor que no comprobar: un saldo inventado hace cuadrar cualquier cosa. Sin ellos, `bank_statements.diferencia` queda **nula**, que significa «no se pudo comprobar» —y no cero, que significaría «comprobado y cuadra»—. Son tres estados, no dos. Y los dos saldos van juntos o no van: con uno solo no hay nada que comparar (`saldos_a_medias`).
+2. **Un extracto descuadrado se importa igual, pero marcado.** Rechazarlo dejaría al usuario sin sus líneas y sin saber por qué. Entra con su diferencia escrita y la pantalla la dice con la cifra dentro.
+3. **Y bloquea el cierre** (`extracto_descuadrado`). No es que falte emparejar una línea: es que no se sabe cuántas líneas hubo, así que ninguna afirmación sobre ese periodo se sostiene. Esto es lo que da sentido a INV-8.8.
+
+Lo que esto **no** detecta: un hueco entre dos extractos. Septiembre y noviembre importados, octubre no, cada uno cuadrando consigo mismo. Detectarlo exigiría que un extracto prometiera continuidad con el anterior, y no la promete. Queda dicho en vez de fingir que se comprueba.
+
 Lo que **todavía no** hay: recordar de un mes para otro qué columna era cuál en cada banco.
 
 ### INV-9 — El dinero vive en la moneda de su cuenta

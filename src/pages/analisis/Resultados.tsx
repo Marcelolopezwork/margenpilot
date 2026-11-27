@@ -1,13 +1,13 @@
 import { useState } from 'react';
-import { useQuery } from '@tanstack/react-query';
+import { useHechosDelPeriodo } from '../../app/consultas';
 import { useOrg, useOrgElegida, puedeEscribirDinero } from '../../app/org-context';
 import { mensajeDeError } from '../../lib/errors';
 import { formatoFecha } from '../../lib/format';
 import { currencyOf, format, fromRow } from '../../lib/money';
-import { requireSupabase } from '../../lib/supabase';
 import { Aviso, Cargando, Etiqueta, Selector, Tarjeta, Vacio } from '../../components/ui';
 import { FiltradoPor, Fila, Lista, Seccion } from '../../components/piezas';
 import Barras from './Barras';
+import BarrasH from './BarrasH';
 import { nombreTipoMovimiento } from '../finanzas/cartera';
 import {
   fueraDelResultado,
@@ -18,7 +18,7 @@ import {
   rangoDe,
   resultadoPorMoneda,
   seriePorMes,
-  type Hecho,
+  type Fila as FilaDeResultado,
   type Periodo,
 } from './resultado';
 
@@ -50,6 +50,54 @@ function Cifra({
   );
 }
 
+/**
+ * Un grupo de barras por moneda.
+ *
+ * Por moneda y no todo junto porque soles y dólares no comparten escala: una
+ * barra de 1.000 al lado de otra de 1.000 que valen cosas distintas es un
+ * gráfico que miente sin decir una sola cifra falsa (INV-10).
+ */
+function PorGrupo({
+  titulo,
+  explica,
+  filas,
+  nota,
+  destacarSobre,
+}: {
+  titulo: string;
+  explica?: string;
+  filas: readonly FilaDeResultado[];
+  nota: (hechos: number) => string;
+  destacarSobre?: number;
+}) {
+  if (filas.length === 0) return null;
+  const monedas = [...new Set(filas.map((f) => f.moneda))];
+
+  return (
+    <section className="flex flex-col gap-3">
+      <h2 className="font-medium">{titulo}</h2>
+      {explica && <p className="max-w-prose text-sm text-muted">{explica}</p>}
+      {monedas.map((moneda) => (
+        <Tarjeta key={moneda} className="p-5">
+          <BarrasH
+            rotulo={titulo}
+            moneda={moneda}
+            destacarSobre={destacarSobre}
+            filas={filas
+              .filter((f) => f.moneda === moneda)
+              .map((f) => ({
+                clave: `${moneda}-${f.clave}`,
+                nombre: f.nombre,
+                total: f.total,
+                nota: nota(f.hechos),
+              }))}
+          />
+        </Tarjeta>
+      ))}
+    </section>
+  );
+}
+
 export default function Resultados() {
   const { organizacion, entidad } = useOrgElegida();
   const { entidades, elegirEntidad } = useOrg();
@@ -59,50 +107,12 @@ export default function Resultados() {
   const [periodo, setPeriodo] = useState<Periodo>('doce-meses');
   const rango = rangoDe(periodo, hoy);
 
-  const datos = useQuery({
-    queryKey: ['resultado', organizacion.id, entidad?.id ?? null, rango.desde, rango.hasta],
-    enabled: conDinero,
-    queryFn: async () => {
-      const cliente = requireSupabase();
-
-      let q = cliente
-        .from('economic_facts')
-        .select(
-          'origen, fecha, direction, flow_class, kind, currency_code, amount_total, amount_net, amount_tax, category_id, client_id, supplier_id, concepto',
-        )
-        .eq('organization_id', organizacion.id)
-        .gte('fecha', rango.desde)
-        .lte('fecha', rango.hasta)
-        .order('fecha', { ascending: false });
-      if (entidad) q = q.eq('legal_entity_id', entidad.id);
-      const { data, error } = await q;
-      if (error) throw error;
-
-      const { data: clientes, error: e2 } = await cliente
-        .from('clients')
-        .select('id, name')
-        .eq('organization_id', organizacion.id);
-      if (e2) throw e2;
-
-      const { data: categorias, error: e3 } = await cliente
-        .from('financial_categories')
-        .select('id, name')
-        .eq('organization_id', organizacion.id);
-      if (e3) throw e3;
-
-      const { data: proveedores, error: e4 } = await cliente
-        .from('suppliers')
-        .select('id, name')
-        .eq('organization_id', organizacion.id);
-      if (e4) throw e4;
-
-      return {
-        hechos: (data ?? []) as unknown as Hecho[],
-        clientes: new Map((clientes ?? []).map((c) => [c.id, c.name])),
-        categorias: new Map((categorias ?? []).map((c) => [c.id, c.name])),
-        proveedores: new Map((proveedores ?? []).map((p) => [p.id, p.name])),
-      };
-    },
+  const datos = useHechosDelPeriodo({
+    orgId: organizacion.id,
+    entidadId: entidad?.id ?? null,
+    desde: rango.desde,
+    hasta: rango.hasta,
+    habilitada: conDinero,
   });
 
   // La vista cuelga de las tablas del dinero, así que al rol comercial la base
@@ -217,85 +227,35 @@ export default function Resultados() {
         </p>
       )}
 
-      {porCliente.length > 0 && (
-        <section className="flex flex-col gap-3">
-          <h2 className="font-medium">De dónde vino el ingreso</h2>
-          <Lista>
-            {porCliente.map((f) => (
-              <Fila
-                key={`${f.moneda}-${f.clave}`}
-                principal={
-                  <>
-                    <span className="font-medium">{f.nombre}</span>
-                    <Etiqueta>{f.moneda}</Etiqueta>
-                  </>
-                }
-                secundario={
-                  <>
-                    {f.hechos} {f.hechos === 1 ? 'documento o cobro' : 'documentos o cobros'}
-                  </>
-                }
-                extremo={<p className="font-medium tabular-nums">{format(f.total)}</p>}
-              />
-            ))}
-          </Lista>
-        </section>
-      )}
+      {/*
+        Las tres preguntas de «¿de dónde vino y en qué se fue?», en barras y
+        no en listas de números. La lista tenía todo el dato y aun así no se
+        podía leer: «visualmente no acompaña, me pierdo con la información».
+        Una barra contesta de un vistazo quién es el primero y cuánto le saca
+        al segundo, que es lo que se mira. La tabla sigue estando, dentro de
+        cada gráfico.
+      */}
+      <PorGrupo
+        titulo="De dónde vino el ingreso"
+        filas={porCliente}
+        nota={(n) => `${n} ${n === 1 ? 'documento o cobro' : 'documentos o cobros'}`}
+        // Medio total en un solo cliente es el riesgo que nadie mira hasta
+        // que ese cliente se va.
+        destacarSobre={50}
+      />
 
-      {porCategoria.length > 0 && (
-        <section className="flex flex-col gap-3">
-          <h2 className="font-medium">En qué se fue</h2>
-          <Lista>
-            {porCategoria.map((f) => (
-              <Fila
-                key={`${f.moneda}-${f.clave}`}
-                principal={
-                  <>
-                    <span className="font-medium">{f.nombre}</span>
-                    <Etiqueta>{f.moneda}</Etiqueta>
-                  </>
-                }
-                secundario={
-                  <>
-                    {f.hechos} {f.hechos === 1 ? 'salida' : 'salidas'}
-                  </>
-                }
-                extremo={<p className="font-medium tabular-nums">{format(f.total)}</p>}
-              />
-            ))}
-          </Lista>
-        </section>
-      )}
+      <PorGrupo
+        titulo="En qué se fue"
+        filas={porCategoria}
+        nota={(n) => `${n} ${n === 1 ? 'salida' : 'salidas'}`}
+      />
 
-      {porProveedor.length > 0 && (
-        <section className="flex flex-col gap-3">
-          <h2 className="font-medium">A quién se le pagó</h2>
-          <p className="max-w-prose text-sm text-muted">
-            La misma salida que arriba, mirada por el otro lado: la categoría dice en qué se fue y
-            esto dice a quién. Un gasto anotado como movimiento suelto no tiene proveedor, así que
-            queda junto en su propio grupo.
-          </p>
-          <Lista>
-            {porProveedor.map((f) => (
-              <Fila
-                key={`${f.moneda}-${f.clave}`}
-                principal={
-                  <>
-                    <span className="font-medium">{f.nombre}</span>
-                    <Etiqueta>{f.moneda}</Etiqueta>
-                  </>
-                }
-                secundario={
-                  <>
-                    {f.hechos} {f.hechos === 1 ? 'compra o salida' : 'compras o salidas'}
-                  </>
-                }
-                extremo={<p className="font-medium tabular-nums">{format(f.total)}</p>}
-              />
-            ))}
-          </Lista>
-        </section>
-      )}
+      <PorGrupo
+        titulo="A quién se le pagó"
+        explica="La misma salida que arriba, mirada por el otro lado: la categoría dice en qué se fue y esto dice a quién. Un gasto anotado como movimiento suelto no tiene proveedor, así que queda junto en su propio grupo."
+        filas={porProveedor}
+        nota={(n) => `${n} ${n === 1 ? 'compra o salida' : 'compras o salidas'}`}
+      />
 
       {aparte.length > 0 && (
         <section className="flex flex-col gap-3">

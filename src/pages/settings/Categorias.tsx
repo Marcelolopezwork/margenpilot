@@ -64,6 +64,7 @@ export default function Categorias() {
 
   return (
     <Seccion
+      alta={{ texto: 'Nueva categoría', id: 'alta-categoria' }}
       titulo="Categorías"
       regla="Las categorías son de la organización, no de la entidad: así los informes comparan los dos libros con el mismo criterio. Una categoría en uso no se borra, se desactiva, porque borrarla dejaría movimientos antiguos sin clasificar. «Movimientos del dueño» existe aparte a propósito: un aporte o un retiro mueve la caja pero no es ingreso ni gasto."
     >
@@ -108,7 +109,7 @@ export default function Categorias() {
 
       {alternar.error && <Aviso tipo="error">{mensajeDeError(alternar.error)}</Aviso>}
 
-      <Alta titulo="Nueva categoría" exito={exito} onSubmit={() => crear.mutate()}>
+      <Alta id="alta-categoria" titulo="Nueva categoría" exito={exito} onSubmit={() => crear.mutate()}>
         <Campo
           etiqueta="Nombre"
           value={nombre}

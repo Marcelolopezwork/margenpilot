@@ -2380,6 +2380,87 @@ begin
 end $$;
 
 -- ---------------------------------------------------------------------------
+-- F4-4 · Que no falte ninguna línea (INV-8.12)
+-- ---------------------------------------------------------------------------
+--
+-- Lo que se vigila es el caso silencioso: un archivo cortado a la mitad cuyas
+-- líneas cuadran todas una por una. Lo único que lo delata es la aritmética
+-- del propio banco, y por eso hay tres estados y no dos: cuadra, no cuadra, y
+-- **no se pudo comprobar**, que no es lo mismo que cuadrar.
+
+do $$
+declare
+  v_org    uuid;
+  v_uno    uuid;
+  v_cuenta uuid;
+  v_ext    uuid;
+  v_lineas jsonb;
+begin
+  select id into v_org from organizations where slug = 'org-a';
+  select id into v_uno from legal_entities
+   where organization_id = v_org and legal_name = 'Entidad Uno';
+
+  -- Una cuenta propia de este bloque: así sus extractos y su cierre no pisan
+  -- los de los bloques de arriba, que afirman cosas sobre BCP Soles.
+  insert into cash_accounts (organization_id, legal_entity_id, name, currency_code)
+  values (v_org, v_uno, 'Cuenta de la prueba de cuadre', 'PEN')
+  returning id into v_cuenta;
+
+  v_lineas := jsonb_build_array(
+    jsonb_build_object('fecha', (current_date - 20)::text, 'importe', 500.00,
+                       'descripcion', 'ABONO'),
+    jsonb_build_object('fecha', (current_date - 19)::text, 'importe', -120.00,
+                       'descripcion', 'CARGO'));
+
+  -- ------------------------------------------------- sin saldos: no comprobado
+  select id into v_ext from importar_extracto(v_cuenta, 'Sin saldos', v_lineas);
+  perform assert_true(
+    (select diferencia is null and saldo_inicial is null from bank_statements where id = v_ext),
+    'sin los saldos del banco la diferencia queda NULA: «no se pudo comprobar» no es «cuadra»');
+
+  perform assert_raises(
+    format('select importar_extracto(%L, ''A medias'', %L::jsonb, 100, null)',
+           v_cuenta, v_lineas::text),
+    'saldos_a_medias',
+    'y un saldo solo no es una comprobación: hacen falta los dos o ninguno');
+
+  -- ------------------------------------------------------- con saldos: cuadra
+  v_lineas := jsonb_build_array(
+    jsonb_build_object('fecha', (current_date - 18)::text, 'importe', 500.00,
+                       'descripcion', 'ABONO'),
+    jsonb_build_object('fecha', (current_date - 17)::text, 'importe', -120.00,
+                       'descripcion', 'CARGO'));
+  select id into v_ext from importar_extracto(
+    v_cuenta, 'Cuadra al céntimo', v_lineas, 1000.00, 1380.00);
+  perform assert_true(
+    (select diferencia = 0 from bank_statements where id = v_ext),
+    'con los dos saldos y las líneas completas, la diferencia es exactamente cero');
+
+  -- --------------------------------------------------- con saldos: no cuadra
+  v_lineas := jsonb_build_array(
+    jsonb_build_object('fecha', (current_date - 16)::text, 'importe', 500.00,
+                       'descripcion', 'ABONO'),
+    jsonb_build_object('fecha', (current_date - 15)::text, 'importe', -120.00,
+                       'descripcion', 'CARGO'));
+  select id into v_ext from importar_extracto(
+    v_cuenta, 'Le falta una línea', v_lineas, 1000.00, 1500.00);
+
+  perform assert_true(
+    (select diferencia = 120 from bank_statements where id = v_ext),
+    'y si el banco dice que se movió más de lo que suman sus líneas, la diferencia lo dice con su cifra');
+
+  perform assert_true(
+    (select count(*) from bank_statement_lines where statement_id = v_ext) = 2,
+    'el extracto descuadrado se importa igual: rechazarlo dejaría al usuario sin sus líneas y sin saber por qué');
+
+  -- Y lo que de verdad protege: ese extracto no deja cerrar el periodo.
+  perform assert_raises(
+    format('select cerrar_conciliacion(%L, %L)', v_cuenta, current_date - 15),
+    'extracto_descuadrado',
+    'un extracto que no cuadra consigo mismo bloquea el cierre: no es que falte emparejar, es que no se sabe cuántas líneas hubo');
+end $$;
+
+-- ---------------------------------------------------------------------------
 -- F5-5 · Cuánto tiempo se fue (INV-16)
 -- ---------------------------------------------------------------------------
 --

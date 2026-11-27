@@ -68,7 +68,7 @@ export default function GastosFijos() {
   });
 
   const pagos = useQuery({
-    queryKey: ['pagos-de-gastos', organizacion.id, entidad?.id ?? null],
+    queryKey: ['pagos-de-gastos', 'lista', organizacion.id, entidad?.id ?? null],
     enabled: conDinero,
     queryFn: async () => {
       const { data, error } = await requireSupabase()
@@ -267,6 +267,7 @@ export default function GastosFijos() {
 
   return (
     <Seccion
+      alta={{ texto: 'Añadir un gasto fijo', id: 'alta-gasto-fijo' }}
       titulo="Gastos fijos"
       regla="Un gasto fijo es una regla, no un movimiento: dice cuánto sale y cada cuánto, y aparece en la proyección de caja. No toca el saldo de ninguna cuenta hasta que lo pagas de verdad y lo registras en el libro."
     >
@@ -392,6 +393,7 @@ export default function GastosFijos() {
       )}
 
       <Alta
+        id="alta-gasto-fijo"
         titulo={editando ? 'Editar el gasto fijo' : 'Añadir un gasto fijo'}
         exito={exito}
         onSubmit={() => guardar.mutate()}

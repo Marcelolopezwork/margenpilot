@@ -37,7 +37,7 @@ export default function Cotizaciones() {
   const [filtroCliente, setFiltroCliente] = useState('');
 
   const clientes = useQuery({
-    queryKey: ['clientes', organizacion.id],
+    queryKey: ['clientes', 'filtro', organizacion.id],
     queryFn: async () => {
       const { data, error } = await requireSupabase()
         .from('clients')
@@ -178,6 +178,7 @@ export default function Cotizaciones() {
 
   return (
     <Seccion
+      alta={{ texto: 'Nueva cotización', id: 'alta-cotizacion' }}
       titulo="Cotizaciones"
       regla="La entidad que cotiza decide la moneda, el impuesto y el número: son dos libros separados y cada uno lleva su propia numeración. El número se lo asigna la base de datos, no el navegador, para que dos cotizaciones creadas a la vez no salgan con el mismo."
     >
@@ -317,7 +318,7 @@ export default function Cotizaciones() {
       )}
 
       {activos.length > 0 && entidadesActivas.length > 0 && (
-        <Alta titulo="Nueva cotización" onSubmit={() => crear.mutate()}>
+        <Alta id="alta-cotizacion" titulo="Nueva cotización" onSubmit={() => crear.mutate()}>
           <Selector
             etiqueta="Entidad que cotiza"
             value={entidadId}

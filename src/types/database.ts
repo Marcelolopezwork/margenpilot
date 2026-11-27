@@ -64,6 +64,7 @@ export type Database = {
           cash_account_id: string
           currency_code: string
           desde: string
+          diferencia: number | null
           hasta: string
           id: string
           imported_at: string
@@ -72,12 +73,15 @@ export type Database = {
           legal_entity_id: string
           lineas: number
           organization_id: string
+          saldo_final: number | null
+          saldo_inicial: number | null
           source_sha256: string
         }
         Insert: {
           cash_account_id: string
           currency_code: string
           desde: string
+          diferencia?: number | null
           hasta: string
           id?: string
           imported_at?: string
@@ -86,12 +90,15 @@ export type Database = {
           legal_entity_id: string
           lineas: number
           organization_id: string
+          saldo_final?: number | null
+          saldo_inicial?: number | null
           source_sha256: string
         }
         Update: {
           cash_account_id?: string
           currency_code?: string
           desde?: string
+          diferencia?: number | null
           hasta?: string
           id?: string
           imported_at?: string
@@ -100,6 +107,8 @@ export type Database = {
           legal_entity_id?: string
           lineas?: number
           organization_id?: string
+          saldo_final?: number | null
+          saldo_inicial?: number | null
           source_sha256?: string
         }
         Relationships: []
@@ -2640,6 +2649,8 @@ export type Database = {
           p_account: string
           p_label: string
           p_lines: Json
+          p_saldo_inicial?: number | null
+          p_saldo_final?: number | null
         }
         Returns: Database["public"]["Tables"]["bank_statements"]["Row"][]
       }

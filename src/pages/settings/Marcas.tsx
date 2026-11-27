@@ -67,6 +67,7 @@ export default function Marcas() {
 
   return (
     <Seccion
+      alta={{ texto: 'Nueva marca', id: 'alta-marca' }}
       titulo="Marcas"
       regla="La marca es el nombre comercial con el que sale la cotización, y pertenece a una entidad. Se pueden crear tantas como quieras: no cuentan para ningún límite de plan. Lo que una marca no tiene es caja ni documentos propios, porque el dinero y los impuestos son de la entidad, no del nombre comercial."
     >
@@ -134,7 +135,7 @@ export default function Marcas() {
       {alternar.error && <Aviso tipo="error">{mensajeDeError(alternar.error)}</Aviso>}
 
       {entidades.length > 0 && (
-        <Alta titulo="Nueva marca" exito={exito} onSubmit={() => crear.mutate()}>
+        <Alta id="alta-marca" titulo="Nueva marca" exito={exito} onSubmit={() => crear.mutate()}>
           <Campo
             etiqueta="Nombre comercial"
             value={nombre}

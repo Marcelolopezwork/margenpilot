@@ -122,7 +122,7 @@ export default function Caja() {
   const [refMov, setRefMov] = useState('');
 
   const cuentas = useQuery({
-    queryKey: ['saldos', organizacion.id, entidad?.id ?? null],
+    queryKey: ['saldos', 'caja', organizacion.id, entidad?.id ?? null],
     enabled: conDinero,
     queryFn: async () => {
       const cliente = requireSupabase();
@@ -156,7 +156,7 @@ export default function Caja() {
   });
 
   const cartera = useQuery({
-    queryKey: ['cartera', organizacion.id, entidad?.id ?? null],
+    queryKey: ['cartera', 'caja', organizacion.id, entidad?.id ?? null],
     enabled: conDinero,
     queryFn: async () => {
       const cliente = requireSupabase();
@@ -226,7 +226,7 @@ export default function Caja() {
   // Para poder decir «esto pagó el hosting de noviembre». Sin esto, la
   // proyección seguiría esperando un pago que ya hiciste.
   const gastosFijos = useQuery({
-    queryKey: ['gastos-fijos', organizacion.id, entidad?.id ?? null],
+    queryKey: ['gastos-fijos', 'caja', organizacion.id, entidad?.id ?? null],
     enabled: conDinero,
     queryFn: async () => {
       let q = requireSupabase()
@@ -245,7 +245,7 @@ export default function Caja() {
   // Los trabajos a los que se le puede colgar un gasto suelto. Terminados
   // incluidos: un costo que aparece tarde sigue siendo de su trabajo.
   const trabajos = useQuery({
-    queryKey: ['trabajos', organizacion.id, 'para-atribuir'],
+    queryKey: ['trabajos', 'para-caja', organizacion.id],
     enabled: conDinero,
     queryFn: async () => {
       const { data, error } = await requireSupabase()
@@ -400,6 +400,7 @@ export default function Caja() {
 
   return (
     <Seccion
+      alta={{ texto: 'Anotar un movimiento', id: 'alta-movimiento' }}
       titulo="Finanzas"
       regla="El saldo de una cuenta sale solo del libro de caja: cada entrada y cada salida, una por una. Lo que está por cobrar son documentos emitidos, no cuotas pactadas: una cuota prevista entra en la proyección y no en la cartera."
     >
@@ -516,7 +517,7 @@ export default function Caja() {
       </section>
 
       {/* ---------------------------------------------------------------- */}
-      <Alta titulo="Anotar un movimiento" exito={exito} onSubmit={() => crear.mutate()}>
+      <Alta id="alta-movimiento" titulo="Anotar un movimiento" exito={exito} onSubmit={() => crear.mutate()}>
         <p className="max-w-prose text-sm text-muted">
           Para lo que no viene de una cotización: el hosting, una comisión del banco, el saldo con
           el que arrancas, un aporte o un retiro. Los cobros de clientes no se anotan aquí: se
